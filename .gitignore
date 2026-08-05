@@ -5,3 +5,4 @@ client/dist
 client/.env
 .claude
 assets.csv
+seed-data.js
