@@ -167,7 +167,7 @@ async function postSummaryToTeams(subject, summary, category) {
     },
   };
 
-  await graphRequest('POST', `/teams/${teamGroupId}/channels/${teamsChannelId}/messages`, body, 'app');
+  await graphRequest('POST', `/teams/${teamGroupId}/channels/${teamsChannelId}/messages`, body, 'delegated');
 }
 
 async function markEmailAsRead(messageId) {

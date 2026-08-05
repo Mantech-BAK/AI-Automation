@@ -12,7 +12,7 @@ const serviceAccountPassword = process.env.SERVICE_ACCOUNT_PASSWORD;
 
 const authority = `https://login.microsoftonline.com/${tenantId}`;
 const graphScopes = ['https://graph.microsoft.com/.default'];
-const delegatedScopes = ['ChannelMessage.Send', 'Group.ReadWrite.All', 'Tasks.ReadWrite', 'Calendars.ReadWrite', 'Mail.Send'];
+const delegatedScopes = ['ChannelMessage.Send', 'Group.ReadWrite.All', 'Tasks.ReadWrite', 'Calendars.ReadWrite', 'Mail.Send', 'https://graph.microsoft.com/OnlineMeetings.ReadWrite'];
 
 const msalConfig = {
   auth: {

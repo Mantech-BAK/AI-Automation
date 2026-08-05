@@ -2,7 +2,7 @@ const path = require('path');
 const dotenv = require('dotenv');
 const cron = require('node-cron');
 const { pool } = require('../db');
-const { getAppOnlyToken, graphRequest } = require('../graph/client');
+const { getDelegatedToken, graphRequest } = require('../graph/client');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -213,7 +213,7 @@ async function postTeamsMessage(message) {
     },
   };
 
-  const token = await getAppOnlyToken();
+  const token = await getDelegatedToken();
   const response = await fetch(`https://graph.microsoft.com/v1.0/teams/${TEAM_GROUP_ID}/channels/${TEAMS_CHANNEL_ID}/messages`, {
     method: 'POST',
     headers: {
