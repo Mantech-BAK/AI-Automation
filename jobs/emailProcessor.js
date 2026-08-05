@@ -103,7 +103,7 @@ async function callGemini(prompt, emailBody) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }, { apiVersion: 'v1' });
 
   try {
     const result = await model.generateContent(`${prompt}\n\nEmail content:\n${emailBody}`);
@@ -272,7 +272,9 @@ async function processEmails() {
     throw new Error('SERVICE_ACCOUNT_EMAIL is not configured');
   }
 
-  const endpoint = `/users/${encodeURIComponent(serviceAccountEmail)}/messages?$filter=isRead%20eq%20false&$select=id,subject,body,receivedDateTime&$top=40`;
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const filter = `isRead eq false and receivedDateTime ge ${yesterday}`;
+  const endpoint = `/users/${encodeURIComponent(serviceAccountEmail)}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,body,receivedDateTime&$top=10`;
   const data = await graphRequest('GET', endpoint, null, 'app');
   const messages = Array.isArray(data?.value) ? data.value : [];
   const results = [];

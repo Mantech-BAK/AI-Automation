@@ -76,7 +76,7 @@ async function callGemini(prompt, content) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }, { apiVersion: 'v1' });
   const result = await model.generateContent(`${prompt}\n\nMeeting notes:\n${content}`);
   const response = await result.response;
   return response.text();
