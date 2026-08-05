@@ -10,10 +10,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL;
-const geminiApiKey = process.env.GEMINI_API_KEY;
 const teamGroupId = process.env.TEAM_GROUP_ID;
 const teamsChannelId = process.env.TEAMS_CHANNEL_ID;
-const genAI = geminiApiKey ? new GoogleGenerativeAI(geminiApiKey) : null;
 
 function decodeHtmlEntities(value) {
   return String(value || '')
@@ -99,16 +97,13 @@ function parseJsonResponse(rawText) {
 }
 
 async function callGemini(prompt, emailBody) {
-  if (!genAI) {
-    throw new Error('GEMINI_API_KEY is not configured');
-  }
-
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }, { apiVersion: 'v1' });
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
   try {
     const result = await model.generateContent(`${prompt}\n\nEmail content:\n${emailBody}`);
-    const response = await result.response;
-    return response.text();
+    return result.response.text();
   } catch (error) {
     if (error?.status === 429) {
       console.warn('Rate limit hit, waiting 30 seconds then retry');
@@ -116,8 +111,7 @@ async function callGemini(prompt, emailBody) {
 
       try {
         const retryResult = await model.generateContent(`${prompt}\n\nEmail content:\n${emailBody}`);
-        const retryResponse = await retryResult.response;
-        return retryResponse.text();
+        return retryResult.response.text();
       } catch (retryError) {
         console.error('Email skipped due to rate limit');
         throw retryError;

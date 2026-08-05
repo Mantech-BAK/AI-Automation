@@ -8,8 +8,7 @@ const { pool } = require('../db');
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const router = express.Router();
-const { SERVICE_ACCOUNT_EMAIL, GEMINI_API_KEY, PLANNER_PLAN_ID } = process.env;
-const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
+const { SERVICE_ACCOUNT_EMAIL, PLANNER_PLAN_ID } = process.env;
 
 const PLACEHOLDER_TEAM_MEMBERS = {
   facilities: [
@@ -72,14 +71,11 @@ function parseJsonResponse(rawText) {
 }
 
 async function callGemini(prompt, content) {
-  if (!genAI) {
-    throw new Error('GEMINI_API_KEY is not configured');
-  }
-
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }, { apiVersion: 'v1' });
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   const result = await model.generateContent(`${prompt}\n\nMeeting notes:\n${content}`);
-  const response = await result.response;
-  return response.text();
+  return result.response.text();
 }
 
 async function extractMeetingActionItems(notes) {
