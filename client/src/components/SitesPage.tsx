@@ -1,0 +1,119 @@
+import { useEffect, useState } from 'react';
+import {
+  MapPin,
+  Loader2,
+  Cog,
+  ClipboardList,
+} from 'lucide-react';
+
+interface Site {
+  site_location: string;
+  equipment_count: number;
+  open_work_orders: number;
+}
+
+export default function SitesPage() {
+  const [sites, setSites] = useState<Site[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchSites();
+  }, []);
+
+  async function fetchSites() {
+    try {
+      const response = await fetch('/api/dashboard/sites');
+      if (!response.ok) {
+        throw new Error(`Failed to load sites: ${response.statusText}`);
+      }
+      const json: Site[] = await response.json();
+      setSites(json);
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      console.error('Error fetching sites:', fetchError);
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
+          <p className="font-semibold">Failed to load sites</p>
+          <p className="text-sm mt-2">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">Sites</h1>
+        <p className="text-slate-500 mt-1">Facilities derived from your equipment locations</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl p-4 border border-slate-200">
+          <p className="text-sm text-slate-500">Total Sites</p>
+          <p className="text-2xl font-bold text-slate-800">{sites.length}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-slate-200">
+          <p className="text-sm text-slate-500">Total Open Work Orders</p>
+          <p className="text-2xl font-bold text-amber-600">{sites.reduce((sum, s) => sum + Number(s.open_work_orders || 0), 0)}</p>
+        </div>
+      </div>
+
+      {/* Sites Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {sites.length === 0 ? (
+          <div className="col-span-full bg-white rounded-xl p-12 text-center border border-slate-200">
+            <MapPin size={40} className="mx-auto text-slate-300 mb-2" />
+            <p className="text-slate-500">No sites found. Add equipment with a site location to see sites here.</p>
+          </div>
+        ) : (
+          sites.map((site) => (
+            <div key={site.site_location} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center">
+                  <MapPin size={20} className="text-teal-600" />
+                </div>
+                <h3 className="font-semibold text-slate-800">{site.site_location}</h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Cog size={16} className="text-indigo-500" />
+                  <div>
+                    <p className="font-semibold text-slate-800">{site.equipment_count}</p>
+                    <p className="text-xs text-slate-400">Equipment</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <ClipboardList size={16} className="text-amber-500" />
+                  <div>
+                    <p className="font-semibold text-slate-800">{site.open_work_orders}</p>
+                    <p className="text-xs text-slate-400">Open Tasks</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,9 @@
+equipment_name,site_location,maintenance_interval_days,estimated_duration_hours,last_completed_date,skill_type_required
+Generator B,Site A,90,4,2025-04-01,mechanical
+AC Unit Filter,Site B,30,1,2025-06-15,general
+Fire Suppression System,Site C,180,2,2025-01-01,electrical
+Water Pump,Site D,60,3,2025-05-01,general
+Elevator Cable,Site A,365,5,2024-07-01,mechanical
+HVAC Unit,Site B,90,3,2025-03-01,mechanical
+Emergency Lighting,Site C,365,2,2024-12-01,electrical
+Backup Generator,Site D,180,4,2025-02-01,mechanical
