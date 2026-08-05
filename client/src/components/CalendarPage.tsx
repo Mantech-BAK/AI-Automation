@@ -1,28 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Loader2,
   Wrench,
   Calendar as CalendarIcon,
+  MapPin,
+  User,
 } from 'lucide-react';
 
-interface MaintenanceTask {
+interface ScheduleItem {
   id: string;
-  title: string;
-  status?: string;
+  equipment_name?: string | null;
+  site_location?: string | null;
   due_date?: string | null;
+  status?: string;
+  technician_name?: string | null;
 }
 
-interface Schedule {
-  id: string;
-  title: string;
-  next_due_date?: string | null;
+function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function dueDateKey(dueDate?: string | null): string | null {
+  if (!dueDate) return null;
+  return dueDate.slice(0, 10);
 }
 
 export default function CalendarPage() {
-  const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -34,23 +43,14 @@ export default function CalendarPage() {
 
   async function fetchData() {
     try {
-      const [tasksRes, schedulesRes] = await Promise.all([
-        fetch('/api/dashboard/tasks'),
-        fetch('/api/dashboard/schedules'),
-      ]);
+      const response = await fetch('/api/dashboard/schedules');
 
-      if (!tasksRes.ok) {
-        throw new Error(`Failed to load maintenance tasks: ${tasksRes.statusText}`);
-      }
-      if (!schedulesRes.ok) {
-        throw new Error(`Failed to load schedules: ${schedulesRes.statusText}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load schedules: ${response.statusText}`);
       }
 
-      const tasksJson = await tasksRes.json();
-      const schedulesJson = await schedulesRes.json();
-
-      setTasks(tasksJson.tasks ?? tasksJson ?? []);
-      setSchedules(schedulesJson.schedules ?? schedulesJson ?? []);
+      const json: ScheduleItem[] = await response.json();
+      setSchedules(json);
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       console.error('Error fetching data:', fetchError);
@@ -59,6 +59,52 @@ export default function CalendarPage() {
       setLoading(false);
     }
   }
+
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, ScheduleItem[]>();
+    for (const item of schedules) {
+      const key = dueDateKey(item.due_date);
+      if (!key) continue;
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)!.push(item);
+    }
+    return map;
+  }, [schedules]);
+
+  const todayKey = toDateKey(new Date());
+  const sevenDaysFromNowKey = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return toDateKey(d);
+  }, []);
+
+  const getEventColor = (item: ScheduleItem): 'red' | 'orange' | 'blue' => {
+    const key = dueDateKey(item.due_date);
+    if (!key) return 'blue';
+    if (key < todayKey) return 'red';
+    if (key <= sevenDaysFromNowKey) return 'orange';
+    return 'blue';
+  };
+
+  const eventDotClass = (color: 'red' | 'orange' | 'blue') => {
+    switch (color) {
+      case 'red': return 'bg-red-500';
+      case 'orange': return 'bg-amber-500';
+      default: return 'bg-blue-500';
+    }
+  };
+
+  const getStatusColor = (status?: string) => {
+    switch (status) {
+      case 'completed': return 'bg-emerald-100 text-emerald-700';
+      case 'open': return 'bg-blue-100 text-blue-700';
+      case 'pending': return 'bg-amber-100 text-amber-700';
+      case 'approved': return 'bg-cyan-100 text-cyan-700';
+      default: return 'bg-slate-100 text-slate-600';
+    }
+  };
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -81,31 +127,7 @@ export default function CalendarPage() {
     return days;
   };
 
-  const getEventsForDate = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
-
-    const taskEvents = tasks.filter((task) => {
-      if (!task.due_date) return false;
-      return task.due_date === dateStr;
-    });
-
-    const scheduleEvents = schedules.filter((schedule) => {
-      if (!schedule.next_due_date) return false;
-      return schedule.next_due_date === dateStr;
-    });
-
-    return [...taskEvents.map(t => ({ type: 'task' as const, data: t })), ...scheduleEvents.map(s => ({ type: 'schedule' as const, data: s }))];
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-emerald-500';
-      case 'in_progress': return 'bg-blue-500';
-      case 'overdue': return 'bg-red-500';
-      case 'pending': return 'bg-amber-500';
-      default: return 'bg-slate-500';
-    }
-  };
+  const getEventsForDate = (date: Date) => eventsByDate.get(toDateKey(date)) ?? [];
 
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -120,14 +142,11 @@ export default function CalendarPage() {
     setSelectedDate(new Date());
   };
 
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
+  const isToday = (date: Date) => toDateKey(date) === todayKey;
 
   const isSelected = (date: Date) => {
     if (!selectedDate) return false;
-    return date.toDateString() === selectedDate.toDateString();
+    return toDateKey(date) === toDateKey(selectedDate);
   };
 
   if (loading) {
@@ -230,16 +249,12 @@ export default function CalendarPage() {
                     {date.getDate()}
                   </div>
                   <div className="space-y-1">
-                    {events.slice(0, 2).map((event, i) => (
+                    {events.slice(0, 2).map((event) => (
                       <div
-                        key={i}
-                        className={`
-                          px-1.5 py-0.5 text-xs rounded truncate
-                          ${event.type === 'task' ? getStatusColor((event.data as MaintenanceTask).status) : 'bg-purple-500'}
-                          text-white
-                        `}
+                        key={event.id}
+                        className={`px-1.5 py-0.5 text-xs rounded truncate text-white ${eventDotClass(getEventColor(event))}`}
                       >
-                        {event.type === 'task' ? (event.data as MaintenanceTask).title : (event.data as Schedule).title}
+                        {event.equipment_name || 'Untitled'}
                       </div>
                     ))}
                     {events.length > 2 && (
@@ -262,29 +277,49 @@ export default function CalendarPage() {
             </h3>
           </div>
           <div className="p-6">
-            {selectedDate && selectedEvents.length === 0 ? (
+            {!selectedDate ? (
               <div className="text-center py-8">
                 <CalendarIcon size={40} className="mx-auto text-slate-300 mb-2" />
-                <p className="text-slate-500">No events scheduled</p>
+                <p className="text-slate-500">Click a date to see what's due</p>
+              </div>
+            ) : selectedEvents.length === 0 ? (
+              <div className="text-center py-8">
+                <CalendarIcon size={40} className="mx-auto text-slate-300 mb-2" />
+                <p className="text-slate-500">No maintenance due on this date</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {selectedEvents.map((event, idx) => (
-                  <div key={idx} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                {selectedEvents.map((event) => (
+                  <div key={event.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
                     <div className="flex items-start gap-3">
-                      <div className={`
-                        w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
-                        ${event.type === 'task' ? getStatusColor((event.data as MaintenanceTask).status) : 'bg-purple-500'}
-                      `}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${eventDotClass(getEventColor(event))}`}>
                         <Wrench size={16} className="text-white" />
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-800 text-sm">
-                          {event.type === 'task' ? (event.data as MaintenanceTask).title : (event.data as Schedule).title}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1 capitalize">
-                          {event.type === 'task' ? (event.data as MaintenanceTask).status.replace('_', ' ') : `${(event.data as Schedule).frequency} schedule`}
-                        </p>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-slate-800 text-sm">{event.equipment_name || 'Untitled'}</p>
+                        <div className="mt-1.5 space-y-1 text-xs text-slate-500">
+                          {event.site_location && (
+                            <p className="flex items-center gap-1.5">
+                              <MapPin size={12} />
+                              {event.site_location}
+                            </p>
+                          )}
+                          {event.technician_name && (
+                            <p className="flex items-center gap-1.5">
+                              <User size={12} />
+                              {event.technician_name}
+                            </p>
+                          )}
+                          {event.due_date && (
+                            <p className="flex items-center gap-1.5">
+                              <CalendarIcon size={12} />
+                              {new Date(event.due_date).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                        <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(event.status)}`}>
+                          {event.status || 'unknown'}
+                        </span>
                       </div>
                     </div>
                   </div>

@@ -7,6 +7,9 @@ import {
   CheckCircle2,
   ExternalLink,
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  X,
 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -19,10 +22,15 @@ interface Schedule {
   technician_name?: string | null;
 }
 
-interface Technician {
+interface TeamMember {
+  name: string;
+  email: string;
+}
+
+interface Team {
   id: string;
   name: string;
-  email?: string | null;
+  members: TeamMember[];
 }
 
 interface GraphDateTime {
@@ -45,6 +53,7 @@ interface NotesActionItem {
 }
 
 const FIXED_ATTENDEE = 'mcs.sw01@bakgroup.net';
+const FIXED_ATTENDEE_NAME = 'Yasir Ismail';
 const DURATION_OPTIONS = [
   { label: '30 minutes', minutes: 30 },
   { label: '1 hour', minutes: 60 },
@@ -60,7 +69,6 @@ function formatGraphDateTime(dt?: GraphDateTime | null) {
 
 export default function SchedulesPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +76,13 @@ export default function SchedulesPage() {
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [meetingTitle, setMeetingTitle] = useState('Monthly Maintenance Review');
   const [durationMinutes, setDurationMinutes] = useState(60);
-  const [selectedAttendees, setSelectedAttendees] = useState<Set<string>>(new Set([FIXED_ATTENDEE]));
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamsError, setTeamsError] = useState<string | null>(null);
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [selectedAttendees, setSelectedAttendees] = useState<Map<string, string>>(
+    new Map([[FIXED_ATTENDEE, FIXED_ATTENDEE_NAME]])
+  );
   const [slots, setSlots] = useState<MeetingSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<MeetingSlot | null>(null);
   const [findingSlots, setFindingSlots] = useState(false);
@@ -89,20 +103,13 @@ export default function SchedulesPage() {
 
   async function fetchData() {
     try {
-      const [schedRes, techRes] = await Promise.all([
-        fetch('/api/dashboard/schedules'),
-        fetch('/api/dashboard/technicians'),
-      ]);
+      const schedRes = await fetch('/api/dashboard/schedules');
 
       if (!schedRes.ok) {
         throw new Error(`Failed to load schedules: ${schedRes.statusText}`);
       }
-      if (!techRes.ok) {
-        throw new Error(`Failed to load technicians: ${techRes.statusText}`);
-      }
 
       const schedJson: Schedule[] = await schedRes.json();
-      const techJson: Technician[] = await techRes.json();
 
       const sorted = [...schedJson].sort((a, b) => {
         if (!a.due_date && !b.due_date) return 0;
@@ -112,7 +119,6 @@ export default function SchedulesPage() {
       });
 
       setSchedules(sorted);
-      setTechnicians(techJson);
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       console.error('Error fetching data:', fetchError);
@@ -122,25 +128,95 @@ export default function SchedulesPage() {
     }
   }
 
+  async function fetchTeams() {
+    setTeamsLoading(true);
+    setTeamsError(null);
+    try {
+      const response = await fetch('/api/meetings/teams', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(`Failed to load teams: ${response.statusText}`);
+      }
+      const json = await response.json();
+      setTeams(json.teams || []);
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      setTeamsError(message);
+    } finally {
+      setTeamsLoading(false);
+    }
+  }
+
   function openReviewModal() {
     setMeetingTitle('Monthly Maintenance Review');
     setDurationMinutes(60);
-    setSelectedAttendees(new Set([FIXED_ATTENDEE]));
+    setExpandedTeams(new Set());
+    setSelectedAttendees(new Map([[FIXED_ATTENDEE, FIXED_ATTENDEE_NAME]]));
     setSlots([]);
     setSelectedSlot(null);
     setMeetingError(null);
     setScheduledJoinUrl(null);
     setReviewModalOpen(true);
+    fetchTeams();
   }
 
-  function toggleAttendee(email: string) {
-    setSelectedAttendees((prev) => {
+  function toggleExpanded(teamId: string) {
+    setExpandedTeams((prev) => {
       const next = new Set(prev);
-      if (next.has(email)) {
-        next.delete(email);
+      if (next.has(teamId)) {
+        next.delete(teamId);
       } else {
-        next.add(email);
+        next.add(teamId);
       }
+      return next;
+    });
+  }
+
+  function isTeamFullySelected(team: Team) {
+    return team.members.length > 0 && team.members.every((m) => selectedAttendees.has(m.email));
+  }
+
+  function isTeamPartiallySelected(team: Team) {
+    const selectedCount = team.members.filter((m) => selectedAttendees.has(m.email)).length;
+    return selectedCount > 0 && selectedCount < team.members.length;
+  }
+
+  function toggleTeam(team: Team) {
+    const fullySelected = isTeamFullySelected(team);
+    setSelectedAttendees((prev) => {
+      const next = new Map(prev);
+      if (fullySelected) {
+        team.members.forEach((member) => {
+          if (member.email !== FIXED_ATTENDEE) {
+            next.delete(member.email);
+          }
+        });
+      } else {
+        team.members.forEach((member) => {
+          next.set(member.email, member.name);
+        });
+      }
+      return next;
+    });
+  }
+
+  function toggleMember(member: TeamMember) {
+    if (member.email === FIXED_ATTENDEE) return;
+    setSelectedAttendees((prev) => {
+      const next = new Map(prev);
+      if (next.has(member.email)) {
+        next.delete(member.email);
+      } else {
+        next.set(member.email, member.name);
+      }
+      return next;
+    });
+  }
+
+  function removeAttendee(email: string) {
+    if (email === FIXED_ATTENDEE) return;
+    setSelectedAttendees((prev) => {
+      const next = new Map(prev);
+      next.delete(email);
       return next;
     });
   }
@@ -155,7 +231,7 @@ export default function SchedulesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          attendees: Array.from(selectedAttendees),
+          attendees: Array.from(selectedAttendees.keys()),
           durationMinutes,
         }),
       });
@@ -185,7 +261,7 @@ export default function SchedulesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slot: { start: selectedSlot.start, end: selectedSlot.end },
-          attendees: Array.from(selectedAttendees),
+          attendees: Array.from(selectedAttendees.keys()),
           title: meetingTitle,
         }),
       });
@@ -409,28 +485,108 @@ export default function SchedulesPage() {
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
                 <Users size={16} />
-                Attendees
+                Teams
               </label>
-              <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedAttendees.has(FIXED_ATTENDEE)}
-                    onChange={() => toggleAttendee(FIXED_ATTENDEE)}
-                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                  />
-                  <span className="text-sm text-slate-700">{FIXED_ATTENDEE}</span>
-                </label>
-                {technicians.filter(t => t.email).map((tech) => (
-                  <label key={tech.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={selectedAttendees.has(tech.email!)}
-                      onChange={() => toggleAttendee(tech.email!)}
-                      className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                    />
-                    <span className="text-sm text-slate-700">{tech.name} <span className="text-slate-400">({tech.email})</span></span>
-                  </label>
+
+              {teamsError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">
+                  {teamsError}
+                </p>
+              )}
+
+              {teamsLoading ? (
+                <div className="flex items-center justify-center py-6 border border-slate-200 rounded-lg">
+                  <Loader2 size={20} className="animate-spin text-slate-400" />
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-52 overflow-y-auto">
+                  {teams.map((team) => {
+                    const expanded = expandedTeams.has(team.id);
+                    const fullySelected = isTeamFullySelected(team);
+                    const partiallySelected = isTeamPartiallySelected(team);
+                    const selectedCount = team.members.filter((m) => selectedAttendees.has(m.email)).length;
+
+                    return (
+                      <div key={team.id} className="border border-slate-200 rounded-lg overflow-hidden">
+                        <div className="flex items-center gap-3 px-3 py-2.5 bg-white">
+                          <input
+                            type="checkbox"
+                            checked={fullySelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = partiallySelected;
+                            }}
+                            onChange={() => toggleTeam(team)}
+                            disabled={team.members.length === 0}
+                            className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(team.id)}
+                            className="flex-1 flex items-center justify-between text-left"
+                          >
+                            <span className="text-sm font-medium text-slate-700">{team.name}</span>
+                            <span className="flex items-center gap-2 text-xs text-slate-400">
+                              {selectedCount}/{team.members.length} selected
+                              {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </span>
+                          </button>
+                        </div>
+
+                        {expanded && (
+                          <div className="border-t border-slate-100 divide-y divide-slate-100 bg-slate-50">
+                            {team.members.length === 0 ? (
+                              <p className="px-3 py-2 text-sm text-slate-400">No members in this team yet</p>
+                            ) : (
+                              team.members.map((member) => (
+                                <label
+                                  key={member.email}
+                                  className="flex items-center gap-3 px-3 py-2 pl-9 cursor-pointer hover:bg-slate-100"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedAttendees.has(member.email)}
+                                    onChange={() => toggleMember(member)}
+                                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                                  />
+                                  <span className="text-sm text-slate-700">
+                                    {member.name} <span className="text-slate-400">({member.email})</span>
+                                  </span>
+                                </label>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Attendees ({selectedAttendees.size})
+              </label>
+              <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-40 overflow-y-auto">
+                {Array.from(selectedAttendees.entries()).map(([email, name]) => (
+                  <div key={email} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <span className="text-sm text-slate-700 truncate">
+                      {name} <span className="text-slate-400">({email})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttendee(email)}
+                      disabled={email === FIXED_ATTENDEE}
+                      title={email === FIXED_ATTENDEE ? 'This attendee cannot be removed' : 'Remove attendee'}
+                      className={`p-1 rounded-md transition-colors flex-shrink-0 ${
+                        email === FIXED_ATTENDEE
+                          ? 'text-slate-300 cursor-not-allowed'
+                          : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                      }`}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>

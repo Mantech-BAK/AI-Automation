@@ -3,12 +3,40 @@ const path = require('path');
 const dotenv = require('dotenv');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { graphRequest } = require('../graph/client');
+const { pool } = require('../db');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const router = express.Router();
 const { SERVICE_ACCOUNT_EMAIL, GEMINI_API_KEY, PLANNER_PLAN_ID } = process.env;
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
+
+const PLACEHOLDER_TEAM_MEMBERS = {
+  facilities: [
+    { name: 'Facilities Lead', email: 'facilities.lead@bakgroup.net' },
+    { name: 'Facilities Coordinator', email: 'facilities.coordinator@bakgroup.net' },
+  ],
+  it: [
+    { name: 'IT Manager', email: 'it.manager@bakgroup.net' },
+    { name: 'IT Support', email: 'it.support@bakgroup.net' },
+  ],
+  sales: [
+    { name: 'Sales Manager', email: 'sales.manager@bakgroup.net' },
+    { name: 'Sales Executive', email: 'sales.executive@bakgroup.net' },
+  ],
+  purchase: [
+    { name: 'Purchase Manager', email: 'purchase.manager@bakgroup.net' },
+    { name: 'Purchase Officer', email: 'purchase.officer@bakgroup.net' },
+  ],
+  software: [
+    { name: 'Software Lead', email: 'software.lead@bakgroup.net' },
+    { name: 'Software Developer', email: 'software.developer@bakgroup.net' },
+  ],
+  management: [
+    { name: 'General Manager', email: 'general.manager@bakgroup.net' },
+    { name: 'Operations Manager', email: 'operations.manager@bakgroup.net' },
+  ],
+};
 
 function getNextBusinessDaysWindow(businessDays) {
   const start = new Date();
@@ -48,7 +76,7 @@ async function callGemini(prompt, content) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   const result = await model.generateContent(`${prompt}\n\nMeeting notes:\n${content}`);
   const response = await result.response;
   return response.text();
@@ -232,6 +260,33 @@ router.post('/process-notes', async (req, res) => {
   } catch (error) {
     console.error('Process meeting notes failed:', error);
     return res.status(500).json({ error: 'Failed to process meeting notes' });
+  }
+});
+
+router.post('/teams', async (req, res) => {
+  try {
+    const technicianResult = await pool.query(
+      `SELECT name, email FROM technicians WHERE email IS NOT NULL ORDER BY name`
+    );
+    const maintenanceMembers = technicianResult.rows.map((row) => ({
+      name: row.name,
+      email: row.email,
+    }));
+
+    const teams = [
+      { id: 'maintenance', name: 'Maintenance Team', members: maintenanceMembers },
+      { id: 'facilities', name: 'Facilities Team', members: PLACEHOLDER_TEAM_MEMBERS.facilities },
+      { id: 'it', name: 'IT Team', members: PLACEHOLDER_TEAM_MEMBERS.it },
+      { id: 'sales', name: 'Sales Team', members: PLACEHOLDER_TEAM_MEMBERS.sales },
+      { id: 'purchase', name: 'Purchase Team', members: PLACEHOLDER_TEAM_MEMBERS.purchase },
+      { id: 'software', name: 'Software Team', members: PLACEHOLDER_TEAM_MEMBERS.software },
+      { id: 'management', name: 'Management Team', members: PLACEHOLDER_TEAM_MEMBERS.management },
+    ];
+
+    return res.json({ teams });
+  } catch (error) {
+    console.error('Load teams failed:', error);
+    return res.status(500).json({ error: 'Failed to load teams' });
   }
 });
 

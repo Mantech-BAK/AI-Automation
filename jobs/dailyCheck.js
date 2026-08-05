@@ -16,6 +16,40 @@ const {
   MY_USER_ID,
 } = process.env;
 
+const WORKING_HOURS_START = '07:30:00';
+const WORKING_HOURS_END = '16:30:00';
+const WORK_START_MINUTES = 7 * 60 + 30;
+const WORK_END_MINUTES = 16 * 60 + 30;
+
+function toIso8601Duration(hours) {
+  const totalMinutes = Math.round(Number(hours || 1) * 60);
+  const wholeHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  let duration = 'PT';
+  if (wholeHours > 0) duration += `${wholeHours}H`;
+  if (minutes > 0) duration += `${minutes}M`;
+  if (wholeHours === 0 && minutes === 0) duration += '0M';
+  return duration;
+}
+
+function minutesSinceMidnight(dateTimeStr) {
+  const match = /T(\d{2}):(\d{2})/.exec(dateTimeStr || '');
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function nextBusinessDay(date) {
+  const next = new Date(date);
+  do {
+    next.setDate(next.getDate() + 1);
+  } while (next.getDay() === 0 || next.getDay() === 6);
+  return next;
+}
+
+function isoDateOnly(date) {
+  return date.toISOString().slice(0, 10);
+}
+
 function parseDateValue(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -96,7 +130,120 @@ async function assignPlannerTask(taskId, technician) {
   );
 }
 
-async function assignTaskAndNotify(workOrder, asset, technician) {
+async function checkTechnicianAvailability(technicianEmail, isoDate, estimatedDurationHours) {
+  const body = {
+    attendees: [
+      {
+        emailAddress: { address: technicianEmail },
+        type: 'Required',
+      },
+    ],
+    locationConstraint: {
+      isRequired: false,
+      suggestLocation: false,
+      locations: [],
+    },
+    timeConstraint: {
+      activityDomain: 'Work',
+      timeslots: [
+        {
+          start: { dateTime: `${isoDate}T${WORKING_HOURS_START}`, timeZone: 'Asia/Bahrain' },
+          end: { dateTime: `${isoDate}T${WORKING_HOURS_END}`, timeZone: 'Asia/Bahrain' },
+        },
+      ],
+    },
+    meetingDuration: toIso8601Duration(estimatedDurationHours),
+    maxCandidates: 5,
+    minimumAttendeePercentage: 100,
+  };
+
+  return graphRequest('POST', `/users/${SERVICE_ACCOUNT_EMAIL}/findMeetingTimes`, body, 'app');
+}
+
+function findValidSlot(findMeetingTimesResult) {
+  const suggestions = Array.isArray(findMeetingTimesResult?.meetingTimeSuggestions)
+    ? findMeetingTimesResult.meetingTimeSuggestions
+    : [];
+
+  for (const suggestion of suggestions) {
+    const confidence = Number(suggestion.confidence || 0);
+    if (confidence <= 0) continue;
+
+    const start = suggestion.meetingTimeSlot?.start;
+    const end = suggestion.meetingTimeSlot?.end;
+    if (!start?.dateTime || !end?.dateTime) continue;
+
+    const startMinutes = minutesSinceMidnight(start.dateTime);
+    const endMinutes = minutesSinceMidnight(end.dateTime);
+    if (startMinutes === null || endMinutes === null) continue;
+
+    if (startMinutes < WORK_START_MINUTES || endMinutes > WORK_END_MINUTES) {
+      continue;
+    }
+
+    return { dateTime: start.dateTime, timeZone: start.timeZone || 'Asia/Bahrain' };
+  }
+
+  return null;
+}
+
+async function findAvailableTechnician(siteLocation, skillTypeRequired, dueDate, estimatedDurationHours) {
+  const eligibleResult = await pool.query(
+    `SELECT * FROM technicians WHERE site = $1 AND LOWER(skill_type) = LOWER($2) ORDER BY open_task_count ASC`,
+    [siteLocation, skillTypeRequired]
+  );
+
+  const eligibleTechnicians = eligibleResult.rows;
+  if (!eligibleTechnicians.length) {
+    return null;
+  }
+
+  let candidateDate = parseDateValue(dueDate) || new Date();
+
+  for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
+    if (dayOffset > 0) {
+      candidateDate = nextBusinessDay(candidateDate);
+    }
+
+    const isoDate = isoDateOnly(candidateDate);
+    const availableCandidates = [];
+
+    for (const technician of eligibleTechnicians) {
+      try {
+        const result = await checkTechnicianAvailability(technician.email, isoDate, estimatedDurationHours);
+        const slot = findValidSlot(result);
+
+        if (slot) {
+          console.log(`Technician ${technician.name} is AVAILABLE on ${isoDate} - slot found at ${slot.dateTime} (${slot.timeZone})`);
+          availableCandidates.push({ technician, slot });
+        } else {
+          console.log(`Technician ${technician.name} is NOT AVAILABLE on ${isoDate} within working hours 07:30-16:30`);
+        }
+      } catch (error) {
+        console.warn(`findMeetingTimes check failed for technician ${technician.name} (${technician.email}): ${error.message}`);
+      }
+    }
+
+    if (availableCandidates.length > 0) {
+      availableCandidates.sort((a, b) => a.technician.open_task_count - b.technician.open_task_count);
+      const chosen = availableCandidates[0];
+      return {
+        technician: chosen.technician,
+        slotDateTime: chosen.slot.dateTime,
+        slotTimeZone: chosen.slot.timeZone,
+      };
+    }
+  }
+
+  console.warn('No free calendar slot found within working hours 07:30 to 16:30, assigning to least loaded technician');
+  return {
+    technician: eligibleTechnicians[0],
+    slotDateTime: null,
+    slotTimeZone: 'Asia/Bahrain',
+  };
+}
+
+async function assignTaskAndNotify(workOrder, asset, technician, slotDateTime = null) {
   let plannerTaskId;
   try {
     plannerTaskId = await createPlannerTask(asset);
@@ -131,7 +278,7 @@ async function assignTaskAndNotify(workOrder, asset, technician) {
   }
 
   try {
-    await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, workOrder.due_date || asset.next_due_date);
+    await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, workOrder.due_date || asset.next_due_date, slotDateTime);
   } catch (error) {
     console.warn('Calendar event skipped and continue running');
   }
@@ -163,17 +310,19 @@ async function createTaskForWorkOrder(workOrderId) {
     next_due_date: workOrder.next_due_date,
   };
 
-  const techResult = await pool.query(
-    `SELECT * FROM technicians WHERE site = $1 AND LOWER(skill_type) = LOWER($2) ORDER BY open_task_count ASC LIMIT 1`,
-    [asset.site_location, asset.skill_type_required]
+  const availability = await findAvailableTechnician(
+    asset.site_location,
+    asset.skill_type_required,
+    workOrder.due_date || asset.next_due_date,
+    asset.estimated_duration_hours
   );
 
-  if (!techResult.rows.length) {
+  if (!availability || !availability.technician) {
     throw new Error(`No matching technician found for asset ${asset.id}`);
   }
 
-  const technician = techResult.rows[0];
-  await assignTaskAndNotify(workOrder, asset, technician);
+  const technician = availability.technician;
+  await assignTaskAndNotify(workOrder, asset, technician, availability.slotDateTime);
 }
 
 function getSendMailEndpoint(authType = 'delegated') {
@@ -240,7 +389,11 @@ async function postTeamsMessage(message) {
   return json;
 }
 
-function toGraphDateTime(dateValue) {
+function toGraphStartDateTime(dateValue, slotDateTime = null) {
+  if (slotDateTime) {
+    return slotDateTime.slice(0, 19);
+  }
+
   if (!dateValue) return null;
 
   const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
@@ -250,31 +403,34 @@ function toGraphDateTime(dateValue) {
   return `${isoDate}T09:00:00`;
 }
 
-function toGraphDateTimeEnd(dateValue, durationHours = 1) {
-  if (!dateValue) return null;
+function toGraphEndDateTime(startDateTime, durationHours = 1) {
+  if (!startDateTime) return null;
 
-  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(startDateTime);
+  if (!match) return null;
 
-  const isoDate = date.toISOString().slice(0, 10);
-  const startHour = 9;
-  const endHour = startHour + Number(durationHours || 1);
-  return `${isoDate}T${String(endHour).padStart(2, '0')}:00:00`;
+  const [, isoDate, hourStr, minuteStr] = match;
+  const startMinutes = Number(hourStr) * 60 + Number(minuteStr);
+  const endMinutes = Math.min(startMinutes + Math.round(Number(durationHours || 1) * 60), WORK_END_MINUTES);
+  const endHour = Math.floor(endMinutes / 60);
+  const endMinute = endMinutes % 60;
+
+  return `${isoDate}T${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}:00`;
 }
 
-async function createCalendarEvent(asset, technician, managerEmail, dueDate = null) {
-  const startDateTime = toGraphDateTime(dueDate || asset.due_date || asset.next_due_date);
-  const endDateTime = toGraphDateTimeEnd(dueDate || asset.due_date || asset.next_due_date, asset.estimated_duration_hours || 1);
+async function createCalendarEvent(asset, technician, managerEmail, dueDate = null, slotDateTime = null) {
+  const startDateTime = toGraphStartDateTime(dueDate || asset.due_date || asset.next_due_date, slotDateTime);
+  const endDateTime = toGraphEndDateTime(startDateTime, asset.estimated_duration_hours || 1);
 
   if (!startDateTime || !endDateTime) {
     throw new Error('Unable to build calendar event date/time');
   }
 
-  const body = {
-    subject: `Maintenance: ${asset.equipment_name}`,
+  const managerEventBody = {
+    subject: `Maintenance: ${asset.equipment_name} - ${asset.site_location} (${technician.name})`,
     body: {
       contentType: 'Text',
-      content: `Maintenance task for ${asset.equipment_name} at ${asset.site_location}. Assigned to ${technician.name}.`,
+      content: `Maintenance task for ${asset.equipment_name} at ${asset.site_location}. Assigned to ${technician.name}. Estimated duration: ${asset.estimated_duration_hours} hours.`,
     },
     start: {
       dateTime: startDateTime,
@@ -284,25 +440,26 @@ async function createCalendarEvent(asset, technician, managerEmail, dueDate = nu
       dateTime: endDateTime,
       timeZone: 'Asia/Bahrain',
     },
-    attendees: [
-      {
-        emailAddress: {
-          address: technician.email,
-          name: technician.name,
-        },
-        type: 'Required',
-      },
-      {
-        emailAddress: {
-          address: managerEmail,
-          name: 'Maintenance Manager',
-        },
-        type: 'Required',
-      },
-    ],
   };
 
-  await graphRequest('POST', `/users/${SERVICE_ACCOUNT_EMAIL}/events`, body, 'app');
+  const technicianEventBody = {
+    subject: `Maintenance Task: ${asset.equipment_name} - ${asset.site_location}`,
+    body: {
+      contentType: 'Text',
+      content: `Maintenance task for ${asset.equipment_name} at ${asset.site_location}. Technician: ${technician.name}. Estimated duration: ${asset.estimated_duration_hours} hours.`,
+    },
+    start: {
+      dateTime: startDateTime,
+      timeZone: 'Asia/Bahrain',
+    },
+    end: {
+      dateTime: endDateTime,
+      timeZone: 'Asia/Bahrain',
+    },
+  };
+
+  await graphRequest('POST', `/users/${encodeURIComponent(managerEmail)}/events`, managerEventBody, 'app');
+  await graphRequest('POST', `/users/${encodeURIComponent(technician.email)}/events`, technicianEventBody, 'app');
 }
 
 async function logNotification(workOrderId, notificationType) {
@@ -320,26 +477,31 @@ async function runDailyCheck() {
   `);
 
   for (const asset of assetsResult.rows) {
+    console.log(`Checking asset: ${asset.equipment_name} - ${asset.site_location}`);
+
     const existingOrder = await pool.query(
-      `SELECT 1 FROM work_orders WHERE asset_id = $1 AND status = 'open' LIMIT 1`,
+      `SELECT id FROM work_orders WHERE asset_id = $1 AND status NOT IN ('completed', 'rejected') LIMIT 1`,
       [asset.id]
     );
 
     if (existingOrder.rows.length > 0) {
+      console.log(`Asset ${asset.equipment_name} already has an open work order - skipping`);
       continue;
     }
 
-    const techResult = await pool.query(
-      `SELECT * FROM technicians WHERE site = $1 AND LOWER(skill_type) = LOWER($2) ORDER BY open_task_count ASC LIMIT 1`,
-      [asset.site_location, asset.skill_type_required]
+    const availability = await findAvailableTechnician(
+      asset.site_location,
+      asset.skill_type_required,
+      asset.next_due_date,
+      asset.estimated_duration_hours
     );
 
-    if (techResult.rows.length === 0) {
+    if (!availability || !availability.technician) {
       console.warn(`No matching technician found for asset ${asset.id} at ${asset.site_location}`);
       continue;
     }
 
-    const technician = techResult.rows[0];
+    const technician = availability.technician;
 
     const plannerTaskId = await createPlannerTask(asset);
     await assignPlannerTask(plannerTaskId, technician);
@@ -373,7 +535,7 @@ async function runDailyCheck() {
     }
 
     try {
-      await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, asset.next_due_date);
+      await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, asset.next_due_date, availability.slotDateTime);
     } catch (error) {
       console.warn('Calendar event skipped and continue running');
     }
