@@ -51,7 +51,11 @@ router.get('/overview', async (req, res) => {
 
 router.get('/tasks', async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    const days = req.query.days ? Number(req.query.days) : null;
+    const hasDaysFilter = Number.isFinite(days) && days !== null;
+
+    const { rows } = await pool.query(
+      `
       SELECT
         wo.id,
         a.equipment_name,
@@ -67,13 +71,54 @@ router.get('/tasks', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN technicians t ON wo.technician_id = t.id
+      ${hasDaysFilter ? `WHERE wo.due_date <= CURRENT_DATE + $1 * INTERVAL '1 day' AND wo.status NOT IN ('completed', 'rejected')` : ''}
       ORDER BY wo.due_date NULLS LAST, wo.id
-    `);
+    `,
+      hasDaysFilter ? [days] : []
+    );
 
     return res.json(rows);
   } catch (error) {
     console.error('Tasks query failed:', error);
     return res.status(500).json({ error: 'Failed to load tasks' });
+  }
+});
+
+router.get('/tasks/completed', async (req, res) => {
+  try {
+    const { rows: tasks } = await pool.query(`
+      SELECT
+        wo.id,
+        a.equipment_name,
+        a.site_location,
+        t.name AS technician_name,
+        wo.due_date,
+        wo.completed_at
+      FROM work_orders wo
+      LEFT JOIN assets a ON wo.asset_id = a.id
+      LEFT JOIN technicians t ON wo.technician_id = t.id
+      WHERE wo.status = 'completed'
+      ORDER BY wo.completed_at DESC
+      LIMIT 20
+    `);
+
+    const { rows: monthRows } = await pool.query(`
+      SELECT
+        COUNT(*) AS total_this_month,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed_this_month
+      FROM work_orders
+      WHERE due_date >= date_trunc('month', CURRENT_DATE)::date
+        AND due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date
+    `);
+
+    return res.json({
+      tasks,
+      total_this_month: Number(monthRows[0]?.total_this_month || 0),
+      completed_this_month: Number(monthRows[0]?.completed_this_month || 0),
+    });
+  } catch (error) {
+    console.error('Completed tasks query failed:', error);
+    return res.status(500).json({ error: 'Failed to load completed tasks' });
   }
 });
 
@@ -89,7 +134,21 @@ router.get('/assets', async (req, res) => {
 
 router.get('/technicians', async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT * FROM technicians ORDER BY id`);
+    const { rows } = await pool.query(`
+      SELECT
+        t.*,
+        COALESCE(a.site_location, 'Available') AS current_location
+      FROM technicians t
+      LEFT JOIN LATERAL (
+        SELECT wo.asset_id
+        FROM work_orders wo
+        WHERE wo.technician_id = t.id AND wo.status = 'open'
+        ORDER BY wo.due_date ASC NULLS LAST, wo.id ASC
+        LIMIT 1
+      ) wo ON true
+      LEFT JOIN assets a ON a.id = wo.asset_id
+      ORDER BY t.id
+    `);
     return res.json(rows);
   } catch (error) {
     console.error('Technicians query failed:', error);
@@ -135,6 +194,38 @@ router.get('/sites', async (req, res) => {
   } catch (error) {
     console.error('Sites query failed:', error);
     return res.status(500).json({ error: 'Failed to load site data' });
+  }
+});
+
+router.get('/sites/tasks', async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date query parameter in YYYY-MM-DD format is required' });
+    }
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        a.site_location,
+        COUNT(wo.id) AS total_tasks,
+        COUNT(*) FILTER (WHERE wo.status = 'completed') AS completed_tasks,
+        COUNT(*) FILTER (WHERE wo.status NOT IN ('completed', 'rejected')) AS open_tasks,
+        COUNT(*) FILTER (WHERE wo.due_date < $1 AND wo.status NOT IN ('completed', 'rejected')) AS overdue_tasks
+      FROM work_orders wo
+      JOIN assets a ON a.id = wo.asset_id
+      WHERE wo.created_at::date <= $1 AND wo.due_date >= $1
+      GROUP BY a.site_location
+      ORDER BY a.site_location
+    `,
+      [date]
+    );
+
+    return res.json(rows);
+  } catch (error) {
+    console.error('Sites tasks query failed:', error);
+    return res.status(500).json({ error: 'Failed to load site task data' });
   }
 });
 
@@ -200,7 +291,7 @@ router.post('/assets/add', async (req, res) => {
       maintenance_interval_days,
       estimated_duration_hours,
       last_completed_date,
-      skill_type_required,
+      type_of_service,
     } = req.body;
 
     const next_due_date = last_completed_date
@@ -220,7 +311,7 @@ router.post('/assets/add', async (req, res) => {
          estimated_duration_hours,
          last_completed_date,
          next_due_date,
-         skill_type_required
+         type_of_service
        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
@@ -230,7 +321,7 @@ router.post('/assets/add', async (req, res) => {
         estimated_duration_hours,
         last_completed_date || null,
         next_due_date,
-        skill_type_required || 'general',
+        type_of_service || 'general',
       ]
     );
 
@@ -243,13 +334,13 @@ router.post('/assets/add', async (req, res) => {
 
 router.post('/technicians/add', async (req, res) => {
   try {
-    const { name, email, site, skill_type } = req.body;
+    const { name, email, type_of_service } = req.body;
 
     const { rows } = await pool.query(
-      `INSERT INTO technicians (name, email, site, skill_type)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO technicians (name, email, type_of_service)
+       VALUES ($1, $2, $3)
        RETURNING *`,
-      [name, email, site, skill_type]
+      [name, email, type_of_service]
     );
 
     return res.status(201).json(rows[0]);

@@ -6,3 +6,4 @@ client/.env
 .claude
 assets.csv
 seed-data.js
+commands.txt

@@ -82,7 +82,7 @@ async function getPlannerBucketId(planId) {
 async function createPlannerTask(asset) {
   const title = `${asset.equipment_name} - ${asset.site_location}`;
   const dueDateTime = formatDateTime(asset.next_due_date, 9);
-  const description = `Equipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nDuration: ${asset.estimated_duration_hours} hours\nSkill required: ${asset.skill_type_required}`;
+  const description = `Equipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nDuration: ${asset.estimated_duration_hours} hours\nType of service: ${asset.type_of_service}`;
   const bucketId = await getPlannerBucketId(PLANNER_PLAN_ID);
 
   const body = {
@@ -193,10 +193,10 @@ function findValidSlot(findMeetingTimesResult) {
   return null;
 }
 
-async function findAvailableTechnician(siteLocation, skillTypeRequired, dueDate, estimatedDurationHours) {
+async function findAvailableTechnician(siteLocation, typeOfService, dueDate, estimatedDurationHours) {
   const eligibleResult = await pool.query(
-    `SELECT * FROM technicians WHERE site = $1 AND LOWER(skill_type) = LOWER($2) ORDER BY open_task_count ASC`,
-    [siteLocation, skillTypeRequired]
+    `SELECT * FROM technicians WHERE site = $1 AND LOWER(type_of_service) = LOWER($2) ORDER BY open_task_count ASC`,
+    [siteLocation, typeOfService]
   );
 
   const eligibleTechnicians = eligibleResult.rows;
@@ -304,7 +304,7 @@ async function assignTaskAndNotify(workOrder, asset, technician, availability = 
 async function createTaskForWorkOrder(workOrderId) {
   const { rows } = await pool.query(
     `SELECT wo.*, a.id AS asset_id, a.equipment_name, a.site_location, a.maintenance_interval_days,
-            a.estimated_duration_hours, a.skill_type_required, a.next_due_date
+            a.estimated_duration_hours, a.type_of_service, a.next_due_date
      FROM work_orders wo
      JOIN assets a ON a.id = wo.asset_id
      WHERE wo.id = $1`,
@@ -322,13 +322,13 @@ async function createTaskForWorkOrder(workOrderId) {
     site_location: workOrder.site_location,
     maintenance_interval_days: workOrder.maintenance_interval_days,
     estimated_duration_hours: workOrder.estimated_duration_hours,
-    skill_type_required: workOrder.skill_type_required,
+    type_of_service: workOrder.type_of_service,
     next_due_date: workOrder.next_due_date,
   };
 
   const availability = await findAvailableTechnician(
     asset.site_location,
-    asset.skill_type_required,
+    asset.type_of_service,
     workOrder.due_date || asset.next_due_date,
     asset.estimated_duration_hours
   );
@@ -507,7 +507,7 @@ async function runDailyCheck() {
 
     const availability = await findAvailableTechnician(
       asset.site_location,
-      asset.skill_type_required,
+      asset.type_of_service,
       asset.next_due_date,
       asset.estimated_duration_hours
     );

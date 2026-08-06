@@ -10,17 +10,9 @@ import {
   ChevronDown,
   ChevronRight,
   X,
+  Check,
 } from 'lucide-react';
 import Modal from './Modal';
-
-interface Schedule {
-  id: string;
-  equipment_name?: string | null;
-  site_location?: string | null;
-  due_date?: string | null;
-  status?: string;
-  technician_name?: string | null;
-}
 
 interface TeamMember {
   name: string;
@@ -38,10 +30,17 @@ interface GraphDateTime {
   timeZone: string;
 }
 
-interface MeetingSlot {
-  start: GraphDateTime;
-  end: GraphDateTime;
-  confidence?: number | null;
+interface UpcomingMeeting {
+  id: string;
+  subject?: string | null;
+  start?: GraphDateTime | null;
+  end?: GraphDateTime | null;
+  attendees?: string[];
+}
+
+interface AvailabilityResult {
+  email: string;
+  available: boolean;
 }
 
 interface NotesActionItem {
@@ -60,21 +59,37 @@ const DURATION_OPTIONS = [
   { label: '2 hours', minutes: 120 },
 ];
 
+function todayIsoDate() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function computeEndTime(startTime: string, durationMinutes: number): string {
+  const [hour, minute] = startTime.split(':').map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return startTime;
+  const totalMinutes = hour * 60 + minute + durationMinutes;
+  const endHour = Math.floor(totalMinutes / 60) % 24;
+  const endMinute = totalMinutes % 60;
+  return `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+}
+
 function formatGraphDateTime(dt?: GraphDateTime | null) {
   if (!dt?.dateTime) return '-';
   const date = new Date(dt.dateTime);
   const formatted = Number.isNaN(date.getTime()) ? dt.dateTime : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-  return `${formatted} (${dt.timeZone})`;
+  return `${formatted}${dt.timeZone ? ` (${dt.timeZone})` : ''}`;
 }
 
 export default function SchedulesPage() {
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Upcoming Meetings state
+  const [upcomingMeetings, setUpcomingMeetings] = useState<UpcomingMeeting[]>([]);
+  const [upcomingLoading, setUpcomingLoading] = useState(true);
+  const [upcomingError, setUpcomingError] = useState<string | null>(null);
 
-  // Schedule Review Meeting modal state
-  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  // Schedule Meeting modal state
+  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
   const [meetingTitle, setMeetingTitle] = useState('Monthly Maintenance Review');
+  const [meetingDate, setMeetingDate] = useState(todayIsoDate());
+  const [startTime, setStartTime] = useState('10:00');
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
@@ -83,9 +98,8 @@ export default function SchedulesPage() {
   const [selectedAttendees, setSelectedAttendees] = useState<Map<string, string>>(
     new Map([[FIXED_ATTENDEE, FIXED_ATTENDEE_NAME]])
   );
-  const [slots, setSlots] = useState<MeetingSlot[]>([]);
-  const [selectedSlot, setSelectedSlot] = useState<MeetingSlot | null>(null);
-  const [findingSlots, setFindingSlots] = useState(false);
+  const [availabilityResults, setAvailabilityResults] = useState<AvailabilityResult[] | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const [scheduledJoinUrl, setScheduledJoinUrl] = useState<string | null>(null);
@@ -98,33 +112,25 @@ export default function SchedulesPage() {
   const [extractedActionItems, setExtractedActionItems] = useState<NotesActionItem[] | null>(null);
 
   useEffect(() => {
-    fetchData();
+    fetchUpcomingMeetings();
   }, []);
 
-  async function fetchData() {
+  async function fetchUpcomingMeetings() {
+    setUpcomingLoading(true);
+    setUpcomingError(null);
     try {
-      const schedRes = await fetch('/api/dashboard/schedules');
-
-      if (!schedRes.ok) {
-        throw new Error(`Failed to load schedules: ${schedRes.statusText}`);
+      const response = await fetch('/api/meetings/upcoming');
+      if (!response.ok) {
+        throw new Error(`Failed to load upcoming meetings: ${response.statusText}`);
       }
-
-      const schedJson: Schedule[] = await schedRes.json();
-
-      const sorted = [...schedJson].sort((a, b) => {
-        if (!a.due_date && !b.due_date) return 0;
-        if (!a.due_date) return 1;
-        if (!b.due_date) return -1;
-        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-      });
-
-      setSchedules(sorted);
+      const json = await response.json();
+      setUpcomingMeetings(json.meetings || []);
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
-      console.error('Error fetching data:', fetchError);
-      setError(message);
+      console.error('Error fetching upcoming meetings:', fetchError);
+      setUpcomingError(message);
     } finally {
-      setLoading(false);
+      setUpcomingLoading(false);
     }
   }
 
@@ -146,16 +152,17 @@ export default function SchedulesPage() {
     }
   }
 
-  function openReviewModal() {
+  function openMeetingModal() {
     setMeetingTitle('Monthly Maintenance Review');
+    setMeetingDate(todayIsoDate());
+    setStartTime('10:00');
     setDurationMinutes(60);
     setExpandedTeams(new Set());
     setSelectedAttendees(new Map([[FIXED_ATTENDEE, FIXED_ATTENDEE_NAME]]));
-    setSlots([]);
-    setSelectedSlot(null);
+    setAvailabilityResults(null);
     setMeetingError(null);
     setScheduledJoinUrl(null);
-    setReviewModalOpen(true);
+    setMeetingModalOpen(true);
     fetchTeams();
   }
 
@@ -182,6 +189,7 @@ export default function SchedulesPage() {
 
   function toggleTeam(team: Team) {
     const fullySelected = isTeamFullySelected(team);
+    setAvailabilityResults(null);
     setSelectedAttendees((prev) => {
       const next = new Map(prev);
       if (fullySelected) {
@@ -201,6 +209,7 @@ export default function SchedulesPage() {
 
   function toggleMember(member: TeamMember) {
     if (member.email === FIXED_ATTENDEE) return;
+    setAvailabilityResults(null);
     setSelectedAttendees((prev) => {
       const next = new Map(prev);
       if (next.has(member.email)) {
@@ -214,6 +223,7 @@ export default function SchedulesPage() {
 
   function removeAttendee(email: string) {
     if (email === FIXED_ATTENDEE) return;
+    setAvailabilityResults(null);
     setSelectedAttendees((prev) => {
       const next = new Map(prev);
       next.delete(email);
@@ -221,46 +231,54 @@ export default function SchedulesPage() {
     });
   }
 
-  async function handleFindSlots() {
-    setFindingSlots(true);
+  async function handleCheckAvailability() {
+    setCheckingAvailability(true);
     setMeetingError(null);
-    setSlots([]);
-    setSelectedSlot(null);
+    setAvailabilityResults(null);
     try {
-      const response = await fetch('/api/meetings/find-slots', {
+      const endTime = computeEndTime(startTime, durationMinutes);
+      const response = await fetch('/api/meetings/check-availability', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           attendees: Array.from(selectedAttendees.keys()),
-          durationMinutes,
+          date: meetingDate,
+          startTime,
+          endTime,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to find meeting slots: ${response.statusText}`);
+        throw new Error(`Failed to check availability: ${response.statusText}`);
       }
 
       const json = await response.json();
-      setSlots(json.slots || []);
+      setAvailabilityResults(json.results || []);
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       setMeetingError(message);
     } finally {
-      setFindingSlots(false);
+      setCheckingAvailability(false);
     }
   }
 
+  const hasConfirmedAttendee = Boolean(availabilityResults?.some((r) => r.available));
+
   async function handleScheduleMeeting() {
-    if (!selectedSlot) return;
+    if (!hasConfirmedAttendee) return;
 
     setScheduling(true);
     setMeetingError(null);
     try {
+      const endTime = computeEndTime(startTime, durationMinutes);
       const response = await fetch('/api/meetings/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slot: { start: selectedSlot.start, end: selectedSlot.end },
+          slot: {
+            start: { dateTime: `${meetingDate}T${startTime}:00`, timeZone: 'Asia/Bahrain' },
+            end: { dateTime: `${meetingDate}T${endTime}:00`, timeZone: 'Asia/Bahrain' },
+          },
           attendees: Array.from(selectedAttendees.keys()),
           title: meetingTitle,
         }),
@@ -272,6 +290,7 @@ export default function SchedulesPage() {
 
       const json = await response.json();
       setScheduledJoinUrl(json.joinUrl || null);
+      fetchUpcomingMeetings();
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       setMeetingError(message);
@@ -313,42 +332,13 @@ export default function SchedulesPage() {
     }
   }
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'completed': return 'bg-emerald-100 text-emerald-700';
-      case 'open': return 'bg-blue-100 text-blue-700';
-      case 'pending': return 'bg-amber-100 text-amber-700';
-      case 'approved': return 'bg-cyan-100 text-cyan-700';
-      default: return 'bg-slate-100 text-slate-600';
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
-          <p className="font-semibold">Failed to load schedules</p>
-          <p className="text-sm mt-2">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Schedules</h1>
-          <p className="text-slate-500 mt-1">Upcoming maintenance due in the next 60 days</p>
+          <p className="text-slate-500 mt-1">Upcoming meetings and review scheduling</p>
         </div>
         <div className="flex gap-3">
           <button
@@ -359,70 +349,57 @@ export default function SchedulesPage() {
             Process Meeting Notes
           </button>
           <button
-            onClick={openReviewModal}
+            onClick={openMeetingModal}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
           >
             <Calendar size={18} />
-            Schedule Review Meeting
+            Schedule Meeting
           </button>
         </div>
       </div>
 
-      {/* Schedules List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Equipment</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Technician</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Due Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {schedules.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
-                    <Calendar size={40} className="mx-auto text-slate-300 mb-2" />
-                    <p>No maintenance due in the next 60 days.</p>
-                  </td>
-                </tr>
-              ) : (
-                schedules.map((schedule) => (
-                  <tr key={schedule.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                          <Calendar size={16} className="text-purple-600" />
-                        </div>
-                        <span className="font-medium text-slate-800">{schedule.equipment_name || '-'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{schedule.site_location || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{schedule.technician_name || '-'}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(schedule.status)}`}>
-                        {schedule.status || 'unknown'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {schedule.due_date ? new Date(schedule.due_date).toLocaleDateString() : '-'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* Upcoming Meetings */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="font-semibold text-slate-800">Upcoming Meetings</h2>
+        </div>
+        <div className="p-6">
+          {upcomingLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+            </div>
+          ) : upcomingError ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{upcomingError}</p>
+          ) : upcomingMeetings.length === 0 ? (
+            <p className="text-slate-500 text-sm text-center py-4">No upcoming meetings scheduled</p>
+          ) : (
+            <div className="space-y-3">
+              {upcomingMeetings.map((meeting) => (
+                <div key={meeting.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                    <Calendar size={16} className="text-purple-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-800 text-sm truncate">{meeting.subject || 'Untitled meeting'}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {formatGraphDateTime(meeting.start)} to {formatGraphDateTime(meeting.end)}
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400 flex-shrink-0">
+                    {(meeting.attendees || []).length} attendee{(meeting.attendees || []).length === 1 ? '' : 's'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Schedule Review Meeting Modal */}
+      {/* Schedule Meeting Modal */}
       <Modal
-        isOpen={reviewModalOpen}
-        onClose={() => setReviewModalOpen(false)}
-        title="Schedule Review Meeting"
+        isOpen={meetingModalOpen}
+        onClose={() => setMeetingModalOpen(false)}
+        title="Schedule Meeting"
         size="lg"
       >
         {scheduledJoinUrl ? (
@@ -444,7 +421,7 @@ export default function SchedulesPage() {
             </div>
             <div className="flex justify-end">
               <button
-                onClick={() => setReviewModalOpen(false)}
+                onClick={() => setMeetingModalOpen(false)}
                 className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-shadow"
               >
                 Done
@@ -454,13 +431,43 @@ export default function SchedulesPage() {
         ) : (
           <div className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Meeting Title</label>
               <input
                 type="text"
                 value={meetingTitle}
-                onChange={(e) => setMeetingTitle(e.target.value)}
+                onChange={(e) => {
+                  setMeetingTitle(e.target.value);
+                  setAvailabilityResults(null);
+                }}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={meetingDate}
+                  onChange={(e) => {
+                    setMeetingDate(e.target.value);
+                    setAvailabilityResults(null);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Start Time</label>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => {
+                    setStartTime(e.target.value);
+                    setAvailabilityResults(null);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+              </div>
             </div>
 
             <div>
@@ -469,7 +476,10 @@ export default function SchedulesPage() {
                 {DURATION_OPTIONS.map((opt) => (
                   <button
                     key={opt.minutes}
-                    onClick={() => setDurationMinutes(opt.minutes)}
+                    onClick={() => {
+                      setDurationMinutes(opt.minutes);
+                      setAvailabilityResults(null);
+                    }}
                     className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
                       durationMinutes === opt.minutes
                         ? 'bg-[#0f172a] text-white border-[#0f172a]'
@@ -568,62 +578,55 @@ export default function SchedulesPage() {
                 Attendees ({selectedAttendees.size})
               </label>
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-40 overflow-y-auto">
-                {Array.from(selectedAttendees.entries()).map(([email, name]) => (
-                  <div key={email} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <span className="text-sm text-slate-700 truncate">
-                      {name} <span className="text-slate-400">({email})</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeAttendee(email)}
-                      disabled={email === FIXED_ATTENDEE}
-                      title={email === FIXED_ATTENDEE ? 'This attendee cannot be removed' : 'Remove attendee'}
-                      className={`p-1 rounded-md transition-colors flex-shrink-0 ${
-                        email === FIXED_ATTENDEE
-                          ? 'text-slate-300 cursor-not-allowed'
-                          : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
-                      }`}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
+                {Array.from(selectedAttendees.entries()).map(([email, name]) => {
+                  const result = availabilityResults?.find((r) => r.email === email);
+                  return (
+                    <div key={email} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="text-sm text-slate-700 truncate">
+                        {name} <span className="text-slate-400">({email})</span>
+                      </span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {result && (
+                          result.available ? (
+                            <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                              <Check size={14} />
+                              Available
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs font-medium text-red-600">
+                              <X size={14} />
+                              Busy
+                            </span>
+                          )
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeAttendee(email)}
+                          disabled={email === FIXED_ATTENDEE}
+                          title={email === FIXED_ATTENDEE ? 'This attendee cannot be removed' : 'Remove attendee'}
+                          className={`p-1 rounded-md transition-colors flex-shrink-0 ${
+                            email === FIXED_ATTENDEE
+                              ? 'text-slate-300 cursor-not-allowed'
+                              : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                          }`}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             <button
-              onClick={handleFindSlots}
-              disabled={selectedAttendees.size === 0 || findingSlots}
+              onClick={handleCheckAvailability}
+              disabled={selectedAttendees.size === 0 || !meetingDate || !startTime || checkingAvailability}
               className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50"
             >
-              {findingSlots ? <Loader2 size={16} className="animate-spin" /> : <Calendar size={16} />}
-              Find Available Slots
+              {checkingAvailability ? <Loader2 size={16} className="animate-spin" /> : <Calendar size={16} />}
+              Check Availability
             </button>
-
-            {slots.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Available Slots</label>
-                <div className="grid grid-cols-1 gap-2">
-                  {slots.map((slot, idx) => {
-                    const isSelected = selectedSlot === slot;
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`text-left px-4 py-3 rounded-lg border-2 transition-colors ${
-                          isSelected
-                            ? 'border-cyan-500 bg-cyan-50'
-                            : 'border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <p className="text-sm font-medium text-slate-800">{formatGraphDateTime(slot.start)}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">to {formatGraphDateTime(slot.end)}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             {meetingError && (
               <p className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -634,14 +637,14 @@ export default function SchedulesPage() {
 
             <div className="flex justify-end gap-3 pt-2">
               <button
-                onClick={() => setReviewModalOpen(false)}
+                onClick={() => setMeetingModalOpen(false)}
                 className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleScheduleMeeting}
-                disabled={!selectedSlot || scheduling}
+                disabled={!hasConfirmedAttendee || scheduling}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-shadow disabled:opacity-50"
               >
                 {scheduling ? (

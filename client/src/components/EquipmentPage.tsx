@@ -15,7 +15,7 @@ interface Equipment {
   estimated_duration_hours?: number | null;
   last_completed_date?: string | null;
   next_due_date?: string | null;
-  skill_type_required?: string | null;
+  type_of_service?: string | null;
 }
 
 export default function EquipmentPage() {
@@ -31,7 +31,7 @@ export default function EquipmentPage() {
     maintenance_interval_days: '',
     estimated_duration_hours: '',
     last_completed_date: '',
-    skill_type_required: 'general',
+    type_of_service: 'general',
   });
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export default function EquipmentPage() {
         maintenance_interval_days: formData.maintenance_interval_days ? Number(formData.maintenance_interval_days) : null,
         estimated_duration_hours: formData.estimated_duration_hours ? Number(formData.estimated_duration_hours) : null,
         last_completed_date: formData.last_completed_date || null,
-        skill_type_required: formData.skill_type_required || 'general',
+        type_of_service: formData.type_of_service || 'general',
       };
 
       const response = await fetch('/api/dashboard/assets/add', {
@@ -95,7 +95,7 @@ export default function EquipmentPage() {
       maintenance_interval_days: '',
       estimated_duration_hours: '',
       last_completed_date: '',
-      skill_type_required: 'general',
+      type_of_service: 'general',
     });
   }
 
@@ -194,7 +194,7 @@ export default function EquipmentPage() {
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Equipment</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Skill Required</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type of Service</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Interval (days)</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Completed</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Next Due</th>
@@ -220,7 +220,7 @@ export default function EquipmentPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600">{item.site_location}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600 capitalize">{item.skill_type_required || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600 capitalize">{item.type_of_service || '-'}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{item.maintenance_interval_days ?? '-'}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">
                       {item.last_completed_date ? new Date(item.last_completed_date).toLocaleDateString() : '-'}
@@ -295,11 +295,11 @@ export default function EquipmentPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Skill Required</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Type of Service</label>
               <input
                 type="text"
-                value={formData.skill_type_required}
-                onChange={(e) => setFormData({ ...formData, skill_type_required: e.target.value })}
+                value={formData.type_of_service}
+                onChange={(e) => setFormData({ ...formData, type_of_service: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 placeholder="e.g., electrical, mechanical, general"
               />

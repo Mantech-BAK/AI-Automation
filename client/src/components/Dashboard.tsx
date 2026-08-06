@@ -24,6 +24,17 @@ interface MaintenanceTask {
   days_overdue?: number;
 }
 
+interface CompletedTask {
+  id: string;
+  equipment_name?: string | null;
+  site_location?: string | null;
+  technician_name?: string | null;
+  due_date?: string | null;
+  completed_at?: string | null;
+}
+
+const DAY_FILTER_OPTIONS = [3, 7, 10, 20, 30];
+
 interface Notification {
   id: string;
   notification_type?: string;
@@ -57,38 +68,37 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
     technicians: 0,
   });
   const [upcomingTasks, setUpcomingTasks] = useState<MaintenanceTask[]>([]);
+  const [upcomingDays, setUpcomingDays] = useState(7);
+  const [upcomingLoading, setUpcomingLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<CompletedTask[]>([]);
+  const [completedThisMonth, setCompletedThisMonth] = useState(0);
+  const [totalThisMonth, setTotalThisMonth] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [overviewRes, tasksRes, notificationsRes] = await Promise.all([
+        const [overviewRes, notificationsRes, completedRes] = await Promise.all([
           fetch('/api/dashboard/overview'),
-          fetch('/api/dashboard/tasks'),
           fetch('/api/dashboard/notifications'),
+          fetch('/api/dashboard/tasks/completed'),
         ]);
 
         if (!overviewRes.ok) throw new Error(`Overview fetch failed: ${overviewRes.statusText}`);
-        if (!tasksRes.ok) throw new Error(`Tasks fetch failed: ${tasksRes.statusText}`);
         if (!notificationsRes.ok) throw new Error(`Notifications fetch failed: ${notificationsRes.statusText}`);
+        if (!completedRes.ok) throw new Error(`Completed tasks fetch failed: ${completedRes.statusText}`);
 
         const overviewJson: Overview = await overviewRes.json();
-        const tasks: MaintenanceTask[] = await tasksRes.json();
         const notificationsJson: Notification[] = await notificationsRes.json();
+        const completedJson = await completedRes.json();
 
         setOverview(overviewJson);
-
-        const sorted = [...tasks].sort((a, b) => {
-          if (!a.due_date && !b.due_date) return 0;
-          if (!a.due_date) return 1;
-          if (!b.due_date) return -1;
-          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-        });
-        setUpcomingTasks(sorted.slice(0, 5));
-
         setNotifications(notificationsJson.slice(0, 5));
+        setCompletedTasks(completedJson.tasks || []);
+        setCompletedThisMonth(completedJson.completed_this_month || 0);
+        setTotalThisMonth(completedJson.total_this_month || 0);
       } catch (fetchError) {
         const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
         console.error('Error fetching dashboard data:', fetchError);
@@ -100,6 +110,31 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
 
     fetchData();
   }, []);
+
+  useEffect(() => {
+    async function fetchUpcomingTasks() {
+      setUpcomingLoading(true);
+      try {
+        const response = await fetch(`/api/dashboard/tasks?days=${upcomingDays}`);
+        if (!response.ok) throw new Error(`Tasks fetch failed: ${response.statusText}`);
+        const tasks: MaintenanceTask[] = await response.json();
+
+        const sorted = [...tasks].sort((a, b) => {
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        });
+        setUpcomingTasks(sorted);
+      } catch (fetchError) {
+        console.error('Error fetching upcoming tasks:', fetchError);
+      } finally {
+        setUpcomingLoading(false);
+      }
+    }
+
+    fetchUpcomingTasks();
+  }, [upcomingDays]);
 
   if (loading) {
     return (
@@ -192,6 +227,45 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
         })}
       </div>
 
+      {/* Completed Tasks */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800">Completed Tasks</h2>
+          <span className="text-sm text-slate-500">
+            {completedThisMonth} / {totalThisMonth} completed this month
+          </span>
+        </div>
+        <div className="p-6">
+          {completedTasks.length === 0 ? (
+            <p className="text-slate-500 text-sm text-center py-4">No completed tasks yet</p>
+          ) : (
+            <div className="space-y-3">
+              {completedTasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-800 text-sm truncate">{task.equipment_name || 'Untitled task'}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {task.site_location || 'No site'} {task.technician_name && `- ${task.technician_name}`}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs text-slate-500">
+                      Due {task.due_date ? new Date(task.due_date).toLocaleDateString() : '-'}
+                    </p>
+                    <p className="text-xs text-emerald-600 font-medium">
+                      Completed {task.completed_at ? new Date(task.completed_at).toLocaleDateString() : '-'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Resource Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Sites */}
@@ -280,11 +354,26 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Maintenance */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-          <div className="px-6 py-4 border-b border-slate-200">
+          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
             <h2 className="font-semibold text-slate-800">Upcoming Maintenance</h2>
+            <select
+              value={upcomingDays}
+              onChange={(e) => setUpcomingDays(Number(e.target.value))}
+              className="px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            >
+              {DAY_FILTER_OPTIONS.map((days) => (
+                <option key={days} value={days}>
+                  Next {days} days
+                </option>
+              ))}
+            </select>
           </div>
           <div className="p-6">
-            {upcomingTasks.length === 0 ? (
+            {upcomingLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              </div>
+            ) : upcomingTasks.length === 0 ? (
               <p className="text-slate-500 text-sm text-center py-4">No upcoming maintenance tasks</p>
             ) : (
               <div className="space-y-4">

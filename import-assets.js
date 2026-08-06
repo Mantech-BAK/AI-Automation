@@ -10,7 +10,7 @@ function parseCsvLine(line) {
     maintenance_interval_days: Number(values[2]),
     estimated_duration_hours: Number(values[3]),
     last_completed_date: values[4]?.trim() || null,
-    skill_type_required: values[5]?.trim() || 'general',
+    type_of_service: values[5]?.trim() || 'general',
   };
 }
 
@@ -48,7 +48,7 @@ async function importAssets() {
           estimated_duration_hours,
           last_completed_date,
           next_due_date,
-          skill_type_required
+          type_of_service
         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT DO NOTHING`,
         [
@@ -58,7 +58,7 @@ async function importAssets() {
           row.estimated_duration_hours,
           row.last_completed_date || null,
           next_due_date,
-          row.skill_type_required || 'general',
+          row.type_of_service || 'general',
         ]
       );
     }

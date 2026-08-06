@@ -37,6 +37,63 @@ const PLACEHOLDER_TEAM_MEMBERS = {
   ],
 };
 
+function minutesBetween(startTime, endTime) {
+  const [startHour, startMinute] = startTime.split(':').map(Number);
+  const [endHour, endMinute] = endTime.split(':').map(Number);
+  return (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+}
+
+function toIso8601Duration(totalMinutes) {
+  const wholeHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  let duration = 'PT';
+  if (wholeHours > 0) duration += `${wholeHours}H`;
+  if (minutes > 0) duration += `${minutes}M`;
+  if (wholeHours === 0 && minutes === 0) duration += '0M';
+  return duration;
+}
+
+async function checkAttendeesAvailability(attendees, date, startTime, endTime) {
+  const body = {
+    attendees: attendees.map((email) => ({
+      emailAddress: { address: email },
+      type: 'Required',
+    })),
+    timeConstraint: {
+      activityDomain: 'work',
+      timeslots: [
+        {
+          start: { dateTime: `${date}T${startTime}:00`, timeZone: 'Asia/Bahrain' },
+          end: { dateTime: `${date}T${endTime}:00`, timeZone: 'Asia/Bahrain' },
+        },
+      ],
+    },
+    meetingDuration: toIso8601Duration(minutesBetween(startTime, endTime)),
+    returnSuggestionReasons: true,
+    minimumAttendeePercentage: 0,
+  };
+
+  const result = await graphRequest(
+    'POST',
+    `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/findMeetingTimes`,
+    body,
+    'app'
+  );
+
+  const suggestion = Array.isArray(result?.meetingTimeSuggestions) ? result.meetingTimeSuggestions[0] : null;
+  const attendeeAvailability = Array.isArray(suggestion?.attendeeAvailability) ? suggestion.attendeeAvailability : [];
+
+  return attendees.map((email) => {
+    const entry = attendeeAvailability.find(
+      (item) => item.attendee?.emailAddress?.address?.toLowerCase() === email.toLowerCase()
+    );
+    return {
+      email,
+      available: entry?.availability === 'free',
+    };
+  });
+}
+
 function getNextBusinessDaysWindow(businessDays) {
   const start = new Date();
   const end = new Date(start);
@@ -167,6 +224,49 @@ router.post('/find-slots', async (req, res) => {
   } catch (error) {
     console.error('Find meeting slots failed:', error);
     return res.status(500).json({ error: 'Failed to find meeting slots' });
+  }
+});
+
+router.post('/check-availability', async (req, res) => {
+  try {
+    const { attendees, date, startTime, endTime } = req.body;
+
+    if (!Array.isArray(attendees) || !attendees.length) {
+      return res.status(400).json({ error: 'attendees array is required' });
+    }
+
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({ error: 'date, startTime and endTime are required' });
+    }
+
+    const results = await checkAttendeesAvailability(attendees, date, startTime, endTime);
+    return res.json({ results });
+  } catch (error) {
+    console.error('Check availability failed:', error);
+    return res.status(500).json({ error: 'Failed to check availability' });
+  }
+});
+
+router.get('/upcoming', async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const endpoint = `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events?$filter=${encodeURIComponent(`start/dateTime ge '${now}'`)}&$orderby=${encodeURIComponent('start/dateTime')}&$top=10`;
+    const result = await graphRequest('GET', endpoint, null, 'app');
+
+    const meetings = (Array.isArray(result?.value) ? result.value : []).map((event) => ({
+      id: event.id,
+      subject: event.subject,
+      start: event.start,
+      end: event.end,
+      attendees: (Array.isArray(event.attendees) ? event.attendees : [])
+        .map((attendee) => attendee.emailAddress?.address)
+        .filter(Boolean),
+    }));
+
+    return res.json({ meetings });
+  } catch (error) {
+    console.error('Load upcoming meetings failed:', error);
+    return res.status(500).json({ error: 'Failed to load upcoming meetings' });
   }
 });
 

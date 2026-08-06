@@ -11,15 +11,15 @@ async function runMigrations() {
         estimated_duration_hours NUMERIC NOT NULL,
         last_completed_date DATE,
         next_due_date DATE,
-        skill_type_required VARCHAR DEFAULT 'general'
+        type_of_service VARCHAR DEFAULT 'general'
       );
 
       CREATE TABLE IF NOT EXISTS technicians (
         id SERIAL PRIMARY KEY,
         name VARCHAR NOT NULL,
         email VARCHAR UNIQUE NOT NULL,
-        site VARCHAR NOT NULL,
-        skill_type VARCHAR NOT NULL,
+        site VARCHAR,
+        type_of_service VARCHAR NOT NULL,
         open_task_count INTEGER DEFAULT 0
       );
 
@@ -90,6 +90,27 @@ async function runMigrations() {
         updated_at TIMESTAMP DEFAULT now()
       );
     `);
+
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'assets' AND column_name = 'skill_type_required'
+        ) THEN
+          ALTER TABLE assets RENAME COLUMN skill_type_required TO type_of_service;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'technicians' AND column_name = 'skill_type'
+        ) THEN
+          ALTER TABLE technicians RENAME COLUMN skill_type TO type_of_service;
+        END IF;
+      END $$;
+    `);
+
+    await pool.query(`ALTER TABLE technicians ALTER COLUMN site DROP NOT NULL;`);
 
     const defaultSettings = [
       ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],

@@ -14,9 +14,9 @@ interface Technician {
   id: string;
   name: string;
   email?: string | null;
-  site: string;
-  skill_type: string;
+  type_of_service: string;
   open_task_count?: number;
+  current_location?: string | null;
 }
 
 export default function TechniciansPage() {
@@ -29,8 +29,7 @@ export default function TechniciansPage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    site: '',
-    skill_type: '',
+    type_of_service: '',
   });
 
   useEffect(() => {
@@ -55,15 +54,14 @@ export default function TechniciansPage() {
   }
 
   async function handleSave() {
-    if (!formData.name.trim() || !formData.email.trim() || !formData.site.trim() || !formData.skill_type.trim()) return;
+    if (!formData.name.trim() || !formData.email.trim() || !formData.type_of_service.trim()) return;
 
     setSaving(true);
     try {
       const data = {
         name: formData.name,
         email: formData.email,
-        site: formData.site,
-        skill_type: formData.skill_type,
+        type_of_service: formData.type_of_service,
       };
 
       const response = await fetch('/api/dashboard/technicians/add', {
@@ -89,10 +87,16 @@ export default function TechniciansPage() {
     setFormData({
       name: '',
       email: '',
-      site: '',
-      skill_type: '',
+      type_of_service: '',
     });
   }
+
+  const isAvailable = (tech: Technician) => !tech.current_location || tech.current_location === 'Available';
+
+  const getLocationBadgeColor = (tech: Technician) =>
+    isAvailable(tech) ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700';
+
+  const getLocationLabel = (tech: Technician) => (isAvailable(tech) ? 'Available' : tech.current_location);
 
   if (loading) {
     return (
@@ -112,6 +116,8 @@ export default function TechniciansPage() {
       </div>
     );
   }
+
+  const assignedCount = technicians.filter((t) => !isAvailable(t)).length;
 
   return (
     <div className="space-y-6">
@@ -142,8 +148,8 @@ export default function TechniciansPage() {
           <p className="text-2xl font-bold text-slate-800">{technicians.length}</p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <p className="text-sm text-slate-500">Unique Sites</p>
-          <p className="text-2xl font-bold text-cyan-600">{new Set(technicians.map(t => t.site).filter(Boolean)).size}</p>
+          <p className="text-sm text-slate-500">Currently Assigned</p>
+          <p className="text-2xl font-bold text-cyan-600">{assignedCount}</p>
         </div>
       </div>
 
@@ -164,9 +170,9 @@ export default function TechniciansPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-800">{tech.name}</h3>
-                    {tech.skill_type && (
+                    {tech.type_of_service && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-700 capitalize">
-                        {tech.skill_type}
+                        {tech.type_of_service}
                       </span>
                     )}
                   </div>
@@ -180,12 +186,12 @@ export default function TechniciansPage() {
                     <span className="truncate">{tech.email}</span>
                   </div>
                 )}
-                {tech.site && (
-                  <div className="flex items-center gap-2">
-                    <MapPin size={14} />
-                    <span className="truncate">{tech.site}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <MapPin size={14} />
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getLocationBadgeColor(tech)}`}>
+                    {getLocationLabel(tech)}
+                  </span>
+                </div>
                 <div className="flex items-center gap-2">
                   <ClipboardList size={14} />
                   <span>{tech.open_task_count ?? 0} open task{tech.open_task_count === 1 ? '' : 's'}</span>
@@ -225,21 +231,11 @@ export default function TechniciansPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Site *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Type of Service *</label>
             <input
               type="text"
-              value={formData.site}
-              onChange={(e) => setFormData({ ...formData, site: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              placeholder="Enter site location"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Skill Type *</label>
-            <input
-              type="text"
-              value={formData.skill_type}
-              onChange={(e) => setFormData({ ...formData, skill_type: e.target.value })}
+              value={formData.type_of_service}
+              onChange={(e) => setFormData({ ...formData, type_of_service: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
               placeholder="e.g., Electrical, Mechanical, General"
             />
@@ -253,7 +249,7 @@ export default function TechniciansPage() {
             </button>
             <button
               onClick={handleSave}
-              disabled={!formData.name.trim() || !formData.email.trim() || !formData.site.trim() || !formData.skill_type.trim() || saving}
+              disabled={!formData.name.trim() || !formData.email.trim() || !formData.type_of_service.trim() || saving}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-shadow disabled:opacity-50"
             >
               {saving ? (
