@@ -83,7 +83,38 @@ async function runMigrations() {
         role VARCHAR DEFAULT 'admin',
         created_at TIMESTAMP DEFAULT now()
       );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        key VARCHAR PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMP DEFAULT now()
+      );
     `);
+
+    const defaultSettings = [
+      ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],
+      ['senior_manager_email', process.env.SENIOR_MANAGER_EMAIL || ''],
+      ['daily_check_time', '6'],
+      ['working_hours_start', '07:30'],
+      ['working_hours_end', '16:30'],
+      ['timezone', 'Asia/Bahrain'],
+      ['notify_email_enabled', 'true'],
+      ['notify_teams_enabled', 'true'],
+      ['notify_calendar_enabled', 'true'],
+      ['notify_reminders_enabled', 'true'],
+      ['reminder_first_days', '7'],
+      ['reminder_second_days', '3'],
+      ['reminder_final_days', '1'],
+      ['escalation_days_after_due', '0'],
+      ['ai_model', 'llama-3.1-8b-instant'],
+    ];
+
+    for (const [key, value] of defaultSettings) {
+      await pool.query(
+        `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+        [key, value]
+      );
+    }
 
     console.log('Migration complete: all tables created or already exist.');
   } catch (error) {

@@ -1,7 +1,7 @@
 const path = require('path');
 const dotenv = require('dotenv');
 const cron = require('node-cron');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
 
@@ -10,8 +10,6 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL;
-const teamGroupId = process.env.TEAM_GROUP_ID;
-const teamsChannelId = process.env.TEAMS_CHANNEL_ID;
 
 function decodeHtmlEntities(value) {
   return String(value || '')
@@ -96,22 +94,22 @@ function parseJsonResponse(rawText) {
   return JSON.parse(cleaned);
 }
 
-async function callGemini(prompt, emailBody) {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+async function callGroq(prompt, emailBody) {
+  const apiKey = process.env.GROQ_API_KEY;
+  const groq = new Groq({ apiKey });
+  const messages = [{ role: 'user', content: `${prompt}\n\nEmail content:\n${emailBody}` }];
 
   try {
-    const result = await model.generateContent(`${prompt}\n\nEmail content:\n${emailBody}`);
-    return result.response.text();
+    const completion = await groq.chat.completions.create({ messages, model: 'llama-3.1-8b-instant' });
+    return completion.choices[0].message.content;
   } catch (error) {
     if (error?.status === 429) {
       console.warn('Rate limit hit, waiting 30 seconds then retry');
       await sleep(30000);
 
       try {
-        const retryResult = await model.generateContent(`${prompt}\n\nEmail content:\n${emailBody}`);
-        return retryResult.response.text();
+        const retryCompletion = await groq.chat.completions.create({ messages, model: 'llama-3.1-8b-instant' });
+        return retryCompletion.choices[0].message.content;
       } catch (retryError) {
         console.error('Email skipped due to rate limit');
         throw retryError;
@@ -129,7 +127,7 @@ async function summarizeEmail(cleanedText) {
     'Return only a valid JSON object with fields summary and category.'
   ].join(' ');
 
-  const responseText = await callGemini(prompt, cleanedText);
+  const responseText = await callGroq(prompt, cleanedText);
   return parseJsonResponse(responseText);
 }
 
@@ -139,7 +137,7 @@ async function extractActionItems(cleanedText) {
     'Return only the JSON array nothing else.'
   ].join(' ');
 
-  const responseText = await callGemini(prompt, cleanedText);
+  const responseText = await callGroq(prompt, cleanedText);
   return parseJsonResponse(responseText);
 }
 
@@ -168,21 +166,6 @@ async function createPlannerTask(actionItem) {
 
   const createdTask = await graphRequest('POST', '/planner/tasks', body, 'app');
   return createdTask?.id || null;
-}
-
-async function postSummaryToTeams(subject, summary, category) {
-  if (!teamGroupId || !teamsChannelId) {
-    return;
-  }
-
-  const body = {
-    body: {
-      contentType: 'html',
-      content: `<p><strong>${category || 'Other'}</strong>: ${subject || '(no subject)'}</p><p>${summary || ''}</p>`,
-    },
-  };
-
-  await graphRequest('POST', `/teams/${teamGroupId}/channels/${teamsChannelId}/messages`, body, 'delegated');
 }
 
 async function markEmailAsRead(messageId) {
@@ -313,7 +296,6 @@ async function processEmails() {
 
       if (savedSummary?.id) {
         await saveActionItems(savedSummary.id, actionItemsArray);
-        await postSummaryToTeams(message.subject, summaryResult?.summary, summaryResult?.category);
       }
 
       results.push({

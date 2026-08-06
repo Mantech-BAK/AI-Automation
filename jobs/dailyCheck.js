@@ -157,7 +157,13 @@ async function checkTechnicianAvailability(technicianEmail, isoDate, estimatedDu
     minimumAttendeePercentage: 100,
   };
 
-  return graphRequest('POST', `/users/${SERVICE_ACCOUNT_EMAIL}/findMeetingTimes`, body, 'app');
+  return graphRequest(
+    'POST',
+    `/users/${SERVICE_ACCOUNT_EMAIL}/findMeetingTimes`,
+    body,
+    'app',
+    { Prefer: 'outlook.timezone="Arab Standard Time"' }
+  );
 }
 
 function findValidSlot(findMeetingTimesResult) {
@@ -199,10 +205,13 @@ async function findAvailableTechnician(siteLocation, skillTypeRequired, dueDate,
   }
 
   let candidateDate = parseDateValue(dueDate) || new Date();
+  const originalIsoDate = isoDateOnly(candidateDate);
 
   for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
     if (dayOffset > 0) {
+      const previousIsoDate = isoDateOnly(candidateDate);
       candidateDate = nextBusinessDay(candidateDate);
+      console.log(`No technician available on ${previousIsoDate}, trying ${isoDateOnly(candidateDate)}`);
     }
 
     const isoDate = isoDateOnly(candidateDate);
@@ -227,10 +236,14 @@ async function findAvailableTechnician(siteLocation, skillTypeRequired, dueDate,
     if (availableCandidates.length > 0) {
       availableCandidates.sort((a, b) => a.technician.open_task_count - b.technician.open_task_count);
       const chosen = availableCandidates[0];
+      const timeLabelMatch = /T(\d{2}:\d{2})/.exec(chosen.slot.dateTime || '');
+      const timeLabel = timeLabelMatch ? timeLabelMatch[1] : chosen.slot.dateTime;
+      console.log(`Found available slot on ${isoDate} at ${timeLabel} for ${chosen.technician.name}`);
       return {
         technician: chosen.technician,
         slotDateTime: chosen.slot.dateTime,
         slotTimeZone: chosen.slot.timeZone,
+        slotDate: isoDate,
       };
     }
   }
@@ -240,10 +253,13 @@ async function findAvailableTechnician(siteLocation, skillTypeRequired, dueDate,
     technician: eligibleTechnicians[0],
     slotDateTime: null,
     slotTimeZone: 'Asia/Bahrain',
+    slotDate: originalIsoDate,
   };
 }
 
-async function assignTaskAndNotify(workOrder, asset, technician, slotDateTime = null) {
+async function assignTaskAndNotify(workOrder, asset, technician, availability = {}) {
+  const effectiveDueDate = availability.slotDate || workOrder.due_date || asset.next_due_date;
+
   let plannerTaskId;
   try {
     plannerTaskId = await createPlannerTask(asset);
@@ -254,8 +270,8 @@ async function assignTaskAndNotify(workOrder, asset, technician, slotDateTime = 
   }
 
   await pool.query(
-    `UPDATE work_orders SET status = 'open', technician_id = $1, planner_task_id = $2 WHERE id = $3`,
-    [technician.id, plannerTaskId, workOrder.id]
+    `UPDATE work_orders SET status = 'open', technician_id = $1, planner_task_id = $2, due_date = $3 WHERE id = $4`,
+    [technician.id, plannerTaskId, effectiveDueDate, workOrder.id]
   );
 
   await pool.query(
@@ -263,14 +279,14 @@ async function assignTaskAndNotify(workOrder, asset, technician, slotDateTime = 
     [technician.id]
   );
 
-  const emailBody = `New maintenance task created:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nTechnician: ${technician.name}\nDue date: ${asset.next_due_date}\nDuration: ${asset.estimated_duration_hours} hours`;
+  const emailBody = `New maintenance task created:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nTechnician: ${technician.name}\nDue date: ${effectiveDueDate}\nDuration: ${asset.estimated_duration_hours} hours`;
   try {
     await sendMail(MAINTENANCE_MANAGER_EMAIL, 'New Maintenance Task', emailBody, 'app');
   } catch (error) {
     console.warn('Email sending skipped and continue running');
   }
 
-  const teamsBody = `New maintenance task created for <b>${asset.equipment_name}</b> at <b>${asset.site_location}</b>. Assigned to <b>${technician.name}</b>. Due <b>${asset.next_due_date}</b> for ${asset.estimated_duration_hours} hours.`;
+  const teamsBody = `New maintenance task created for <b>${asset.equipment_name}</b> at <b>${asset.site_location}</b>. Assigned to <b>${technician.name}</b>. Due <b>${effectiveDueDate}</b> for ${asset.estimated_duration_hours} hours.`;
   try {
     await postTeamsMessage(teamsBody);
   } catch (error) {
@@ -278,7 +294,7 @@ async function assignTaskAndNotify(workOrder, asset, technician, slotDateTime = 
   }
 
   try {
-    await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, workOrder.due_date || asset.next_due_date, slotDateTime);
+    await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, effectiveDueDate, availability.slotDateTime);
   } catch (error) {
     console.warn('Calendar event skipped and continue running');
   }
@@ -322,7 +338,7 @@ async function createTaskForWorkOrder(workOrderId) {
   }
 
   const technician = availability.technician;
-  await assignTaskAndNotify(workOrder, asset, technician, availability.slotDateTime);
+  await assignTaskAndNotify(workOrder, asset, technician, availability);
 }
 
 function getSendMailEndpoint(authType = 'delegated') {
@@ -502,6 +518,7 @@ async function runDailyCheck() {
     }
 
     const technician = availability.technician;
+    const effectiveDueDate = availability.slotDate || asset.next_due_date;
 
     const plannerTaskId = await createPlannerTask(asset);
     await assignPlannerTask(plannerTaskId, technician);
@@ -510,7 +527,7 @@ async function runDailyCheck() {
       `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date)
        VALUES ('open', $1, $2, $3, $4)
        RETURNING *`,
-      [asset.id, technician.id, plannerTaskId, asset.next_due_date]
+      [asset.id, technician.id, plannerTaskId, effectiveDueDate]
     );
 
     const workOrder = workOrderResult.rows[0];
@@ -520,14 +537,14 @@ async function runDailyCheck() {
       [technician.id]
     );
 
-    const emailBody = `New maintenance task created:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nTechnician: ${technician.name}\nDue date: ${asset.next_due_date}\nDuration: ${asset.estimated_duration_hours} hours`;
+    const emailBody = `New maintenance task created:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nTechnician: ${technician.name}\nDue date: ${effectiveDueDate}\nDuration: ${asset.estimated_duration_hours} hours`;
     try {
       await sendMail(MAINTENANCE_MANAGER_EMAIL, 'New Maintenance Task', emailBody, 'app');
     } catch (error) {
       console.warn('Email sending skipped and continue running');
     }
 
-    const teamsBody = `New maintenance task created for <b>${asset.equipment_name}</b> at <b>${asset.site_location}</b>. Assigned to <b>${technician.name}</b>. Due <b>${asset.next_due_date}</b> for ${asset.estimated_duration_hours} hours.`;
+    const teamsBody = `New maintenance task created for <b>${asset.equipment_name}</b> at <b>${asset.site_location}</b>. Assigned to <b>${technician.name}</b>. Due <b>${effectiveDueDate}</b> for ${asset.estimated_duration_hours} hours.`;
     try {
       await postTeamsMessage(teamsBody);
     } catch (error) {
@@ -535,7 +552,7 @@ async function runDailyCheck() {
     }
 
     try {
-      await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, asset.next_due_date, availability.slotDateTime);
+      await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, effectiveDueDate, availability.slotDateTime);
     } catch (error) {
       console.warn('Calendar event skipped and continue running');
     }
@@ -612,6 +629,11 @@ async function runDailyCheck() {
       [workOrder.id, SENIOR_MANAGER_EMAIL]
     );
   }
+
+  await pool.query(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('last_daily_check_run', NOW()::text, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`
+  );
 }
 
 cron.schedule('0 6 * * *', async () => {

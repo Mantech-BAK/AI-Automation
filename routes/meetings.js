@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const dotenv = require('dotenv');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const { graphRequest } = require('../graph/client');
 const { pool } = require('../db');
 
@@ -70,12 +70,14 @@ function parseJsonResponse(rawText) {
   return JSON.parse(cleaned);
 }
 
-async function callGemini(prompt, content) {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-  const result = await model.generateContent(`${prompt}\n\nMeeting notes:\n${content}`);
-  return result.response.text();
+async function callGroq(prompt, content) {
+  const apiKey = process.env.GROQ_API_KEY;
+  const groq = new Groq({ apiKey });
+  const completion = await groq.chat.completions.create({
+    messages: [{ role: 'user', content: `${prompt}\n\nMeeting notes:\n${content}` }],
+    model: 'llama-3.1-8b-instant',
+  });
+  return completion.choices[0].message.content;
 }
 
 async function extractMeetingActionItems(notes) {
@@ -84,7 +86,7 @@ async function extractMeetingActionItems(notes) {
     'Return only the JSON array nothing else.',
   ].join(' ');
 
-  const responseText = await callGemini(prompt, notes);
+  const responseText = await callGroq(prompt, notes);
   return parseJsonResponse(responseText);
 }
 
