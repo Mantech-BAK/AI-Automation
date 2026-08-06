@@ -7,9 +7,20 @@ import {
   CalendarDays,
   CheckCircle2,
   AlertTriangle,
+  Plus,
+  Save,
+  Trash2,
 } from 'lucide-react';
+import Modal from './Modal';
 
-interface Site {
+interface SiteRecord {
+  id: string;
+  site_name: string;
+  location?: string | null;
+  description?: string | null;
+}
+
+interface SiteStat {
   site_location: string;
   equipment_count: number;
   open_work_orders: number;
@@ -28,7 +39,8 @@ function todayIsoDate() {
 }
 
 export default function SitesPage() {
-  const [sites, setSites] = useState<Site[]>([]);
+  const [siteRecords, setSiteRecords] = useState<SiteRecord[]>([]);
+  const [siteStats, setSiteStats] = useState<SiteStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +48,14 @@ export default function SitesPage() {
   const [siteTasks, setSiteTasks] = useState<SiteTaskBreakdown[]>([]);
   const [siteTasksLoading, setSiteTasksLoading] = useState(true);
   const [siteTasksError, setSiteTasksError] = useState<string | null>(null);
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({ site_name: '', location: '', description: '' });
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteErrors, setDeleteErrors] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     fetchSites();
@@ -47,12 +67,20 @@ export default function SitesPage() {
 
   async function fetchSites() {
     try {
-      const response = await fetch('/api/dashboard/sites');
-      if (!response.ok) {
-        throw new Error(`Failed to load sites: ${response.statusText}`);
+      const [listRes, statsRes] = await Promise.all([
+        fetch('/api/dashboard/sites/list'),
+        fetch('/api/dashboard/sites'),
+      ]);
+      if (!listRes.ok) {
+        throw new Error(`Failed to load sites: ${listRes.statusText}`);
       }
-      const json: Site[] = await response.json();
-      setSites(json);
+      if (!statsRes.ok) {
+        throw new Error(`Failed to load site stats: ${statsRes.statusText}`);
+      }
+      const listJson: SiteRecord[] = await listRes.json();
+      const statsJson: SiteStat[] = await statsRes.json();
+      setSiteRecords(listJson);
+      setSiteStats(statsJson);
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       console.error('Error fetching sites:', fetchError);
@@ -81,6 +109,65 @@ export default function SitesPage() {
     }
   }
 
+  function resetForm() {
+    setFormData({ site_name: '', location: '', description: '' });
+    setAddError(null);
+  }
+
+  async function handleSave() {
+    if (!formData.site_name.trim()) return;
+
+    setSaving(true);
+    setAddError(null);
+    try {
+      const response = await fetch('/api/dashboard/sites/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_name: formData.site_name,
+          location: formData.location || null,
+          description: formData.description || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Failed to save site: ${response.statusText}`);
+      }
+
+      setAddModalOpen(false);
+      resetForm();
+      fetchSites();
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      setAddError(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(site: SiteRecord) {
+    setDeletingId(site.id);
+    setDeleteErrors((prev) => {
+      const next = new Map(prev);
+      next.delete(site.id);
+      return next;
+    });
+    try {
+      const response = await fetch(`/api/dashboard/sites/${site.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Failed to delete site: ${response.statusText}`);
+      }
+      fetchSites();
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      setDeleteErrors((prev) => new Map(prev).set(site.id, message));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -100,22 +187,43 @@ export default function SitesPage() {
     );
   }
 
+  const sites = siteRecords.map((record) => {
+    const stat = siteStats.find((s) => s.site_location === record.site_name);
+    return {
+      ...record,
+      equipment_count: Number(stat?.equipment_count || 0),
+      open_work_orders: Number(stat?.open_work_orders || 0),
+    };
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Sites</h1>
-          <p className="text-slate-500 mt-1">Facilities derived from your equipment locations</p>
+          <p className="text-slate-500 mt-1">Manage your facility locations</p>
         </div>
-        <div className="flex items-center gap-2">
-          <CalendarDays size={18} className="text-slate-400" />
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-          />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={18} className="text-slate-400" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            onClick={() => {
+              resetForm();
+              setAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
+          >
+            <Plus size={18} />
+            Add New Site
+          </button>
         </div>
       </div>
 
@@ -172,7 +280,7 @@ export default function SitesPage() {
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-200">
           <p className="text-sm text-slate-500">Total Open Work Orders</p>
-          <p className="text-2xl font-bold text-amber-600">{sites.reduce((sum, s) => sum + Number(s.open_work_orders || 0), 0)}</p>
+          <p className="text-2xl font-bold text-amber-600">{sites.reduce((sum, s) => sum + s.open_work_orders, 0)}</p>
         </div>
       </div>
 
@@ -181,17 +289,40 @@ export default function SitesPage() {
         {sites.length === 0 ? (
           <div className="col-span-full bg-white rounded-xl p-12 text-center border border-slate-200">
             <MapPin size={40} className="mx-auto text-slate-300 mb-2" />
-            <p className="text-slate-500">No sites found. Add equipment with a site location to see sites here.</p>
+            <p className="text-slate-500">No sites found. Click "Add New Site" to create one.</p>
           </div>
         ) : (
           sites.map((site) => (
-            <div key={site.site_location} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center">
-                  <MapPin size={20} className="text-teal-600" />
+            <div key={site.id} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center flex-shrink-0">
+                    <MapPin size={20} className="text-teal-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-slate-800 truncate">{site.site_name}</h3>
+                    {site.location && <p className="text-xs text-slate-500 truncate">{site.location}</p>}
+                  </div>
                 </div>
-                <h3 className="font-semibold text-slate-800">{site.site_location}</h3>
+                <button
+                  onClick={() => handleDelete(site)}
+                  disabled={deletingId === site.id}
+                  title="Delete site"
+                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+                >
+                  {deletingId === site.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                </button>
               </div>
+
+              {site.description && (
+                <p className="text-sm text-slate-500 mb-3">{site.description}</p>
+              )}
+
+              {deleteErrors.has(site.id) && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 mb-3">
+                  {deleteErrors.get(site.id)}
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
                 <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -213,6 +344,77 @@ export default function SitesPage() {
           ))
         )}
       </div>
+
+      {/* Add Site Modal */}
+      <Modal
+        isOpen={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        title="Add New Site"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Site Name *</label>
+            <input
+              type="text"
+              value={formData.site_name}
+              onChange={(e) => setFormData({ ...formData, site_name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="e.g., Site E"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+            <input
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="e.g., Building 3, North Wing"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            <input
+              type="text"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="Optional description"
+            />
+          </div>
+
+          {addError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{addError}</p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              onClick={() => setAddModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!formData.site_name.trim() || saving}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-shadow disabled:opacity-50"
+            >
+              {saving ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  Save
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

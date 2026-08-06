@@ -18,12 +18,19 @@ interface Equipment {
   type_of_service?: string | null;
 }
 
+interface SiteOption {
+  id: string;
+  site_name: string;
+}
+
 export default function EquipmentPage() {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
+  const [siteOptionsLoading, setSiteOptionsLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     equipment_name: '',
@@ -99,6 +106,22 @@ export default function EquipmentPage() {
     });
   }
 
+  async function fetchSiteOptions() {
+    setSiteOptionsLoading(true);
+    try {
+      const response = await fetch('/api/dashboard/sites/list');
+      if (!response.ok) {
+        throw new Error(`Failed to load sites: ${response.statusText}`);
+      }
+      const json: SiteOption[] = await response.json();
+      setSiteOptions(json);
+    } catch (fetchError) {
+      console.error('Error fetching site options:', fetchError);
+    } finally {
+      setSiteOptionsLoading(false);
+    }
+  }
+
   const getDueDateStatus = (nextDueDate?: string | null): 'overdue' | 'soon' | 'ok' | 'none' => {
     if (!nextDueDate) return 'none';
     const due = new Date(nextDueDate);
@@ -157,6 +180,7 @@ export default function EquipmentPage() {
             onClick={() => {
               resetForm();
               setAddModalOpen(true);
+              fetchSiteOptions();
             }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
           >
@@ -257,13 +281,22 @@ export default function EquipmentPage() {
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Site Location *</label>
-              <input
-                type="text"
+              <select
                 value={formData.site_location}
                 onChange={(e) => setFormData({ ...formData, site_location: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                placeholder="Enter site location"
-              />
+                disabled={siteOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{siteOptionsLoading ? 'Loading sites...' : 'Select a site'}</option>
+                {siteOptions.map((site) => (
+                  <option key={site.id} value={site.site_name}>
+                    {site.site_name}
+                  </option>
+                ))}
+              </select>
+              {!siteOptionsLoading && siteOptions.length === 0 && (
+                <p className="text-xs text-slate-400 mt-1">No sites found. Add one on the Sites page first.</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Maintenance Interval (days)</label>

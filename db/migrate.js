@@ -89,6 +89,19 @@ async function runMigrations() {
         value TEXT,
         updated_at TIMESTAMP DEFAULT now()
       );
+
+      CREATE TABLE IF NOT EXISTS sites (
+        id SERIAL PRIMARY KEY,
+        site_name VARCHAR NOT NULL UNIQUE,
+        location VARCHAR,
+        description VARCHAR,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      INSERT INTO sites (site_name) VALUES ('Site A'), ('Site B'), ('Site C'), ('Site D')
+      ON CONFLICT DO NOTHING
     `);
 
     await pool.query(`

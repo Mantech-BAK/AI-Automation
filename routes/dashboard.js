@@ -229,6 +229,69 @@ router.get('/sites/tasks', async (req, res) => {
   }
 });
 
+router.get('/sites/list', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM sites ORDER BY site_name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Sites list query failed:', error);
+    return res.status(500).json({ error: 'Failed to load sites list' });
+  }
+});
+
+router.post('/sites/add', async (req, res) => {
+  try {
+    const { site_name, location, description } = req.body;
+
+    if (!site_name || typeof site_name !== 'string' || !site_name.trim()) {
+      return res.status(400).json({ error: 'site_name is required' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO sites (site_name, location, description)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [site_name.trim(), location || null, description || null]
+    );
+
+    return res.status(201).json(rows[0]);
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'A site with this name already exists' });
+    }
+    console.error('Add site failed:', error);
+    return res.status(500).json({ error: 'Failed to add site' });
+  }
+});
+
+router.delete('/sites/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows: siteRows } = await pool.query(`SELECT * FROM sites WHERE id = $1`, [id]);
+    const site = siteRows[0];
+
+    if (!site) {
+      return res.status(404).json({ error: 'Site not found' });
+    }
+
+    const { rows: assetRows } = await pool.query(
+      `SELECT COUNT(*) AS count FROM assets WHERE site_location = $1`,
+      [site.site_name]
+    );
+
+    if (Number(assetRows[0]?.count || 0) > 0) {
+      return res.status(400).json({ error: 'Cannot delete — site has existing equipment' });
+    }
+
+    await pool.query(`DELETE FROM sites WHERE id = $1`, [id]);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Delete site failed:', error);
+    return res.status(500).json({ error: 'Failed to delete site' });
+  }
+});
+
 router.get('/email-summaries', async (req, res) => {
   try {
     const { rows } = await pool.query(`
