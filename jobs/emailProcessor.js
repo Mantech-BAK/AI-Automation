@@ -11,6 +11,15 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL;
 
+function sanitizeDueDate(value) {
+  if (!value) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed === 'null' || trimmed === 'undefined' || trimmed === '') return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
 function decodeHtmlEntities(value) {
   return String(value || '')
     .replace(/&nbsp;/gi, ' ')
@@ -191,8 +200,9 @@ async function createPlannerTask(actionItem) {
     assignments: {},
   };
 
-  if (typeof actionItem.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(actionItem.due_date)) {
-    body.dueDateTime = `${actionItem.due_date}T00:00:00Z`;
+  const sanitizedDueDate = sanitizeDueDate(actionItem.due_date);
+  if (sanitizedDueDate) {
+    body.dueDateTime = `${sanitizedDueDate}T00:00:00Z`;
   }
 
   const createdTask = await graphRequest('POST', '/planner/tasks', body, 'app');
@@ -229,7 +239,7 @@ async function saveActionItems(summaryId, actionItems) {
       `INSERT INTO email_action_items (email_summary_id, title, assigned_to, due_date, estimated_hours, planner_task_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [summaryId, normalized.title, normalized.assigned_to, normalized.due_date || null, normalized.estimated_hours, plannerTaskId || null]
+      [summaryId, normalized.title, normalized.assigned_to, sanitizeDueDate(item.due_date), normalized.estimated_hours, plannerTaskId || null]
     );
 
     savedItems.push(result.rows[0]);
