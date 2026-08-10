@@ -85,13 +85,41 @@ function cleanEmailBody(body) {
 }
 
 function parseJsonResponse(rawText) {
-  const cleaned = String(rawText || '')
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+  const original = String(rawText || '');
 
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(original);
+  } catch (firstError) {
+    let recovered = original
+      .replace(/'/g, '"')
+      .replace(/,(\s*[\]}])/g, '$1')
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    return JSON.parse(recovered);
+  }
+}
+
+function parseJsonArrayResponse(rawText) {
+  const text = String(rawText || '');
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+
+  if (start === -1 || end === -1 || end < start) {
+    console.warn('Could not parse action items JSON: no JSON array found in response');
+    return [];
+  }
+
+  const candidate = text.slice(start, end + 1);
+
+  try {
+    return JSON.parse(candidate);
+  } catch (error) {
+    console.warn('Could not parse action items JSON:', error);
+    return [];
+  }
 }
 
 async function callGroq(prompt, emailBody) {
@@ -138,7 +166,7 @@ async function extractActionItems(cleanedText) {
   ].join(' ');
 
   const responseText = await callGroq(prompt, cleanedText);
-  return parseJsonResponse(responseText);
+  return parseJsonArrayResponse(responseText);
 }
 
 function normalizeActionItem(item) {
@@ -161,8 +189,11 @@ async function createPlannerTask(actionItem) {
     planId,
     title: actionItem.title,
     assignments: {},
-    dueDateTime: actionItem.due_date ? `${actionItem.due_date}T00:00:00Z` : null,
   };
+
+  if (typeof actionItem.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(actionItem.due_date)) {
+    body.dueDateTime = `${actionItem.due_date}T00:00:00Z`;
+  }
 
   const createdTask = await graphRequest('POST', '/planner/tasks', body, 'app');
   return createdTask?.id || null;
