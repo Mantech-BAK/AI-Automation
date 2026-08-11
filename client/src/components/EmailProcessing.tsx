@@ -34,6 +34,13 @@ interface ProcessedEmail {
 
 type EmailCategory = 'all' | 'Maintenance Request' | 'Work Report' | 'Vendor' | 'Escalation' | 'Inquiry' | 'Other';
 
+function getSenderDisplay(sender?: string | null): string {
+  if (!sender) return 'Unknown sender';
+  const angleBracketIndex = sender.indexOf('<');
+  if (angleBracketIndex === -1) return sender;
+  return sender.slice(0, angleBracketIndex).trim() || sender;
+}
+
 const categoryConfig: Record<Exclude<EmailCategory, 'all'>, { color: string }> = {
   'Maintenance Request': { color: 'bg-blue-100 text-blue-700' },
   'Work Report': { color: 'bg-emerald-100 text-emerald-700' },
@@ -242,7 +249,7 @@ export default function EmailProcessing() {
                       <User size={18} className="text-slate-500" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-slate-800 text-sm truncate">{email.sender || 'Unknown sender'}</p>
+                      <p className="font-medium text-slate-800 text-sm truncate">{getSenderDisplay(email.sender)}</p>
                       {email.date_received && (
                         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                           <Clock size={12} />

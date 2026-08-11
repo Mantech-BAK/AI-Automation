@@ -292,7 +292,7 @@ async function processEmails() {
 
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const filter = `isRead eq false and receivedDateTime ge ${yesterday}`;
-  const endpoint = `/users/${encodeURIComponent(serviceAccountEmail)}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,body,receivedDateTime&$top=10`;
+  const endpoint = `/users/${encodeURIComponent(serviceAccountEmail)}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,body,receivedDateTime,from&$top=10`;
   const data = await graphRequest('GET', endpoint, null, 'app');
   const messages = Array.isArray(data?.value) ? data.value : [];
   const results = [];
@@ -326,9 +326,13 @@ async function processEmails() {
       const actionItems = await extractActionItems(cleanedText);
       const actionItemsArray = Array.isArray(actionItems) ? actionItems : [];
 
+      const senderName = message.from?.emailAddress?.name || message.from?.emailAddress?.address || 'Unknown';
+      const senderEmail = message.from?.emailAddress?.address || '';
+      const sender = senderName !== senderEmail && senderName ? senderName + ' <' + senderEmail + '>' : senderEmail;
+
       const savedSummary = await saveSummaryToDatabase({
         messageId: message.id,
-        sender: message.from?.emailAddress?.address || null,
+        sender: sender || null,
         subject: message.subject || null,
         summaryText: summaryResult?.summary || null,
         category: summaryResult?.category || 'Other',
