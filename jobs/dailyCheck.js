@@ -195,8 +195,8 @@ function findValidSlot(findMeetingTimesResult) {
 
 async function findAvailableTechnician(siteLocation, typeOfService, dueDate, estimatedDurationHours) {
   const eligibleResult = await pool.query(
-    `SELECT * FROM technicians WHERE site = $1 AND LOWER(type_of_service) = LOWER($2) ORDER BY open_task_count ASC`,
-    [siteLocation, typeOfService]
+    `SELECT * FROM technicians WHERE LOWER(type_of_service) = LOWER($1) ORDER BY open_task_count ASC`,
+    [typeOfService]
   );
 
   const eligibleTechnicians = eligibleResult.rows;

@@ -137,7 +137,8 @@ router.get('/technicians', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT
         t.*,
-        COALESCE(a.site_location, 'Available') AS current_location
+        a.site_location AS current_site,
+        a.equipment_name AS current_task
       FROM technicians t
       LEFT JOIN LATERAL (
         SELECT wo.asset_id

@@ -18,7 +18,6 @@ async function runMigrations() {
         id SERIAL PRIMARY KEY,
         name VARCHAR NOT NULL,
         email VARCHAR UNIQUE NOT NULL,
-        site VARCHAR,
         type_of_service VARCHAR NOT NULL,
         open_task_count INTEGER DEFAULT 0
       );
@@ -123,7 +122,7 @@ async function runMigrations() {
       END $$;
     `);
 
-    await pool.query(`ALTER TABLE technicians ALTER COLUMN site DROP NOT NULL;`);
+    await pool.query(`ALTER TABLE technicians DROP COLUMN IF EXISTS site;`);
 
     const defaultSettings = [
       ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],

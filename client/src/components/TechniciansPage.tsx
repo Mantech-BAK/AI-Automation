@@ -16,7 +16,8 @@ interface Technician {
   email?: string | null;
   type_of_service: string;
   open_task_count?: number;
-  current_location?: string | null;
+  current_site?: string | null;
+  current_task?: string | null;
 }
 
 export default function TechniciansPage() {
@@ -91,12 +92,12 @@ export default function TechniciansPage() {
     });
   }
 
-  const isAvailable = (tech: Technician) => !tech.current_location || tech.current_location === 'Available';
+  const isAvailable = (tech: Technician) => !tech.current_site;
 
   const getLocationBadgeColor = (tech: Technician) =>
     isAvailable(tech) ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700';
 
-  const getLocationLabel = (tech: Technician) => (isAvailable(tech) ? 'Available' : tech.current_location);
+  const getLocationLabel = (tech: Technician) => (isAvailable(tech) ? 'Available' : tech.current_site);
 
   if (loading) {
     return (
@@ -192,6 +193,11 @@ export default function TechniciansPage() {
                     {getLocationLabel(tech)}
                   </span>
                 </div>
+                {tech.current_task && (
+                  <div className="text-xs text-slate-500 pl-6">
+                    Working on: {tech.current_task}
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <ClipboardList size={14} />
                   <span>{tech.open_task_count ?? 0} open task{tech.open_task_count === 1 ? '' : 's'}</span>
