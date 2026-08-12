@@ -41,6 +41,25 @@ function getSenderDisplay(sender?: string | null): string {
   return sender.slice(0, angleBracketIndex).trim() || sender;
 }
 
+function formatBahrainDateTime(value?: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Bahrain',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(date);
+
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('day')} ${get('month')} ${get('year')} ${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}`;
+}
+
 const categoryConfig: Record<Exclude<EmailCategory, 'all'>, { color: string }> = {
   'Maintenance Request': { color: 'bg-blue-100 text-blue-700' },
   'Work Report': { color: 'bg-emerald-100 text-emerald-700' },
@@ -253,7 +272,7 @@ export default function EmailProcessing() {
                       {email.date_received && (
                         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                           <Clock size={12} />
-                          {new Date(email.date_received).toLocaleDateString()} {new Date(email.date_received).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatBahrainDateTime(email.date_received)}
                         </p>
                       )}
                     </div>

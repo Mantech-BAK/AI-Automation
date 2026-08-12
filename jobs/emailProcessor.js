@@ -11,6 +11,13 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL;
 
+function parseDateReceived(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
 const SYSTEM_SENDER_PATTERNS = ['microsoft.com', 'planner.microsoft.com', 'noreply', 'no-reply', 'donotreply', 'do-not-reply'];
 const SYSTEM_SUBJECT_PATTERNS = [
   'You have been assigned a task',
@@ -252,7 +259,7 @@ async function processEmailContent(emailBody, options = {}) {
     subject: options.subject || null,
     summaryText: summaryResult?.summary || null,
     category: summaryResult?.category || 'Other',
-    dateReceived: options.dateReceived || null,
+    dateReceived: parseDateReceived(options.dateReceived),
   });
 
   if (persistedSummary?.id) {
@@ -325,7 +332,7 @@ async function processEmails() {
         subject: message.subject || null,
         summaryText: summaryResult?.summary || null,
         category: summaryResult?.category || 'Other',
-        dateReceived: message.receivedDateTime || null,
+        dateReceived: parseDateReceived(message.receivedDateTime),
       });
 
       if (savedSummary?.id) {
