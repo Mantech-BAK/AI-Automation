@@ -59,7 +59,7 @@ async function runMigrations() {
         subject VARCHAR,
         summary_text TEXT,
         category VARCHAR,
-        date_received TIMESTAMP,
+        date_received TIMESTAMP WITH TIME ZONE,
         processed_at TIMESTAMP DEFAULT now()
       );
 
@@ -123,6 +123,21 @@ async function runMigrations() {
     `);
 
     await pool.query(`ALTER TABLE technicians DROP COLUMN IF EXISTS site;`);
+
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'email_summaries'
+            AND column_name = 'date_received'
+            AND data_type = 'timestamp without time zone'
+        ) THEN
+          ALTER TABLE email_summaries
+            ALTER COLUMN date_received TYPE TIMESTAMP WITH TIME ZONE USING date_received AT TIME ZONE 'UTC';
+        END IF;
+      END $$;
+    `);
 
     const defaultSettings = [
       ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],

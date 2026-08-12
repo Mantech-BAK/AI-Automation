@@ -41,23 +41,8 @@ function getSenderDisplay(sender?: string | null): string {
   return sender.slice(0, angleBracketIndex).trim() || sender;
 }
 
-function formatBahrainDateTime(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Bahrain',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  }).formatToParts(date);
-
-  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
-  return `${get('day')} ${get('month')} ${get('year')} ${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}`;
+function formatEmailTime(dateString: string): string {
+  return new Date(dateString).toLocaleString('en-GB', { timeZone: 'Asia/Bahrain', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
 const categoryConfig: Record<Exclude<EmailCategory, 'all'>, { color: string }> = {
@@ -272,7 +257,7 @@ export default function EmailProcessing() {
                       {email.date_received && (
                         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                           <Clock size={12} />
-                          {formatBahrainDateTime(email.date_received)}
+                          {formatEmailTime(email.date_received)}
                         </p>
                       )}
                     </div>
