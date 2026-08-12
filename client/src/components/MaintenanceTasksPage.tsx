@@ -4,6 +4,7 @@ import {
   Loader2,
   Filter,
   Search,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface MaintenanceTask {
@@ -25,6 +26,7 @@ export default function MaintenanceTasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
+  const [completingId, setCompletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -44,6 +46,23 @@ export default function MaintenanceTasksPage() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCompleteTask(taskId: string) {
+    setCompletingId(taskId);
+    try {
+      const response = await fetch(`/api/workorders/${taskId}/complete`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to complete task: ${response.statusText}`);
+      }
+      await fetchData();
+    } catch (fetchError) {
+      console.error('Error completing task:', fetchError);
+    } finally {
+      setCompletingId(null);
     }
   }
 
@@ -171,12 +190,13 @@ export default function MaintenanceTasksPage() {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Due Date</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Est. Hours</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                     <Wrench size={40} className="mx-auto text-slate-300 mb-2" />
                     <p>No tasks found.</p>
                   </td>
@@ -204,6 +224,22 @@ export default function MaintenanceTasksPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600">
                       {task.estimated_duration_hours != null ? `${task.estimated_duration_hours}h` : '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      {task.status === 'open' && (
+                        <button
+                          onClick={() => handleCompleteTask(task.id)}
+                          disabled={completingId === task.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                        >
+                          {completingId === task.id ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <CheckCircle2 size={14} />
+                          )}
+                          Complete Task
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

@@ -62,6 +62,7 @@ async function loadSettingsResponse() {
     about: {
       version: packageJson.version || '1.0.0',
       last_daily_check_run: map.last_daily_check_run || null,
+      last_email_process_run: map.last_email_process_run || null,
       total_emails_processed: emailCountResult.rows[0].count,
       total_tasks_created: taskCountResult.rows[0].count,
     },

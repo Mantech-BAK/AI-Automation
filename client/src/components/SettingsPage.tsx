@@ -9,7 +9,12 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  Play,
+  Mail,
+  Trash2,
+  ShieldAlert,
 } from 'lucide-react';
+import Modal from './Modal';
 
 interface SettingsData {
   maintenance_manager_email: string;
@@ -31,6 +36,7 @@ interface SettingsData {
   about: {
     version: string;
     last_daily_check_run: string | null;
+    last_email_process_run: string | null;
     total_emails_processed: number;
     total_tasks_created: number;
   };
@@ -56,6 +62,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   about: {
     version: '1.0.0',
     last_daily_check_run: null,
+    last_email_process_run: null,
     total_emails_processed: 0,
     total_tasks_created: 0,
   },
@@ -97,6 +104,16 @@ export default function SettingsPage() {
 
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<{ section: string; error: boolean; text: string } | null>(null);
+
+  const [runningDailyCheck, setRunningDailyCheck] = useState(false);
+  const [runningEmails, setRunningEmails] = useState(false);
+  const [dailyCheckMessage, setDailyCheckMessage] = useState<{ error: boolean; text: string } | null>(null);
+  const [emailsMessage, setEmailsMessage] = useState<{ error: boolean; text: string } | null>(null);
+
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<{ error: boolean; text: string } | null>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -165,11 +182,86 @@ export default function SettingsPage() {
     setSettings((prev) => ({ ...prev, [key]: value }));
   }
 
+  async function handleRunDailyCheck() {
+    setRunningDailyCheck(true);
+    setDailyCheckMessage(null);
+    try {
+      const response = await fetch('/api/system/run-daily-check', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const txt = await response.text().catch(() => response.statusText);
+        throw new Error(`Failed to run daily check: ${response.status} ${response.statusText} - ${txt}`);
+      }
+      const json = await response.json();
+      setDailyCheckMessage({ error: false, text: json.message });
+      await fetchSettings();
+    } catch (runError) {
+      const message = runError instanceof Error ? runError.message : 'Unknown error';
+      setDailyCheckMessage({ error: true, text: message });
+    } finally {
+      setRunningDailyCheck(false);
+    }
+  }
+
+  async function handleProcessEmails() {
+    setRunningEmails(true);
+    setEmailsMessage(null);
+    try {
+      const response = await fetch('/api/system/process-emails', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const txt = await response.text().catch(() => response.statusText);
+        throw new Error(`Failed to process emails: ${response.status} ${response.statusText} - ${txt}`);
+      }
+      const json = await response.json();
+      setEmailsMessage({ error: false, text: json.message });
+      await fetchSettings();
+    } catch (runError) {
+      const message = runError instanceof Error ? runError.message : 'Unknown error';
+      setEmailsMessage({ error: true, text: message });
+    } finally {
+      setRunningEmails(false);
+    }
+  }
+
+  async function handleResetData() {
+    console.log('handleResetData fired, confirmText =', confirmText);
+    if (confirmText !== 'CONFIRM') return;
+
+    setResetting(true);
+    setResetMessage(null);
+    try {
+      const response = await fetch('/api/system/reset-data', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const txt = await response.text().catch(() => response.statusText);
+        throw new Error(`Failed to reset data: ${response.status} ${response.statusText} - ${txt}`);
+      }
+      const json = await response.json();
+      setResetModalOpen(false);
+      setConfirmText('');
+      setResetMessage({ error: false, text: json.message });
+    } catch (resetError) {
+      const message = resetError instanceof Error ? resetError.message : 'Unknown error';
+      setResetMessage({ error: true, text: message });
+    } finally {
+      setResetting(false);
+    }
+  }
+
   const tabs = [
     { id: 'system', label: 'System Settings', icon: SettingsIcon },
     { id: 'notifications', label: 'Notification Settings', icon: Bell },
     { id: 'reminders', label: 'Reminder Settings', icon: Clock },
     { id: 'ai', label: 'AI Settings', icon: Sparkles },
+    { id: 'controls', label: 'System Controls', icon: Play },
+    { id: 'reset', label: 'Reset Data', icon: Trash2 },
     { id: 'about', label: 'About', icon: Info },
   ];
 
@@ -488,6 +580,146 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'controls' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-2">System Controls</h2>
+              <p className="text-sm text-slate-500 mb-6">Manually trigger background jobs instead of waiting for their schedule.</p>
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="flex-1">
+                    <p className="font-medium text-slate-800">Run Daily Check Now</p>
+                    <p className="text-sm text-slate-500">
+                      Last run: {settings.about.last_daily_check_run
+                        ? new Date(settings.about.last_daily_check_run).toLocaleString()
+                        : 'Never run yet'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleRunDailyCheck}
+                    disabled={runningDailyCheck}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {runningDailyCheck ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
+                    {runningDailyCheck ? 'Running...' : 'Run Daily Check Now'}
+                  </button>
+                </div>
+                {dailyCheckMessage && (
+                  <p className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                    dailyCheckMessage.error ? 'text-red-600 bg-red-50 border border-red-200' : 'text-emerald-600 bg-emerald-50 border border-emerald-200'
+                  }`}>
+                    {dailyCheckMessage.error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                    {dailyCheckMessage.text}
+                  </p>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="flex-1">
+                    <p className="font-medium text-slate-800">Process Emails Now</p>
+                    <p className="text-sm text-slate-500">
+                      Last run: {settings.about.last_email_process_run
+                        ? new Date(settings.about.last_email_process_run).toLocaleString()
+                        : 'Never run yet'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleProcessEmails}
+                    disabled={runningEmails}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {runningEmails ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+                    {runningEmails ? 'Running...' : 'Process Emails Now'}
+                  </button>
+                </div>
+                {emailsMessage && (
+                  <p className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                    emailsMessage.error ? 'text-red-600 bg-red-50 border border-red-200' : 'text-emerald-600 bg-emerald-50 border border-emerald-200'
+                  }`}>
+                    {emailsMessage.error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                    {emailsMessage.text}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reset' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-2">Reset Data</h2>
+              <p className="text-sm text-slate-500 mb-6">Clear generated activity data to start testing fresh.</p>
+              <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+                <div className="flex items-start gap-3">
+                  <ShieldAlert size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-medium text-red-800">Delete all test data</p>
+                    <p className="text-sm text-red-700 mt-1">
+                      This will permanently delete all work orders, email summaries, action items, escalation logs, and notifications.
+                      Assets, technicians, and sites will be kept.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setConfirmText('');
+                        setResetMessage(null);
+                        setResetModalOpen(true);
+                      }}
+                      className="mt-3 flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    >
+                      <Trash2 size={18} />
+                      Delete All Test Data
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {resetMessage && (
+                <p className={`mt-4 flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                  resetMessage.error ? 'text-red-600 bg-red-50 border border-red-200' : 'text-emerald-600 bg-emerald-50 border border-emerald-200'
+                }`}>
+                  {resetMessage.error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                  {resetMessage.text}
+                </p>
+              )}
+
+              <Modal
+                isOpen={resetModalOpen}
+                onClose={() => setResetModalOpen(false)}
+                title="Confirm Delete All Test Data"
+                size="md"
+              >
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    This will permanently delete all work orders, email summaries, action items, escalation logs, and notifications.
+                    Assets, technicians, and sites will be kept.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Type CONFIRM to proceed</label>
+                    <input
+                      type="text"
+                      value={confirmText}
+                      onChange={(e) => setConfirmText(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      placeholder="CONFIRM"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button
+                      onClick={() => setResetModalOpen(false)}
+                      className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleResetData}
+                      disabled={confirmText !== 'CONFIRM' || resetting}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                    >
+                      {resetting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                      {resetting ? 'Deleting...' : 'Delete All Test Data'}
+                    </button>
+                  </div>
+                </div>
+              </Modal>
+            </div>
+          )}
+
           {activeTab === 'about' && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold text-slate-800 mb-6">About</h2>
@@ -501,6 +733,14 @@ export default function SettingsPage() {
                   <p className="text-xl font-bold text-slate-800 mt-1">
                     {settings.about.last_daily_check_run
                       ? new Date(settings.about.last_daily_check_run).toLocaleString()
+                      : 'Never run yet'}
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+                  <p className="text-sm text-slate-500">Last Email Process Run</p>
+                  <p className="text-xl font-bold text-slate-800 mt-1">
+                    {settings.about.last_email_process_run
+                      ? new Date(settings.about.last_email_process_run).toLocaleString()
                       : 'Never run yet'}
                   </p>
                 </div>

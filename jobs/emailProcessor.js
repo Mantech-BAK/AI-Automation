@@ -11,6 +11,28 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL;
 
+const SYSTEM_SENDER_PATTERNS = ['microsoft.com', 'planner.microsoft.com', 'noreply', 'no-reply', 'donotreply', 'do-not-reply'];
+const SYSTEM_SUBJECT_PATTERNS = [
+  'You have been assigned a task',
+  'Task assigned to you',
+  'Planner',
+  'has been completed',
+  'due today',
+  'due tomorrow',
+  'Your task',
+  'Microsoft Planner',
+];
+
+function isSystemEmail(message) {
+  const senderEmail = (message.from?.emailAddress?.address || '').toLowerCase();
+  const subject = (message.subject || '').toLowerCase();
+
+  const senderIsSystem = SYSTEM_SENDER_PATTERNS.some((pattern) => senderEmail.includes(pattern.toLowerCase()));
+  const subjectIsSystem = SYSTEM_SUBJECT_PATTERNS.some((pattern) => subject.includes(pattern.toLowerCase()));
+
+  return senderIsSystem || subjectIsSystem;
+}
+
 function sanitizeDueDate(value) {
   if (!value) return null;
   if (typeof value !== 'string') return null;
@@ -20,77 +42,35 @@ function sanitizeDueDate(value) {
   return trimmed;
 }
 
-function decodeHtmlEntities(value) {
-  return String(value || '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
-}
+function cleanEmailBody(message) {
+  let body = '';
 
-function stripHtmlTags(value) {
-  return String(value || '')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ');
-}
-
-function cleanEmailBody(body) {
-  let text = body || '';
-  text = text.replace(/<br\s*\/?>/gi, '\n');
-  text = stripHtmlTags(text);
-  text = decodeHtmlEntities(text);
-  text = text.replace(/\r/g, '\n');
-
-  const lines = text.split('\n');
-  const cleanedLines = [];
-  let inSignature = false;
-  let hasContent = false;
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-
-    if (!line) {
-      if (hasContent) {
-        cleanedLines.push('');
-      }
-      continue;
+  if (message.body) {
+    if (message.body.contentType === 'html' || message.body.contentType === 'HTML') {
+      body = message.body.content || '';
+      body = body.replace(/<style[\s\S]*?<\/style>/gi, '');
+      body = body.replace(/<script[\s\S]*?<\/script>/gi, '');
+      body = body.replace(/<[^>]+>/g, ' ');
+      body = body.replace(/&nbsp;/gi, ' ');
+      body = body.replace(/&amp;/gi, '&');
+      body = body.replace(/&lt;/gi, '<');
+      body = body.replace(/&gt;/gi, '>');
+      body = body.replace(/&quot;/gi, '"');
+    } else {
+      body = message.body.content || '';
     }
-
-    if (/^(>|\s*>)/.test(line)) {
-      continue;
-    }
-
-    if (/^(on\s+.+\bwrote:|from:|to:|cc:|subject:|sent:|date:)/i.test(line)) {
-      continue;
-    }
-
-    if (/^(--|__|[-]{3,}|[=]{3,})$/.test(line)) {
-      inSignature = true;
-      continue;
-    }
-
-    if (inSignature) {
-      const lowered = line.toLowerCase();
-      if (/^(best|thanks|regards|kind regards|sincerely|cheers|thanks and regards|with appreciation|respectfully|warm regards)\b/.test(lowered)) {
-        continue;
-      }
-      if (/^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i.test(line)) {
-        continue;
-      }
-      if (/^(phone|mobile|office|fax|www\.)/i.test(line)) {
-        continue;
-      }
-    }
-
-    hasContent = true;
-    cleanedLines.push(line.replace(/\s+/g, ' ').trim());
   }
 
-  return cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!body || body.trim().length === 0) {
+    if (message.bodyPreview) {
+      body = message.bodyPreview;
+    }
+  }
+
+  body = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  body = body.split('\n').map(line => line.trim()).filter(line => line.length > 0).join('\n');
+  body = body.replace(/\n{3,}/g, '\n\n');
+  return body.trim();
 }
 
 function parseJsonResponse(rawText) {
@@ -117,7 +97,7 @@ function parseJsonArrayResponse(rawText) {
   const end = text.lastIndexOf(']');
 
   if (start === -1 || end === -1 || end < start) {
-    console.warn('Could not parse action items JSON: no JSON array found in response');
+    console.error('Could not parse action items JSON: no JSON array found in response');
     return [];
   }
 
@@ -126,7 +106,7 @@ function parseJsonArrayResponse(rawText) {
   try {
     return JSON.parse(candidate);
   } catch (error) {
-    console.warn('Could not parse action items JSON:', error);
+    console.error('Could not parse action items JSON:', error.message, error.stack);
     return [];
   }
 }
@@ -148,11 +128,12 @@ async function callGroq(prompt, emailBody) {
         const retryCompletion = await groq.chat.completions.create({ messages, model: 'llama-3.1-8b-instant' });
         return retryCompletion.choices[0].message.content;
       } catch (retryError) {
-        console.error('Email skipped due to rate limit');
+        console.error('Email skipped due to rate limit:', retryError.message, retryError.stack);
         throw retryError;
       }
     }
 
+    console.error('Groq API call failed:', error.message, error.stack);
     throw error;
   }
 }
@@ -160,8 +141,8 @@ async function callGroq(prompt, emailBody) {
 async function summarizeEmail(cleanedText) {
   const prompt = [
     'Summarize this maintenance email in 3 sentences focusing on what action is needed, which equipment or location is involved, and who needs to do it.',
-    'Also classify it as exactly one of: Maintenance Request, Work Report, Vendor, Escalation, Inquiry, Other.',
-    'Return only a valid JSON object with fields summary and category.'
+    'Classify this email into exactly one of these categories using these rules: Use Maintenance Request if the email reports a broken or malfunctioning piece of equipment that needs inspection or repair. Use Work Report if the email confirms that maintenance work has already been completed or provides a summary of finished tasks. Use Vendor if the email is from a supplier or contractor about quotations, deliveries, invoices, contracts, or spare parts. Use Escalation if the email uses urgent language, mentions management involvement, threatens consequences, or follows up on a previously unresolved issue. Use Inquiry if the email is asking a question or requesting information such as schedules, names, or dates without reporting a problem. Use Other for anything that does not clearly fit the above categories such as HR matters, administrative notices, or general announcements.',
+    'Return only a valid JSON object with fields summary and category, where category is exactly one of the category names above with no other text.'
   ].join(' ');
 
   const responseText = await callGroq(prompt, cleanedText);
@@ -203,6 +184,7 @@ async function createPlannerTask(actionItem) {
   const sanitizedDueDate = sanitizeDueDate(actionItem.due_date);
   if (sanitizedDueDate) {
     body.dueDateTime = `${sanitizedDueDate}T00:00:00Z`;
+    body.startDateTime = body.dueDateTime;
   }
 
   const createdTask = await graphRequest('POST', '/planner/tasks', body, 'app');
@@ -249,7 +231,7 @@ async function saveActionItems(summaryId, actionItems) {
 }
 
 async function processEmailContent(emailBody, options = {}) {
-  const cleanedText = cleanEmailBody(emailBody);
+  const cleanedText = cleanEmailBody({ body: { contentType: 'text', content: emailBody } });
 
   if (!cleanedText) {
     return {
@@ -292,7 +274,7 @@ async function processEmails() {
 
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const filter = `isRead eq false and receivedDateTime ge ${yesterday}`;
-  const endpoint = `/users/${encodeURIComponent(serviceAccountEmail)}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,body,receivedDateTime,from&$top=10`;
+  const endpoint = `/users/${encodeURIComponent(serviceAccountEmail)}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,body,bodyPreview,receivedDateTime,from&$top=10`;
   const data = await graphRequest('GET', endpoint, null, 'app');
   const messages = Array.isArray(data?.value) ? data.value : [];
   const results = [];
@@ -301,10 +283,18 @@ async function processEmails() {
   let skipped = 0;
   let total = messages.length;
 
-  for (const message of messages) {
-    console.log(`Processing email number ${processed + 1} of ${total}`);
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    console.log(`Processing email number ${i + 1} of ${total}`);
 
     try {
+      if (isSystemEmail(message)) {
+        const senderEmail = message.from?.emailAddress?.address || 'unknown sender';
+        console.log(`Skipping system email from ${senderEmail} - ${message.subject || '(no subject)'}`);
+        await markEmailAsRead(message.id);
+        continue;
+      }
+
       const existing = await pool.query(
         'SELECT id FROM email_summaries WHERE email_message_id = $1 LIMIT 1',
         [message.id]
@@ -314,8 +304,7 @@ async function processEmails() {
         continue;
       }
 
-      const bodyContent = message.body?.content || '';
-      const cleanedText = cleanEmailBody(bodyContent);
+      const cleanedText = cleanEmailBody(message);
 
       if (!cleanedText) {
         await markEmailAsRead(message.id);
@@ -351,13 +340,13 @@ async function processEmails() {
       });
       processed++;
     } catch (error) {
-      console.error(`Email processing failed for message ${message?.id}:`, error);
+      console.error(`Email processing failed for message ${message?.id}:`, error.message, error.stack);
       skipped++;
     } finally {
       try {
         await markEmailAsRead(message.id);
       } catch (markError) {
-        console.error(`Failed to mark email ${message?.id} as read:`, markError);
+        console.error(`Failed to mark email ${message?.id} as read:`, markError.message, markError.stack);
       }
     }
 
@@ -377,7 +366,7 @@ function startEmailProcessor() {
     try {
       await processEmails();
     } catch (error) {
-      console.error('Email processor job failed:', error);
+      console.error('Email processor job failed:', error.message, error.stack);
     }
   });
 }

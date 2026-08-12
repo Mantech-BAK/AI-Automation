@@ -125,6 +125,48 @@ router.post('/:id/reject', async (req, res) => {
   }
 });
 
+router.post('/:id/complete', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows: existingRows } = await pool.query(
+      `SELECT wo.*, a.id AS asset_id, a.maintenance_interval_days
+       FROM work_orders wo
+       JOIN assets a ON a.id = wo.asset_id
+       WHERE wo.id = $1
+       LIMIT 1`,
+      [id]
+    );
+    const existing = existingRows[0];
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Work order not found' });
+    }
+
+    if (existing.status === 'completed') {
+      return res.status(400).json({ error: 'Work order is already completed' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE work_orders SET status = 'completed', completed_at = NOW() WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    await pool.query(
+      `UPDATE assets
+       SET last_completed_date = CURRENT_DATE,
+           next_due_date = CURRENT_DATE + ($1 || ' days')::interval
+       WHERE id = $2`,
+      [existing.maintenance_interval_days, existing.asset_id]
+    );
+
+    return res.json({ success: true, work_order: rows[0] });
+  } catch (error) {
+    console.error('Complete work order failed:', error);
+    return res.status(500).json({ error: 'Failed to complete work order' });
+  }
+});
+
 router.get('/pending', async (req, res) => {
   try {
     const { rows } = await pool.query(`

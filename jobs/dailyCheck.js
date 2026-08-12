@@ -89,6 +89,7 @@ async function createPlannerTask(asset) {
     planId: PLANNER_PLAN_ID,
     bucketId,
     title,
+    startDateTime: dueDateTime,
     dueDateTime,
     assignments: {
       [MY_USER_ID]: {
@@ -486,6 +487,8 @@ async function logNotification(workOrderId, notificationType) {
 }
 
 async function runDailyCheck() {
+  let tasksCreated = 0;
+
   const assetsResult = await pool.query(`
     SELECT * FROM assets
     WHERE next_due_date <= CURRENT_DATE + INTERVAL '30 days'
@@ -531,6 +534,7 @@ async function runDailyCheck() {
     );
 
     const workOrder = workOrderResult.rows[0];
+    tasksCreated++;
 
     await pool.query(
       `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
@@ -634,6 +638,8 @@ async function runDailyCheck() {
     `INSERT INTO settings (key, value, updated_at) VALUES ('last_daily_check_run', NOW()::text, NOW())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`
   );
+
+  return { tasksCreated };
 }
 
 cron.schedule('0 6 * * *', async () => {

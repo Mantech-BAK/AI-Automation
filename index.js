@@ -14,6 +14,7 @@ const workOrdersRouter = require('./routes/workorders');
 const emailRouter = require('./routes/email');
 const meetingsRouter = require('./routes/meetings');
 const settingsRouter = require('./routes/settings');
+const systemRouter = require('./routes/system');
 const { startStatusTracker } = require('./jobs/statusTracker');
 const { startEmailProcessor } = require('./jobs/emailProcessor');
 
@@ -70,6 +71,7 @@ app.use('/api/workorders', requireAuth, workOrdersRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/meetings', requireAuth, meetingsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
+app.use('/api/system', requireAuth, systemRouter);
 
 app.use(express.static(clientDistPath));
 
