@@ -337,7 +337,7 @@ router.get('/schedules', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN technicians t ON wo.technician_id = t.id
-      WHERE wo.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '60 days'
+      WHERE wo.status NOT IN ('completed', 'rejected')
       ORDER BY wo.due_date ASC
     `);
     return res.json(rows);

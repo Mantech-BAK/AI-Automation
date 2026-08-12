@@ -56,25 +56,31 @@ router.post('/reset-data', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const tables = ['email_action_items', 'email_summaries', 'escalation_log', 'notification_log', 'work_orders'];
+    const simpleTables = ['email_action_items', 'email_summaries', 'escalation_log'];
     const counts = {};
 
-    for (const table of tables) {
+    for (const table of simpleTables) {
       const result = await client.query(`DELETE FROM ${table}`);
       counts[table] = result.rowCount;
     }
 
+    const notificationResult = await client.query(
+      `DELETE FROM notification_log WHERE work_order_id NOT IN (SELECT id FROM work_orders WHERE status = 'completed')`
+    );
+    counts.notification_log = notificationResult.rowCount;
+
+    const workOrdersResult = await client.query(`DELETE FROM work_orders WHERE status != 'completed'`);
+    counts.work_orders = workOrdersResult.rowCount;
+
     await client.query('ALTER SEQUENCE email_action_items_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE email_summaries_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE escalation_log_id_seq RESTART WITH 1');
-    await client.query('ALTER SEQUENCE notification_log_id_seq RESTART WITH 1');
-    await client.query('ALTER SEQUENCE work_orders_id_seq RESTART WITH 1');
 
     await client.query('COMMIT');
 
     return res.json({
       success: true,
-      message: 'All test data has been reset. Assets, technicians, and sites were kept.',
+      message: 'Test data has been reset. Completed work orders, assets, technicians, and sites were kept.',
       counts,
     });
   } catch (error) {

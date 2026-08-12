@@ -10,6 +10,8 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const router = express.Router();
 const { SERVICE_ACCOUNT_EMAIL, PLANNER_PLAN_ID } = process.env;
 
+const PLACEHOLDER_TEAM_NOTE = 'These are placeholder members - update with real company email addresses when available.';
+
 const PLACEHOLDER_TEAM_MEMBERS = {
   facilities: [
     { name: 'Facilities Lead', email: 'facilities.lead@bakgroup.net' },
@@ -37,6 +39,26 @@ const PLACEHOLDER_TEAM_MEMBERS = {
   ],
 };
 
+const COMPANY_EMAIL_DOMAIN = 'bakgroup.net';
+
+function isCompanyDomain(email) {
+  const domain = String(email || '').split('@')[1] || '';
+  return domain.toLowerCase() === COMPANY_EMAIL_DOMAIN;
+}
+
+async function isUserInTenant(email) {
+  try {
+    await graphRequest('GET', `/users/${encodeURIComponent(email)}`, null, 'app');
+    return true;
+  } catch (error) {
+    if (error?.status === 404) {
+      return false;
+    }
+    console.warn(`Tenant lookup failed for ${email}, treating as unverified:`, error.message);
+    return false;
+  }
+}
+
 function minutesBetween(startTime, endTime) {
   const [startHour, startMinute] = startTime.split(':').map(Number);
   const [endHour, endMinute] = endTime.split(':').map(Number);
@@ -53,18 +75,71 @@ function toIso8601Duration(totalMinutes) {
   return duration;
 }
 
-async function checkAttendeesAvailability(attendees, date, startTime, endTime) {
+const WORK_DAY_START_MINUTES = 7 * 60 + 30;
+const WORK_DAY_END_MINUTES = 16 * 60 + 30;
+
+// Bahrain is UTC+3 year-round (Arabia Standard Time, no DST), so this is a
+// safe, dependency-free way to get the current Bahrain wall-clock time.
+function getBahrainNowParts() {
+  const bahrainNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return {
+    isoDate: bahrainNow.toISOString().slice(0, 10),
+    totalMinutes: bahrainNow.getUTCHours() * 60 + bahrainNow.getUTCMinutes(),
+  };
+}
+
+function computeWindowStartTime(date) {
+  const { isoDate, totalMinutes: nowMinutes } = getBahrainNowParts();
+
+  if (date !== isoDate) {
+    return '07:30:00';
+  }
+
+  let startMinutes = nowMinutes + 30;
+  startMinutes = Math.max(startMinutes, WORK_DAY_START_MINUTES);
+  startMinutes = Math.min(startMinutes, WORK_DAY_END_MINUTES);
+
+  const hour = Math.floor(startMinutes / 60);
+  const minute = startMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+}
+
+async function checkAttendeesAvailability(attendees, date, startTime, endTime, attendeeNames = {}) {
+  const verification = await Promise.all(attendees.map(async (email) => {
+    if (!isCompanyDomain(email)) {
+      return { email, verified: false, note: 'External attendee - availability not verified' };
+    }
+    const inTenant = await isUserInTenant(email);
+    if (!inTenant) {
+      return { email, verified: false, note: 'Unverified account - not found in the tenant' };
+    }
+    return { email, verified: true, note: null };
+  }));
+
+  const verifiedEmails = verification.filter((v) => v.verified).map((v) => v.email);
+
+  if (!verifiedEmails.length) {
+    console.log('No verified attendees remain after filtering - skipping findMeetingTimes call');
+    return {
+      results: verification.map((v) => ({ email: v.email, name: attendeeNames[v.email] || v.email, available: true, note: v.note })),
+      suggestions: [],
+    };
+  }
+
   const body = {
-    attendees: attendees.map((email) => ({
-      emailAddress: { address: email },
+    attendees: verifiedEmails.map((email) => ({
+      emailAddress: {
+        address: email,
+        name: attendeeNames[email] || email,
+      },
       type: 'Required',
     })),
     timeConstraint: {
       activityDomain: 'work',
       timeslots: [
         {
-          start: { dateTime: `${date}T${startTime}:00`, timeZone: 'Asia/Bahrain' },
-          end: { dateTime: `${date}T${endTime}:00`, timeZone: 'Asia/Bahrain' },
+          start: { dateTime: `${date}T${computeWindowStartTime(date)}`, timeZone: 'Arab Standard Time' },
+          end: { dateTime: `${date}T16:30:00`, timeZone: 'Arab Standard Time' },
         },
       ],
     },
@@ -73,25 +148,47 @@ async function checkAttendeesAvailability(attendees, date, startTime, endTime) {
     minimumAttendeePercentage: 0,
   };
 
+  if (verifiedEmails.length >= 2) {
+    body.isOrganizerOptional = true;
+  }
+
+  console.log('findMeetingTimes request body sent to Graph:', JSON.stringify(body, null, 2));
+
   const result = await graphRequest(
     'POST',
     `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/findMeetingTimes`,
     body,
-    'app'
+    'app',
+    { Prefer: 'outlook.timezone="Arab Standard Time"' }
   );
 
-  const suggestion = Array.isArray(result?.meetingTimeSuggestions) ? result.meetingTimeSuggestions[0] : null;
-  const attendeeAvailability = Array.isArray(suggestion?.attendeeAvailability) ? suggestion.attendeeAvailability : [];
+  console.log('findMeetingTimes raw response from Graph:', JSON.stringify(result, null, 2));
 
-  return attendees.map((email) => {
-    const entry = attendeeAvailability.find(
-      (item) => item.attendee?.emailAddress?.address?.toLowerCase() === email.toLowerCase()
-    );
-    return {
-      email,
-      available: entry?.availability === 'free',
-    };
+  const suggestions = Array.isArray(result?.meetingTimeSuggestions) ? result.meetingTimeSuggestions : [];
+  console.log('meetingTimeSuggestions array:', JSON.stringify(suggestions, null, 2));
+
+  const topSuggestions = [...suggestions]
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
+    .slice(0, 3)
+    .map((suggestion) => ({
+      start: suggestion.meetingTimeSlot?.start || null,
+      end: suggestion.meetingTimeSlot?.end || null,
+      confidence: suggestion.confidence || null,
+    }));
+
+  const hasGoodSuggestion = suggestions.some((s) => Number(s.confidence || 0) > 50);
+
+  const results = verification.map(({ email, verified, note }) => {
+    const name = attendeeNames[email] || email;
+
+    if (!verified) {
+      return { email, name, available: true, note };
+    }
+
+    return { email, name, available: hasGoodSuggestion };
   });
+
+  return { results, suggestions: topSuggestions };
 }
 
 function getNextBusinessDaysWindow(businessDays) {
@@ -229,7 +326,9 @@ router.post('/find-slots', async (req, res) => {
 
 router.post('/check-availability', async (req, res) => {
   try {
-    const { attendees, date, startTime, endTime } = req.body;
+    console.log('check-availability request body received:', JSON.stringify(req.body, null, 2));
+
+    const { attendees, attendeeNames, date, startTime, endTime } = req.body;
 
     if (!Array.isArray(attendees) || !attendees.length) {
       return res.status(400).json({ error: 'attendees array is required' });
@@ -239,8 +338,20 @@ router.post('/check-availability', async (req, res) => {
       return res.status(400).json({ error: 'date, startTime and endTime are required' });
     }
 
-    const results = await checkAttendeesAvailability(attendees, date, startTime, endTime);
-    return res.json({ results });
+    const currentUserEmail = req.session?.user?.email;
+    let fullAttendees = attendees;
+    const names = { ...(attendeeNames || {}) };
+
+    if (currentUserEmail) {
+      const rest = attendees.filter((email) => email.toLowerCase() !== currentUserEmail.toLowerCase());
+      fullAttendees = [currentUserEmail, ...rest];
+      if (req.session.user.name) {
+        names[currentUserEmail] = req.session.user.name;
+      }
+    }
+
+    const { results, suggestions } = await checkAttendeesAvailability(fullAttendees, date, startTime, endTime, names);
+    return res.json({ results, suggestions });
   } catch (error) {
     console.error('Check availability failed:', error);
     return res.status(500).json({ error: 'Failed to check availability' });
@@ -289,19 +400,6 @@ router.post('/create', async (req, res) => {
     const startDateTime = normalizeDateTime(slot.start);
     const endDateTime = normalizeDateTime(slot.end);
 
-    const onlineMeeting = await graphRequest(
-      'POST',
-      `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/onlineMeetings`,
-      {
-        startDateTime: startDateTime.dateTime,
-        endDateTime: endDateTime.dateTime,
-        subject: title,
-      },
-      'delegated'
-    );
-
-    const joinUrl = onlineMeeting?.joinWebUrl || null;
-
     const event = await graphRequest(
       'POST',
       `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events`,
@@ -309,26 +407,26 @@ router.post('/create', async (req, res) => {
         subject: title,
         start: startDateTime,
         end: endDateTime,
+        isOnlineMeeting: true,
+        onlineMeetingProvider: 'teamsForBusiness',
         attendees: attendees.map((email) => ({
           emailAddress: { address: email },
           type: 'Required',
         })),
-        body: {
-          contentType: 'html',
-          content: `<p>Join the Teams meeting: <a href="${joinUrl}">${joinUrl}</a></p>`,
-        },
       },
       'app'
     );
+
+    const joinUrl = event?.onlineMeeting?.joinUrl || null;
 
     return res.status(201).json({
       title,
       start: startDateTime,
       end: endDateTime,
       attendees,
-      joinUrl,
-      onlineMeetingId: onlineMeeting?.id || null,
       eventId: event?.id || null,
+      joinUrl,
+      onlineMeeting: event?.onlineMeeting || null,
     });
   } catch (error) {
     console.error('Create meeting failed:', error);
@@ -373,12 +471,12 @@ router.post('/teams', async (req, res) => {
 
     const teams = [
       { id: 'maintenance', name: 'Maintenance Team', members: maintenanceMembers },
-      { id: 'facilities', name: 'Facilities Team', members: PLACEHOLDER_TEAM_MEMBERS.facilities },
-      { id: 'it', name: 'IT Team', members: PLACEHOLDER_TEAM_MEMBERS.it },
-      { id: 'sales', name: 'Sales Team', members: PLACEHOLDER_TEAM_MEMBERS.sales },
-      { id: 'purchase', name: 'Purchase Team', members: PLACEHOLDER_TEAM_MEMBERS.purchase },
-      { id: 'software', name: 'Software Team', members: PLACEHOLDER_TEAM_MEMBERS.software },
-      { id: 'management', name: 'Management Team', members: PLACEHOLDER_TEAM_MEMBERS.management },
+      { id: 'facilities', name: 'Facilities Team', members: PLACEHOLDER_TEAM_MEMBERS.facilities, note: PLACEHOLDER_TEAM_NOTE },
+      { id: 'it', name: 'IT Team', members: PLACEHOLDER_TEAM_MEMBERS.it, note: PLACEHOLDER_TEAM_NOTE },
+      { id: 'sales', name: 'Sales Team', members: PLACEHOLDER_TEAM_MEMBERS.sales, note: PLACEHOLDER_TEAM_NOTE },
+      { id: 'purchase', name: 'Purchase Team', members: PLACEHOLDER_TEAM_MEMBERS.purchase, note: PLACEHOLDER_TEAM_NOTE },
+      { id: 'software', name: 'Software Team', members: PLACEHOLDER_TEAM_MEMBERS.software, note: PLACEHOLDER_TEAM_NOTE },
+      { id: 'management', name: 'Management Team', members: PLACEHOLDER_TEAM_MEMBERS.management, note: PLACEHOLDER_TEAM_NOTE },
     ];
 
     return res.json({ teams });

@@ -30,6 +30,20 @@ function dueDateKey(dueDate?: string | null): string | null {
   return dueDate.slice(0, 10);
 }
 
+function formatDueDate(dueDate?: string | null): string {
+  if (!dueDate) return '-';
+  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dueDate);
+  const iso = hasOffset ? dueDate : `${dueDate.slice(0, 10)}T00:00:00Z`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return dueDate;
+  return date.toLocaleString('en-GB', {
+    timeZone: 'Asia/Bahrain',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 export default function CalendarPage() {
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -313,7 +327,7 @@ export default function CalendarPage() {
                           {event.due_date && (
                             <p className="flex items-center gap-1.5">
                               <CalendarIcon size={12} />
-                              {new Date(event.due_date).toLocaleDateString()}
+                              {formatDueDate(event.due_date)}
                             </p>
                           )}
                         </div>

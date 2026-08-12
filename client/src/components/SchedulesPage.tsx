@@ -23,6 +23,7 @@ interface Team {
   id: string;
   name: string;
   members: TeamMember[];
+  note?: string;
 }
 
 interface GraphDateTime {
@@ -40,7 +41,15 @@ interface UpcomingMeeting {
 
 interface AvailabilityResult {
   email: string;
+  name?: string;
   available: boolean;
+  note?: string;
+}
+
+interface TimeSuggestion {
+  start: GraphDateTime | null;
+  end: GraphDateTime | null;
+  confidence: number | null;
 }
 
 interface NotesActionItem {
@@ -59,8 +68,35 @@ const DURATION_OPTIONS = [
   { label: '2 hours', minutes: 120 },
 ];
 
+// Bahrain is UTC+3 year-round (Arabia Standard Time, no DST), so this is a
+// safe, dependency-free way to get the current Bahrain wall-clock time,
+// independent of the browser's own timezone.
+function bahrainNow(): Date {
+  return new Date(Date.now() + 3 * 60 * 60 * 1000);
+}
+
 function todayIsoDate() {
-  return new Date().toISOString().split('T')[0];
+  return bahrainNow().toISOString().slice(0, 10);
+}
+
+function bahrainNowMinutes(): number {
+  const now = bahrainNow();
+  return now.getUTCHours() * 60 + now.getUTCMinutes();
+}
+
+function minutesToTimeString(totalMinutes: number): string {
+  const clamped = Math.max(0, Math.min(totalMinutes, 23 * 60 + 59));
+  const hour = Math.floor(clamped / 60);
+  const minute = clamped % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+const WORK_DAY_START_MINUTES = 7 * 60 + 30;
+const WORK_DAY_END_MINUTES = 16 * 60 + 30;
+
+function roundUpTo30Minutes(totalMinutes: number): number {
+  const remainder = totalMinutes % 30;
+  return remainder === 0 ? totalMinutes : totalMinutes + (30 - remainder);
 }
 
 function computeEndTime(startTime: string, durationMinutes: number): string {
@@ -72,11 +108,65 @@ function computeEndTime(startTime: string, durationMinutes: number): string {
   return `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
 }
 
+function graphDateTimeToUtcIso(dt?: GraphDateTime | null): string | null {
+  if (!dt?.dateTime) return null;
+  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dt.dateTime);
+  if (hasOffset) return dt.dateTime;
+  if (!dt.timeZone || dt.timeZone.toUpperCase() === 'UTC') {
+    return `${dt.dateTime}Z`;
+  }
+  return dt.dateTime;
+}
+
 function formatGraphDateTime(dt?: GraphDateTime | null) {
-  if (!dt?.dateTime) return '-';
-  const date = new Date(dt.dateTime);
-  const formatted = Number.isNaN(date.getTime()) ? dt.dateTime : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-  return `${formatted}${dt.timeZone ? ` (${dt.timeZone})` : ''}`;
+  const iso = graphDateTimeToUtcIso(dt);
+  if (!iso) return '-';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return dt?.dateTime || '-';
+  return date.toLocaleString('en-GB', {
+    timeZone: 'Asia/Bahrain',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+// findMeetingTimes suggestions come back from the backend with a Prefer:
+// outlook.timezone="Arab Standard Time" header, so dt.dateTime here is already
+// a naive Bahrain wall-clock string (not UTC) - parse it directly, no timezone
+// conversion needed, unlike formatGraphDateTime above.
+function suggestionTime24h(dt?: GraphDateTime | null): string | null {
+  const match = /^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/.exec(dt?.dateTime || '');
+  if (!match) return null;
+  return `${match[1]}:${match[2]}`;
+}
+
+function formatTime12h(time24: string | null): string {
+  if (!time24) return '-';
+  const [hourStr, minuteStr] = time24.split(':');
+  const hour = Number(hourStr);
+  if (Number.isNaN(hour)) return '-';
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${minuteStr} ${period}`;
+}
+
+function formatSuggestionRange(suggestion: TimeSuggestion): string {
+  return `${formatTime12h(suggestionTime24h(suggestion.start))} - ${formatTime12h(suggestionTime24h(suggestion.end))}`;
+}
+
+function isSuggestionInPast(suggestion: TimeSuggestion): boolean {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(suggestion.start?.dateTime || '');
+  if (!match) return false;
+  const [, dateStr, hourStr, minuteStr] = match;
+  const today = todayIsoDate();
+  if (dateStr < today) return true;
+  if (dateStr > today) return false;
+  const suggestionMinutes = Number(hourStr) * 60 + Number(minuteStr);
+  return suggestionMinutes < bahrainNowMinutes();
 }
 
 export default function SchedulesPage() {
@@ -99,6 +189,8 @@ export default function SchedulesPage() {
     new Map([[FIXED_ATTENDEE, FIXED_ATTENDEE_NAME]])
   );
   const [availabilityResults, setAvailabilityResults] = useState<AvailabilityResult[] | null>(null);
+  const [suggestions, setSuggestions] = useState<TimeSuggestion[]>([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState<number | null>(null);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
@@ -160,6 +252,8 @@ export default function SchedulesPage() {
     setExpandedTeams(new Set());
     setSelectedAttendees(new Map([[FIXED_ATTENDEE, FIXED_ATTENDEE_NAME]]));
     setAvailabilityResults(null);
+    setSuggestions([]);
+    setSelectedSuggestionIndex(null);
     setMeetingError(null);
     setScheduledJoinUrl(null);
     setMeetingModalOpen(true);
@@ -190,6 +284,8 @@ export default function SchedulesPage() {
   function toggleTeam(team: Team) {
     const fullySelected = isTeamFullySelected(team);
     setAvailabilityResults(null);
+    setSuggestions([]);
+    setSelectedSuggestionIndex(null);
     setSelectedAttendees((prev) => {
       const next = new Map(prev);
       if (fullySelected) {
@@ -210,6 +306,8 @@ export default function SchedulesPage() {
   function toggleMember(member: TeamMember) {
     if (member.email === FIXED_ATTENDEE) return;
     setAvailabilityResults(null);
+    setSuggestions([]);
+    setSelectedSuggestionIndex(null);
     setSelectedAttendees((prev) => {
       const next = new Map(prev);
       if (next.has(member.email)) {
@@ -224,6 +322,8 @@ export default function SchedulesPage() {
   function removeAttendee(email: string) {
     if (email === FIXED_ATTENDEE) return;
     setAvailabilityResults(null);
+    setSuggestions([]);
+    setSelectedSuggestionIndex(null);
     setSelectedAttendees((prev) => {
       const next = new Map(prev);
       next.delete(email);
@@ -232,16 +332,36 @@ export default function SchedulesPage() {
   }
 
   async function handleCheckAvailability() {
+    console.log('Check availability clicked', {
+      date: meetingDate,
+      startTime,
+      durationMinutes,
+      attendees: Array.from(selectedAttendees.keys()),
+    });
+
+    if (meetingDate === todayIsoDate()) {
+      const [h, m] = startTime.split(':').map(Number);
+      const selectedMinutes = h * 60 + m;
+      if (Number.isNaN(selectedMinutes) || selectedMinutes < bahrainNowMinutes()) {
+        setMeetingError('Please select a future time');
+        return;
+      }
+    }
+
     setCheckingAvailability(true);
     setMeetingError(null);
     setAvailabilityResults(null);
+    setSuggestions([]);
+    setSelectedSuggestionIndex(null);
     try {
       const endTime = computeEndTime(startTime, durationMinutes);
       const response = await fetch('/api/meetings/check-availability', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           attendees: Array.from(selectedAttendees.keys()),
+          attendeeNames: Object.fromEntries(selectedAttendees),
           date: meetingDate,
           startTime,
           endTime,
@@ -254,6 +374,7 @@ export default function SchedulesPage() {
 
       const json = await response.json();
       setAvailabilityResults(json.results || []);
+      setSuggestions(json.suggestions || []);
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       setMeetingError(message);
@@ -262,7 +383,16 @@ export default function SchedulesPage() {
     }
   }
 
+  function handleSelectSuggestion(index: number, suggestion: TimeSuggestion) {
+    const time24 = suggestionTime24h(suggestion.start);
+    if (time24) {
+      setStartTime(time24);
+    }
+    setSelectedSuggestionIndex(index);
+  }
+
   const hasConfirmedAttendee = Boolean(availabilityResults?.some((r) => r.available));
+  const futureSuggestions = suggestions.filter((s) => !isSuggestionInPast(s));
 
   async function handleScheduleMeeting() {
     if (!hasConfirmedAttendee) return;
@@ -438,6 +568,8 @@ export default function SchedulesPage() {
                 onChange={(e) => {
                   setMeetingTitle(e.target.value);
                   setAvailabilityResults(null);
+                  setSuggestions([]);
+                  setSelectedSuggestionIndex(null);
                 }}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
               />
@@ -449,9 +581,12 @@ export default function SchedulesPage() {
                 <input
                   type="date"
                   value={meetingDate}
+                  min={todayIsoDate()}
                   onChange={(e) => {
                     setMeetingDate(e.target.value);
                     setAvailabilityResults(null);
+                    setSuggestions([]);
+                    setSelectedSuggestionIndex(null);
                   }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
@@ -461,9 +596,17 @@ export default function SchedulesPage() {
                 <input
                   type="time"
                   value={startTime}
+                  min={minutesToTimeString(
+                    meetingDate === todayIsoDate()
+                      ? Math.min(roundUpTo30Minutes(bahrainNowMinutes()), WORK_DAY_END_MINUTES)
+                      : WORK_DAY_START_MINUTES
+                  )}
+                  max={minutesToTimeString(WORK_DAY_END_MINUTES)}
                   onChange={(e) => {
                     setStartTime(e.target.value);
                     setAvailabilityResults(null);
+                    setSuggestions([]);
+                    setSelectedSuggestionIndex(null);
                   }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
@@ -479,6 +622,8 @@ export default function SchedulesPage() {
                     onClick={() => {
                       setDurationMinutes(opt.minutes);
                       setAvailabilityResults(null);
+                      setSuggestions([]);
+                      setSelectedSuggestionIndex(null);
                     }}
                     className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
                       durationMinutes === opt.minutes
@@ -544,6 +689,9 @@ export default function SchedulesPage() {
 
                         {expanded && (
                           <div className="border-t border-slate-100 divide-y divide-slate-100 bg-slate-50">
+                            {team.note && (
+                              <p className="px-3 py-2 text-xs text-amber-600 bg-amber-50">{team.note}</p>
+                            )}
                             {team.members.length === 0 ? (
                               <p className="px-3 py-2 text-sm text-slate-400">No members in this team yet</p>
                             ) : (
@@ -584,6 +732,9 @@ export default function SchedulesPage() {
                     <div key={email} className="flex items-center justify-between gap-3 px-3 py-2">
                       <span className="text-sm text-slate-700 truncate">
                         {name} <span className="text-slate-400">({email})</span>
+                        {result?.note && (
+                          <span className="block text-xs text-amber-600">{result.note}</span>
+                        )}
                       </span>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {result && (
@@ -633,6 +784,39 @@ export default function SchedulesPage() {
                 <AlertCircle size={16} />
                 {meetingError}
               </p>
+            )}
+
+            {futureSuggestions.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-2">
+                  Graph suggests these free slots - click to select
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {futureSuggestions.map((suggestion, index) => {
+                    const selected = selectedSuggestionIndex === index;
+                    const confidence = Math.round(Number(suggestion.confidence || 0));
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => handleSelectSuggestion(index, suggestion)}
+                        className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border text-left transition-colors ${
+                          selected
+                            ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="text-sm font-medium text-slate-800">
+                          {formatSuggestionRange(suggestion)}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                          {confidence}%
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             <div className="flex justify-end gap-3 pt-2">
