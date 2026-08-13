@@ -39,156 +39,52 @@ const PLACEHOLDER_TEAM_MEMBERS = {
   ],
 };
 
-const COMPANY_EMAIL_DOMAIN = 'bakgroup.net';
-
-function isCompanyDomain(email) {
-  const domain = String(email || '').split('@')[1] || '';
-  return domain.toLowerCase() === COMPANY_EMAIL_DOMAIN;
-}
-
-async function isUserInTenant(email) {
-  try {
-    await graphRequest('GET', `/users/${encodeURIComponent(email)}`, null, 'app');
-    return true;
-  } catch (error) {
-    if (error?.status === 404) {
-      return false;
-    }
-    console.warn(`Tenant lookup failed for ${email}, treating as unverified:`, error.message);
-    return false;
-  }
-}
-
 function minutesBetween(startTime, endTime) {
   const [startHour, startMinute] = startTime.split(':').map(Number);
   const [endHour, endMinute] = endTime.split(':').map(Number);
   return (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
 }
 
-function toIso8601Duration(totalMinutes) {
-  const wholeHours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  let duration = 'PT';
-  if (wholeHours > 0) duration += `${wholeHours}H`;
-  if (minutes > 0) duration += `${minutes}M`;
-  if (wholeHours === 0 && minutes === 0) duration += '0M';
-  return duration;
-}
-
-const WORK_DAY_START_MINUTES = 7 * 60 + 30;
-const WORK_DAY_END_MINUTES = 16 * 60 + 30;
-
-// Bahrain is UTC+3 year-round (Arabia Standard Time, no DST), so this is a
-// safe, dependency-free way to get the current Bahrain wall-clock time.
-function getBahrainNowParts() {
-  const bahrainNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  return {
-    isoDate: bahrainNow.toISOString().slice(0, 10),
-    totalMinutes: bahrainNow.getUTCHours() * 60 + bahrainNow.getUTCMinutes(),
-  };
-}
-
-function computeWindowStartTime(date) {
-  const { isoDate, totalMinutes: nowMinutes } = getBahrainNowParts();
-
-  if (date !== isoDate) {
-    return '07:30:00';
-  }
-
-  let startMinutes = nowMinutes + 30;
-  startMinutes = Math.max(startMinutes, WORK_DAY_START_MINUTES);
-  startMinutes = Math.min(startMinutes, WORK_DAY_END_MINUTES);
-
-  const hour = Math.floor(startMinutes / 60);
-  const minute = startMinutes % 60;
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+// Bahrain is UTC+3 year-round (Arabia Standard Time, no DST). Treat the given
+// date/time as literal Bahrain wall-clock components and convert to the
+// equivalent UTC instant by subtracting 3 hours - independent of whatever
+// timezone the server process itself happens to run in.
+function bahrainWallClockToUtcIso(dateStr, timeStr) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, minute] = timeStr.split(':').map(Number);
+  const utcMillis = Date.UTC(year, month - 1, day, hour, minute, 0) - 3 * 60 * 60 * 1000;
+  return new Date(utcMillis).toISOString();
 }
 
 async function checkAttendeesAvailability(attendees, date, startTime, endTime, attendeeNames = {}) {
-  const verification = await Promise.all(attendees.map(async (email) => {
-    if (!isCompanyDomain(email)) {
-      return { email, verified: false, note: 'External attendee - availability not verified' };
-    }
-    const inTenant = await isUserInTenant(email);
-    if (!inTenant) {
-      return { email, verified: false, note: 'Unverified account - not found in the tenant' };
-    }
-    return { email, verified: true, note: null };
-  }));
+  const durationHours = minutesBetween(startTime, endTime) / 60;
+  const startUtcIso = bahrainWallClockToUtcIso(date, startTime);
+  const endUtcIso = new Date(new Date(startUtcIso).getTime() + durationHours * 60 * 60 * 1000).toISOString();
 
-  const verifiedEmails = verification.filter((v) => v.verified).map((v) => v.email);
+  console.log(`Checking calendarView from ${startUtcIso} to ${endUtcIso} (UTC) for: ${attendees.join(', ')}`);
 
-  if (!verifiedEmails.length) {
-    console.log('No verified attendees remain after filtering - skipping findMeetingTimes call');
-    return {
-      results: verification.map((v) => ({ email: v.email, name: attendeeNames[v.email] || v.email, available: true, note: v.note })),
-      suggestions: [],
-    };
-  }
-
-  const body = {
-    attendees: verifiedEmails.map((email) => ({
-      emailAddress: {
-        address: email,
-        name: attendeeNames[email] || email,
-      },
-      type: 'Required',
-    })),
-    timeConstraint: {
-      activityDomain: 'work',
-      timeslots: [
-        {
-          start: { dateTime: `${date}T${computeWindowStartTime(date)}`, timeZone: 'Arab Standard Time' },
-          end: { dateTime: `${date}T16:30:00`, timeZone: 'Arab Standard Time' },
-        },
-      ],
-    },
-    meetingDuration: toIso8601Duration(minutesBetween(startTime, endTime)),
-    returnSuggestionReasons: true,
-    minimumAttendeePercentage: 0,
-  };
-
-  if (verifiedEmails.length >= 2) {
-    body.isOrganizerOptional = true;
-  }
-
-  console.log('findMeetingTimes request body sent to Graph:', JSON.stringify(body, null, 2));
-
-  const result = await graphRequest(
-    'POST',
-    `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/findMeetingTimes`,
-    body,
-    'app',
-    { Prefer: 'outlook.timezone="Arab Standard Time"' }
-  );
-
-  console.log('findMeetingTimes raw response from Graph:', JSON.stringify(result, null, 2));
-
-  const suggestions = Array.isArray(result?.meetingTimeSuggestions) ? result.meetingTimeSuggestions : [];
-  console.log('meetingTimeSuggestions array:', JSON.stringify(suggestions, null, 2));
-
-  const topSuggestions = [...suggestions]
-    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
-    .slice(0, 3)
-    .map((suggestion) => ({
-      start: suggestion.meetingTimeSlot?.start || null,
-      end: suggestion.meetingTimeSlot?.end || null,
-      confidence: suggestion.confidence || null,
-    }));
-
-  const hasGoodSuggestion = suggestions.some((s) => Number(s.confidence || 0) > 50);
-
-  const results = verification.map(({ email, verified, note }) => {
+  const results = await Promise.all(attendees.map(async (email) => {
     const name = attendeeNames[email] || email;
 
-    if (!verified) {
-      return { email, name, available: true, note };
+    try {
+      const endpoint = `/users/${encodeURIComponent(email)}/calendarView?startDateTime=${encodeURIComponent(startUtcIso)}&endDateTime=${encodeURIComponent(endUtcIso)}`;
+      const result = await graphRequest('GET', endpoint, null, 'app');
+      const events = Array.isArray(result?.value) ? result.value : [];
+
+      console.log(`calendarView for ${email}: ${events.length} event(s) found`);
+
+      if (events.length === 0) {
+        return { email, name, available: true };
+      }
+
+      return { email, name, available: false, reason: events[0]?.subject || 'Busy' };
+    } catch (error) {
+      console.warn(`calendarView check failed for ${email}, treating as unverified:`, error.message);
+      return { email, name, available: true, note: 'unverified' };
     }
+  }));
 
-    return { email, name, available: hasGoodSuggestion };
-  });
-
-  return { results, suggestions: topSuggestions };
+  return { results };
 }
 
 function getNextBusinessDaysWindow(businessDays) {
@@ -360,8 +256,8 @@ router.post('/check-availability', async (req, res) => {
       }
     }
 
-    const { results, suggestions } = await checkAttendeesAvailability(fullAttendees, date, startTime, endTime, names);
-    return res.json({ results, suggestions });
+    const { results } = await checkAttendeesAvailability(fullAttendees, date, startTime, endTime, names);
+    return res.json({ results });
   } catch (error) {
     console.error('Check availability failed:', error);
     return res.status(500).json({ error: 'Failed to check availability' });
