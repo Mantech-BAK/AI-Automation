@@ -214,6 +214,16 @@ function normalizeDateTime(value) {
   return { dateTime: value, timeZone: 'UTC' };
 }
 
+function graphDateTimeToUtcIso(dt) {
+  if (!dt?.dateTime) return null;
+  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dt.dateTime);
+  if (hasOffset) return dt.dateTime;
+  if (!dt.timeZone || dt.timeZone.toUpperCase() === 'UTC') {
+    return `${dt.dateTime}Z`;
+  }
+  return dt.dateTime;
+}
+
 function parseJsonResponse(rawText) {
   const cleaned = String(rawText || '')
     .replace(/^```json\s*/i, '')
@@ -358,21 +368,36 @@ router.post('/check-availability', async (req, res) => {
   }
 });
 
+function isMaintenanceEventSubject(subject) {
+  const value = subject || '';
+  return value.startsWith('Maintenance Task') || value.startsWith('Maintenance:');
+}
+
 router.get('/upcoming', async (req, res) => {
   try {
-    const now = new Date().toISOString();
-    const endpoint = `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events?$filter=${encodeURIComponent(`start/dateTime ge '${now}'`)}&$orderby=${encodeURIComponent('start/dateTime')}&$top=10`;
-    const result = await graphRequest('GET', endpoint, null, 'app');
+    const now = new Date();
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const todayIso = now.toISOString();
+    const thirtyDaysIso = thirtyDaysFromNow.toISOString();
 
-    const meetings = (Array.isArray(result?.value) ? result.value : []).map((event) => ({
-      id: event.id,
-      subject: event.subject,
-      start: event.start,
-      end: event.end,
-      attendees: (Array.isArray(event.attendees) ? event.attendees : [])
-        .map((attendee) => attendee.emailAddress?.address)
-        .filter(Boolean),
-    }));
+    const filter = `start/dateTime ge '${todayIso}' and end/dateTime le '${thirtyDaysIso}'`;
+    const select = 'id,subject,start,end,webLink,onlineMeeting,attendees';
+    const endpoint = `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events?$filter=${encodeURIComponent(filter)}&$orderby=${encodeURIComponent('start/dateTime asc')}&$top=20&$select=${select}`;
+
+    const result = await graphRequest('GET', endpoint, null, 'app');
+    const events = Array.isArray(result?.value) ? result.value : [];
+
+    const meetings = events
+      .filter((event) => !isMaintenanceEventSubject(event.subject))
+      .map((event) => ({
+        id: event.id,
+        subject: event.subject,
+        start: graphDateTimeToUtcIso(event.start),
+        end: graphDateTimeToUtcIso(event.end),
+        attendeeCount: Array.isArray(event.attendees) ? event.attendees.length : 0,
+        webLink: event.webLink || null,
+        joinUrl: event.onlineMeeting?.joinUrl || null,
+      }));
 
     return res.json({ meetings });
   } catch (error) {

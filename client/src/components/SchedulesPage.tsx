@@ -5,12 +5,13 @@ import {
   Users,
   FileText,
   CheckCircle2,
-  ExternalLink,
   AlertCircle,
   ChevronDown,
   ChevronRight,
   X,
   Check,
+  Video,
+  Copy,
 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -34,9 +35,11 @@ interface GraphDateTime {
 interface UpcomingMeeting {
   id: string;
   subject?: string | null;
-  start?: GraphDateTime | null;
-  end?: GraphDateTime | null;
-  attendees?: string[];
+  start?: string | null;
+  end?: string | null;
+  attendeeCount?: number;
+  webLink?: string | null;
+  joinUrl?: string | null;
 }
 
 interface AvailabilityResult {
@@ -108,36 +111,45 @@ function computeEndTime(startTime: string, durationMinutes: number): string {
   return `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
 }
 
-function graphDateTimeToUtcIso(dt?: GraphDateTime | null): string | null {
-  if (!dt?.dateTime) return null;
-  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dt.dateTime);
-  if (hasOffset) return dt.dateTime;
-  if (!dt.timeZone || dt.timeZone.toUpperCase() === 'UTC') {
-    return `${dt.dateTime}Z`;
-  }
-  return dt.dateTime;
-}
+// The /api/meetings/upcoming endpoint already normalizes event start/end to
+// plain UTC ISO strings server-side, so this just handles final display
+// formatting in Bahrain time - e.g. "13 Aug 2026 11:45 AM to 12:15 PM".
+function formatMeetingDateRange(startIso?: string | null, endIso?: string | null): string {
+  if (!startIso) return '-';
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return '-';
 
-function formatGraphDateTime(dt?: GraphDateTime | null) {
-  const iso = graphDateTimeToUtcIso(dt);
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return dt?.dateTime || '-';
-  return date.toLocaleString('en-GB', {
+  const dateStr = start.toLocaleString('en-GB', {
     timeZone: 'Asia/Bahrain',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
+  });
+  const startTimeStr = start.toLocaleString('en-US', {
+    timeZone: 'Asia/Bahrain',
+    hour: 'numeric',
     minute: '2-digit',
     hour12: true,
   });
+
+  if (!endIso) return `${dateStr} ${startTimeStr}`;
+  const end = new Date(endIso);
+  if (Number.isNaN(end.getTime())) return `${dateStr} ${startTimeStr}`;
+
+  const endTimeStr = end.toLocaleString('en-US', {
+    timeZone: 'Asia/Bahrain',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  return `${dateStr} ${startTimeStr} to ${endTimeStr}`;
 }
 
 // findMeetingTimes suggestions come back from the backend with a Prefer:
 // outlook.timezone="Arab Standard Time" header, so dt.dateTime here is already
 // a naive Bahrain wall-clock string (not UTC) - parse it directly, no timezone
-// conversion needed, unlike formatGraphDateTime above.
+// conversion needed, unlike formatMeetingDateRange above.
 function suggestionTime24h(dt?: GraphDateTime | null): string | null {
   const match = /^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/.exec(dt?.dateTime || '');
   if (!match) return null;
@@ -195,6 +207,7 @@ export default function SchedulesPage() {
   const [scheduling, setScheduling] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const [scheduledJoinUrl, setScheduledJoinUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Process Meeting Notes modal state
   const [notesModalOpen, setNotesModalOpen] = useState(false);
@@ -256,6 +269,7 @@ export default function SchedulesPage() {
     setSelectedSuggestionIndex(null);
     setMeetingError(null);
     setScheduledJoinUrl(null);
+    setLinkCopied(false);
     setMeetingModalOpen(true);
     fetchTeams();
   }
@@ -429,6 +443,17 @@ export default function SchedulesPage() {
     }
   }
 
+  async function handleCopyJoinLink() {
+    if (!scheduledJoinUrl) return;
+    try {
+      await navigator.clipboard.writeText(scheduledJoinUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (copyError) {
+      console.error('Failed to copy join link:', copyError);
+    }
+  }
+
   function openNotesModal() {
     setNotesText('');
     setNotesError(null);
@@ -501,23 +526,35 @@ export default function SchedulesPage() {
           ) : upcomingError ? (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{upcomingError}</p>
           ) : upcomingMeetings.length === 0 ? (
-            <p className="text-slate-500 text-sm text-center py-4">No upcoming meetings scheduled</p>
+            <p className="text-slate-500 text-sm text-center py-4">
+              No upcoming meetings — use the Schedule Meeting button to create one
+            </p>
           ) : (
             <div className="space-y-3">
               {upcomingMeetings.map((meeting) => (
-                <div key={meeting.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors">
-                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
-                    <Calendar size={16} className="text-purple-600" />
+                <div key={meeting.id} className="flex items-center justify-between gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                      <Calendar size={16} className="text-purple-600" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800 text-sm truncate">{meeting.subject || 'Untitled meeting'}</p>
+                      <p className="text-xs text-slate-500 mt-1">{formatMeetingDateRange(meeting.start, meeting.end)}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {meeting.attendeeCount ?? 0} attendee{(meeting.attendeeCount ?? 0) === 1 ? '' : 's'}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-800 text-sm truncate">{meeting.subject || 'Untitled meeting'}</p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {formatGraphDateTime(meeting.start)} to {formatGraphDateTime(meeting.end)}
-                    </p>
-                  </div>
-                  <span className="text-xs text-slate-400 flex-shrink-0">
-                    {(meeting.attendees || []).length} attendee{(meeting.attendees || []).length === 1 ? '' : 's'}
-                  </span>
+                  {(meeting.joinUrl || meeting.webLink) && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(meeting.joinUrl || meeting.webLink || '', '_blank', 'noopener,noreferrer')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
+                    >
+                      {meeting.joinUrl && <Video size={14} />}
+                      Join Meeting
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -539,15 +576,25 @@ export default function SchedulesPage() {
                 <CheckCircle2 size={20} />
                 <span className="font-medium">Meeting scheduled successfully</span>
               </div>
-              <a
-                href={scheduledJoinUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm text-cyan-600 hover:text-cyan-700 font-medium break-all"
-              >
-                <ExternalLink size={14} />
-                {scheduledJoinUrl}
-              </a>
+              <p className="text-xs text-slate-500 break-all mb-3">{scheduledJoinUrl}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.open(scheduledJoinUrl || '', '_blank', 'noopener,noreferrer')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Video size={14} />
+                  Join Meeting
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyJoinLink}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  {linkCopied ? <Check size={14} /> : <Copy size={14} />}
+                  {linkCopied ? 'Copied' : 'Copy Link'}
+                </button>
+              </div>
             </div>
             <div className="flex justify-end">
               <button

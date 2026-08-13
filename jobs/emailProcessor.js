@@ -18,26 +18,27 @@ function parseDateReceived(value) {
   return date.toISOString();
 }
 
-const SYSTEM_SENDER_PATTERNS = ['microsoft.com', 'planner.microsoft.com', 'noreply', 'no-reply', 'donotreply', 'do-not-reply'];
-const SYSTEM_SUBJECT_PATTERNS = [
-  'You have been assigned a task',
-  'Task assigned to you',
-  'Planner',
-  'has been completed',
-  'due today',
-  'due tomorrow',
-  'Your task',
-  'Microsoft Planner',
+const MICROSOFT_SYSTEM_SENDER_PATTERNS = [
+  'noreply@planner',
+  'planner.office365.com',
+  'noreply@microsoft.com',
+  'teams.microsoft.com',
+  'sharepoint.com',
+  'onmicrosoft.com',
+  'microsoft.com',
+  'no-reply@microsoft',
+  'notifications@microsoft',
 ];
 
-function isSystemEmail(message) {
+function getSkipReason(message) {
   const senderEmail = (message.from?.emailAddress?.address || '').toLowerCase();
-  const subject = (message.subject || '').toLowerCase();
 
-  const senderIsSystem = SYSTEM_SENDER_PATTERNS.some((pattern) => senderEmail.includes(pattern.toLowerCase()));
-  const subjectIsSystem = SYSTEM_SUBJECT_PATTERNS.some((pattern) => subject.includes(pattern.toLowerCase()));
+  const isMicrosoftSystemSender = MICROSOFT_SYSTEM_SENDER_PATTERNS.some((pattern) => senderEmail.includes(pattern));
+  if (isMicrosoftSystemSender) {
+    return `Skipping Microsoft system email from ${senderEmail}`;
+  }
 
-  return senderIsSystem || subjectIsSystem;
+  return null;
 }
 
 function sanitizeDueDate(value) {
@@ -295,12 +296,14 @@ async function processEmails() {
     console.log(`Processing email number ${i + 1} of ${total}`);
 
     try {
-      if (isSystemEmail(message)) {
-        const senderEmail = message.from?.emailAddress?.address || 'unknown sender';
-        console.log(`Skipping system email from ${senderEmail} - ${message.subject || '(no subject)'}`);
+      const skipReason = getSkipReason(message);
+      if (skipReason) {
+        console.log(skipReason);
         await markEmailAsRead(message.id);
         continue;
       }
+
+      console.log(`Processing email from ${message.from?.emailAddress?.address || 'unknown sender'}`);
 
       const existing = await pool.query(
         'SELECT id FROM email_summaries WHERE email_message_id = $1 LIMIT 1',

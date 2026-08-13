@@ -7,6 +7,8 @@ import {
   Mail,
   MapPin,
   ClipboardList,
+  CheckCircle2,
+  Wrench,
 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -16,8 +18,31 @@ interface Technician {
   email?: string | null;
   type_of_service: string;
   open_task_count?: number;
+  completed_task_count?: number;
   current_site?: string | null;
   current_task?: string | null;
+}
+
+interface TechnicianTask {
+  id: string;
+  equipment_name?: string | null;
+  site_location?: string | null;
+  technician_name?: string | null;
+  status?: string;
+  due_date?: string | null;
+}
+
+type TaskModalStatus = 'open' | 'completed';
+
+function getTaskStatusColor(status?: string) {
+  switch (status) {
+    case 'completed': return 'bg-emerald-100 text-emerald-700';
+    case 'open': return 'bg-amber-100 text-amber-700';
+    case 'pending': return 'bg-amber-100 text-amber-700';
+    case 'approved': return 'bg-cyan-100 text-cyan-700';
+    case 'rejected': return 'bg-red-100 text-red-700';
+    default: return 'bg-slate-100 text-slate-600';
+  }
 }
 
 export default function TechniciansPage() {
@@ -33,8 +58,25 @@ export default function TechniciansPage() {
     type_of_service: '',
   });
 
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskModalTechnician, setTaskModalTechnician] = useState<Technician | null>(null);
+  const [taskModalStatus, setTaskModalStatus] = useState<TaskModalStatus>('open');
+  const [taskModalTasks, setTaskModalTasks] = useState<TechnicianTask[]>([]);
+  const [taskModalLoading, setTaskModalLoading] = useState(false);
+  const [taskModalError, setTaskModalError] = useState<string | null>(null);
+
   useEffect(() => {
     fetchTechnicians();
+  }, []);
+
+  useEffect(() => {
+    function handleTechnicianDataUpdated() {
+      fetchTechnicians();
+    }
+    window.addEventListener('technician-data-updated', handleTechnicianDataUpdated);
+    return () => {
+      window.removeEventListener('technician-data-updated', handleTechnicianDataUpdated);
+    };
   }, []);
 
   async function fetchTechnicians() {
@@ -51,6 +93,29 @@ export default function TechniciansPage() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleShowTasks(tech: Technician, status: TaskModalStatus) {
+    setTaskModalTechnician(tech);
+    setTaskModalStatus(status);
+    setTaskModalOpen(true);
+    setTaskModalLoading(true);
+    setTaskModalError(null);
+    setTaskModalTasks([]);
+    try {
+      const response = await fetch(`/api/dashboard/tasks?technician_id=${tech.id}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load tasks: ${response.statusText}`);
+      }
+      const json: TechnicianTask[] = await response.json();
+      setTaskModalTasks(json.filter((task) => task.status === status));
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      console.error('Error fetching technician tasks:', fetchError);
+      setTaskModalError(message);
+    } finally {
+      setTaskModalLoading(false);
     }
   }
 
@@ -198,9 +263,22 @@ export default function TechniciansPage() {
                     Working on: {tech.current_task}
                   </div>
                 )}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <ClipboardList size={14} />
-                  <span>{tech.open_task_count ?? 0} open task{tech.open_task_count === 1 ? '' : 's'}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleShowTasks(tech, 'open')}
+                    className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                  >
+                    {tech.open_task_count ?? 0} open task{tech.open_task_count === 1 ? '' : 's'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleShowTasks(tech, 'completed')}
+                    className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
+                  >
+                    {tech.completed_task_count ?? 0} completed
+                  </button>
                 </div>
               </div>
             </div>
@@ -271,6 +349,57 @@ export default function TechniciansPage() {
               )}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Technician Tasks Modal */}
+      <Modal
+        isOpen={taskModalOpen}
+        onClose={() => setTaskModalOpen(false)}
+        title={`${taskModalTechnician?.name || 'Technician'} - ${taskModalStatus === 'open' ? 'Open' : 'Completed'} Tasks`}
+        size="lg"
+      >
+        <div className="space-y-3">
+          {taskModalLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+            </div>
+          ) : taskModalError ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{taskModalError}</p>
+          ) : taskModalTasks.length === 0 ? (
+            <div className="text-center py-8">
+              <Wrench size={40} className="mx-auto text-slate-300 mb-2" />
+              <p className="text-slate-500">
+                No {taskModalStatus === 'open' ? 'open' : 'completed'} tasks for this technician.
+              </p>
+            </div>
+          ) : (
+            taskModalTasks.map((task) => (
+              <div key={task.id} className="flex items-center justify-between gap-4 p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center flex-shrink-0">
+                    {task.status === 'completed' ? (
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                    ) : (
+                      <Wrench size={16} className="text-cyan-600" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-800 text-sm truncate">{task.equipment_name || 'Untitled'}</p>
+                    <p className="text-xs text-slate-500 truncate">{task.site_location || 'No site'}</p>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs text-slate-500 mb-1">
+                    Due {task.due_date ? new Date(task.due_date).toLocaleDateString() : '-'}
+                  </p>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getTaskStatusColor(task.status)}`}>
+                    {task.status || 'unknown'}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </Modal>
     </div>

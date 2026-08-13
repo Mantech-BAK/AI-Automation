@@ -31,11 +31,9 @@ router.get('/overview', async (req, res) => {
     const query = `
       SELECT
         (SELECT COUNT(*) FROM work_orders) AS "totalTasks",
-        (SELECT COUNT(*) FROM work_orders WHERE status = 'pending') AS "pending",
-        (SELECT COUNT(*) FROM work_orders WHERE status = 'open' AND planner_task_id IS NOT NULL) AS "inProgress",
+        (SELECT COUNT(*) FROM work_orders WHERE status = 'open' AND (due_date IS NULL OR due_date >= CURRENT_DATE)) AS "pending",
         (SELECT COUNT(*) FROM work_orders WHERE status = 'completed') AS "completed",
-        (SELECT COUNT(*) FROM work_orders WHERE due_date < CURRENT_DATE AND status <> 'completed') AS "overdue",
-        (SELECT COUNT(*) FROM work_orders WHERE due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' AND status <> 'completed') AS "dueSoon",
+        (SELECT COUNT(*) FROM work_orders WHERE status = 'open' AND due_date < CURRENT_DATE) AS "overdue",
         (SELECT COUNT(DISTINCT site_location) FROM assets) AS "sites",
         (SELECT COUNT(*) FROM assets) AS "equipment",
         (SELECT COUNT(*) FROM technicians) AS "technicians"
@@ -54,6 +52,24 @@ router.get('/tasks', async (req, res) => {
     const days = req.query.days ? Number(req.query.days) : null;
     const hasDaysFilter = Number.isFinite(days) && days !== null;
 
+    const technicianId = req.query.technician_id ? Number(req.query.technician_id) : null;
+    const hasTechnicianFilter = Number.isFinite(technicianId) && technicianId !== null;
+
+    const conditions = [];
+    const params = [];
+
+    if (hasDaysFilter) {
+      params.push(days);
+      conditions.push(`wo.due_date <= CURRENT_DATE + $${params.length} * INTERVAL '1 day' AND wo.status NOT IN ('completed', 'rejected')`);
+    }
+
+    if (hasTechnicianFilter) {
+      params.push(technicianId);
+      conditions.push(`wo.technician_id = $${params.length}`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
     const { rows } = await pool.query(
       `
       SELECT
@@ -71,10 +87,10 @@ router.get('/tasks', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN technicians t ON wo.technician_id = t.id
-      ${hasDaysFilter ? `WHERE wo.due_date <= CURRENT_DATE + $1 * INTERVAL '1 day' AND wo.status NOT IN ('completed', 'rejected')` : ''}
+      ${whereClause}
       ORDER BY wo.due_date NULLS LAST, wo.id
     `,
-      hasDaysFilter ? [days] : []
+      params
     );
 
     return res.json(rows);
@@ -136,19 +152,19 @@ router.get('/technicians', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
-        t.*,
-        a.site_location AS current_site,
-        a.equipment_name AS current_task
+        t.id,
+        t.name,
+        t.email,
+        t.type_of_service,
+        COUNT(CASE WHEN w.status = 'open' THEN 1 END)::int as open_task_count,
+        COUNT(CASE WHEN w.status = 'completed' THEN 1 END)::int as completed_task_count,
+        MAX(CASE WHEN w.status = 'open' THEN a.site_location END) as current_site,
+        MAX(CASE WHEN w.status = 'open' THEN a.equipment_name END) as current_task
       FROM technicians t
-      LEFT JOIN LATERAL (
-        SELECT wo.asset_id
-        FROM work_orders wo
-        WHERE wo.technician_id = t.id AND wo.status = 'open'
-        ORDER BY wo.due_date ASC NULLS LAST, wo.id ASC
-        LIMIT 1
-      ) wo ON true
-      LEFT JOIN assets a ON a.id = wo.asset_id
-      ORDER BY t.id
+      LEFT JOIN work_orders w ON w.technician_id = t.id
+      LEFT JOIN assets a ON a.id = w.asset_id
+      GROUP BY t.id, t.name, t.email, t.type_of_service
+      ORDER BY t.name
     `);
     return res.json(rows);
   } catch (error) {

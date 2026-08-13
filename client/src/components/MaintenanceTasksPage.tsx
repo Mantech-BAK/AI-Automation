@@ -5,6 +5,9 @@ import {
   Filter,
   Search,
   CheckCircle2,
+  ArrowUpDown,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 
 interface MaintenanceTask {
@@ -20,6 +23,58 @@ interface MaintenanceTask {
 
 type StatusFilter = 'all' | 'pending' | 'open' | 'approved' | 'completed';
 
+type SortKey =
+  | 'due_asc'
+  | 'due_desc'
+  | 'equipment_asc'
+  | 'equipment_desc'
+  | 'technician_asc'
+  | 'technician_desc'
+  | 'status_overdue_first'
+  | 'hours_desc';
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'due_asc', label: 'Due Date (earliest first)' },
+  { key: 'due_desc', label: 'Due Date (latest first)' },
+  { key: 'equipment_asc', label: 'Equipment Name (A-Z)' },
+  { key: 'equipment_desc', label: 'Equipment Name (Z-A)' },
+  { key: 'technician_asc', label: 'Technician Name (A-Z)' },
+  { key: 'technician_desc', label: 'Technician Name (Z-A)' },
+  { key: 'status_overdue_first', label: 'Status (Overdue first)' },
+  { key: 'hours_desc', label: 'Estimated Hours (longest first)' },
+];
+
+function compareByName(aName: string | null | undefined, bName: string | null | undefined, direction: 1 | -1): number {
+  const a = aName || '';
+  const b = bName || '';
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return direction * a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+function compareByDueDate(aDate: string | null | undefined, bDate: string | null | undefined, direction: 1 | -1): number {
+  const aTime = aDate ? new Date(aDate).getTime() : null;
+  const bTime = bDate ? new Date(bDate).getTime() : null;
+  if (aTime === null && bTime === null) return 0;
+  if (aTime === null) return 1;
+  if (bTime === null) return -1;
+  return direction * (aTime - bTime);
+}
+
+function todayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isDueTodayOrPast(dueDate?: string | null): boolean {
+  if (!dueDate) return false;
+  return new Date(dueDate) <= new Date(todayDateString());
+}
+
 export default function MaintenanceTasksPage() {
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +82,8 @@ export default function MaintenanceTasksPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
   const [completingId, setCompletingId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<SortKey>('due_asc');
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -59,6 +116,7 @@ export default function MaintenanceTasksPage() {
         throw new Error(`Failed to complete task: ${response.statusText}`);
       }
       await fetchData();
+      window.dispatchEvent(new Event('technician-data-updated'));
     } catch (fetchError) {
       console.error('Error completing task:', fetchError);
     } finally {
@@ -68,15 +126,47 @@ export default function MaintenanceTasksPage() {
 
   const isOverdue = (task: MaintenanceTask) => Boolean(task.days_overdue && task.days_overdue > 0) && task.status !== 'completed';
 
+  const compareTasks = (a: MaintenanceTask, b: MaintenanceTask): number => {
+    switch (sortOption) {
+      case 'due_asc':
+        return compareByDueDate(a.due_date, b.due_date, 1);
+      case 'due_desc':
+        return compareByDueDate(a.due_date, b.due_date, -1);
+      case 'equipment_asc':
+        return compareByName(a.equipment_name, b.equipment_name, 1);
+      case 'equipment_desc':
+        return compareByName(a.equipment_name, b.equipment_name, -1);
+      case 'technician_asc':
+        return compareByName(a.technician_name, b.technician_name, 1);
+      case 'technician_desc':
+        return compareByName(a.technician_name, b.technician_name, -1);
+      case 'status_overdue_first': {
+        const aOverdue = isOverdue(a);
+        const bOverdue = isOverdue(b);
+        if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+        return compareByDueDate(a.due_date, b.due_date, 1);
+      }
+      case 'hours_desc': {
+        const aHours = a.estimated_duration_hours ?? -Infinity;
+        const bHours = b.estimated_duration_hours ?? -Infinity;
+        return bHours - aHours;
+      }
+      default:
+        return 0;
+    }
+  };
+
   const getStatusColor = (task: MaintenanceTask) => {
     if (task.status === 'completed') return 'bg-emerald-100 text-emerald-700';
-    if (isOverdue(task)) return 'bg-red-100 text-red-700';
-    if (task.status === 'open' || task.status === 'pending') return 'bg-amber-100 text-amber-700';
+    if (task.status === 'open' && isOverdue(task)) return 'bg-red-100 text-red-700';
+    if (task.status === 'open') return 'bg-amber-100 text-amber-700';
     return 'bg-slate-100 text-slate-600';
   };
 
   const getStatusLabel = (task: MaintenanceTask) => {
-    if (isOverdue(task)) return 'Overdue';
+    if (task.status === 'completed') return 'Completed';
+    if (task.status === 'open' && isOverdue(task)) return 'Overdue';
+    if (task.status === 'open') return 'Pending';
     return task.status ? task.status.replace('_', ' ') : 'Unknown';
   };
 
@@ -98,6 +188,10 @@ export default function MaintenanceTasksPage() {
 
     return true;
   });
+
+  const sortedTasks = [...filteredTasks].sort(compareTasks);
+
+  const activeSortLabel = SORT_OPTIONS.find((opt) => opt.key === sortOption)?.label || 'Sort';
 
   if (loading) {
     return (
@@ -166,15 +260,51 @@ export default function MaintenanceTasksPage() {
             ))}
           </div>
         </div>
-        <div className="relative sm:ml-auto sm:w-72">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by equipment or site..."
-            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-          />
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <div className="relative sm:w-72">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by equipment or site..."
+              className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            />
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSortMenuOpen((prev) => !prev)}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-white text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap"
+            >
+              <ArrowUpDown size={16} className="text-slate-400" />
+              {activeSortLabel}
+              <ChevronDown size={14} className="text-slate-400" />
+            </button>
+            {sortMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setSortMenuOpen(false)} />
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-slate-200 z-20 py-1">
+                  {SORT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => {
+                        setSortOption(opt.key);
+                        setSortMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <span className={sortOption === opt.key ? 'font-medium text-slate-800' : 'text-slate-600'}>
+                        {opt.label}
+                      </span>
+                      {sortOption === opt.key && <Check size={16} className="text-cyan-600 flex-shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -194,7 +324,7 @@ export default function MaintenanceTasksPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredTasks.length === 0 ? (
+              {sortedTasks.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                     <Wrench size={40} className="mx-auto text-slate-300 mb-2" />
@@ -202,7 +332,7 @@ export default function MaintenanceTasksPage() {
                   </td>
                 </tr>
               ) : (
-                filteredTasks.map((task) => (
+                sortedTasks.map((task) => (
                   <tr key={task.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -227,18 +357,22 @@ export default function MaintenanceTasksPage() {
                     </td>
                     <td className="px-6 py-4">
                       {task.status === 'open' && (
-                        <button
-                          onClick={() => handleCompleteTask(task.id)}
-                          disabled={completingId === task.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                        >
-                          {completingId === task.id ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <CheckCircle2 size={14} />
-                          )}
-                          Complete Task
-                        </button>
+                        isDueTodayOrPast(task.due_date) ? (
+                          <button
+                            onClick={() => handleCompleteTask(task.id)}
+                            disabled={completingId === task.id}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                          >
+                            {completingId === task.id ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 size={14} />
+                            )}
+                            Complete Task
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">Not due yet</span>
+                        )
                       )}
                     </td>
                   </tr>

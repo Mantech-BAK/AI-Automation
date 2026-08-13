@@ -26,7 +26,7 @@ interface LayoutProps {
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'tasks', label: 'Maintenance Tasks', icon: Wrench },
-  { id: 'schedules', label: 'Schedules', icon: Calendar },
+  { id: 'schedules', label: 'Schedule Meeting', icon: Calendar },
   { id: 'equipment', label: 'Equipment', icon: Cog },
   { id: 'sites', label: 'Sites', icon: MapPin },
   { id: 'technicians', label: 'Technicians', icon: Users },

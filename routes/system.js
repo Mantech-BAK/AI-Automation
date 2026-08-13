@@ -53,40 +53,48 @@ router.post('/process-emails', async (req, res) => {
 
 router.post('/reset-data', async (req, res) => {
   const client = await pool.connect();
+  const counts = {};
+
   try {
     await client.query('BEGIN');
 
-    const simpleTables = ['email_action_items', 'email_summaries', 'escalation_log'];
-    const counts = {};
+    const actionItemsResult = await client.query('DELETE FROM email_action_items');
+    counts.email_action_items = actionItemsResult.rowCount;
+    console.log(`reset-data: deleted ${actionItemsResult.rowCount} rows from email_action_items`);
 
-    for (const table of simpleTables) {
-      const result = await client.query(`DELETE FROM ${table}`);
-      counts[table] = result.rowCount;
-    }
+    const summariesResult = await client.query('DELETE FROM email_summaries');
+    counts.email_summaries = summariesResult.rowCount;
+    console.log(`reset-data: deleted ${summariesResult.rowCount} rows from email_summaries`);
 
-    const notificationResult = await client.query(
-      `DELETE FROM notification_log WHERE work_order_id NOT IN (SELECT id FROM work_orders WHERE status = 'completed')`
-    );
+    const escalationsResult = await client.query('DELETE FROM escalation_log');
+    counts.escalation_log = escalationsResult.rowCount;
+    console.log(`reset-data: deleted ${escalationsResult.rowCount} rows from escalation_log`);
+
+    const notificationResult = await client.query('DELETE FROM notification_log');
     counts.notification_log = notificationResult.rowCount;
+    console.log(`reset-data: deleted ${notificationResult.rowCount} rows from notification_log`);
 
-    const workOrdersResult = await client.query(`DELETE FROM work_orders WHERE status != 'completed'`);
+    const workOrdersResult = await client.query('DELETE FROM work_orders');
     counts.work_orders = workOrdersResult.rowCount;
+    console.log(`reset-data: deleted ${workOrdersResult.rowCount} rows from work_orders`);
 
     await client.query('ALTER SEQUENCE email_action_items_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE email_summaries_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE escalation_log_id_seq RESTART WITH 1');
+    await client.query('ALTER SEQUENCE notification_log_id_seq RESTART WITH 1');
+    await client.query('ALTER SEQUENCE work_orders_id_seq RESTART WITH 1');
 
     await client.query('COMMIT');
 
     return res.json({
       success: true,
-      message: 'Test data has been reset. Completed work orders, assets, technicians, and sites were kept.',
+      message: 'All task-related data has been reset. Assets, technicians, and sites were kept.',
       counts,
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Reset data failed:', error);
-    return res.status(500).json({ error: 'Failed to reset data' });
+    console.error('Reset data failed, rolled back:', error);
+    return res.status(500).json({ error: 'Failed to reset data', details: error.message, counts });
   } finally {
     client.release();
   }

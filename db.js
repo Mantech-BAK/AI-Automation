@@ -1,7 +1,12 @@
 const path = require('path');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+// pg's default DATE (OID 1082) parser builds a JS Date at local midnight,
+// which shifts the calendar day when serialized to UTC on a non-UTC server.
+// Return the raw 'YYYY-MM-DD' string instead so no timezone conversion happens.
+types.setTypeParser(1082, (value) => value);
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',

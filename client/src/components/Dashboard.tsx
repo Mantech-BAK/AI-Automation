@@ -5,7 +5,6 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
-  CalendarClock,
   MapPin,
   Cog,
   Users,
@@ -46,10 +45,8 @@ interface Notification {
 interface Overview {
   totalTasks: number;
   pending: number;
-  inProgress: number;
   completed: number;
   overdue: number;
-  dueSoon: number;
   sites: number;
   equipment: number;
   technicians: number;
@@ -59,10 +56,8 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
   const [overview, setOverview] = useState<Overview>({
     totalTasks: 0,
     pending: 0,
-    inProgress: 0,
     completed: 0,
     overdue: 0,
-    dueSoon: 0,
     sites: 0,
     equipment: 0,
     technicians: 0,
@@ -158,10 +153,8 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
   const statCards = [
     { label: 'Total Tasks', value: overview.totalTasks, icon: ClipboardList, color: 'bg-slate-500', textColor: 'text-slate-600' },
     { label: 'Pending', value: overview.pending, icon: Clock, color: 'bg-amber-500', textColor: 'text-amber-600' },
-    { label: 'In Progress', value: overview.inProgress, icon: Loader2, color: 'bg-blue-500', textColor: 'text-blue-600' },
-    { label: 'Completed', value: overview.completed, icon: CheckCircle2, color: 'bg-emerald-500', textColor: 'text-emerald-600' },
     { label: 'Overdue', value: overview.overdue, icon: AlertTriangle, color: 'bg-red-500', textColor: 'text-red-600' },
-    { label: 'Due Soon', value: overview.dueSoon, icon: CalendarClock, color: 'bg-purple-500', textColor: 'text-purple-600' },
+    { label: 'Completed', value: overview.completed, icon: CheckCircle2, color: 'bg-emerald-500', textColor: 'text-emerald-600' },
   ];
 
   const getStatusDotColor = (status?: string, daysOverdue?: number) => {
