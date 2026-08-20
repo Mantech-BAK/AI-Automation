@@ -615,7 +615,7 @@ async function runDailyCheck() {
 
   for (const reminder of reminders) {
     const dueResult = await pool.query(
-      `SELECT wo.*, a.equipment_name, a.site_location, a.estimated_duration_hours, t.name AS technician_name, t.email AS technician_email
+      `SELECT wo.*, a.equipment_name, a.site_location, a.estimated_duration_hours, t.name AS technician_name, t.email AS technician_email, t.notification_email AS technician_notification_email
        FROM work_orders wo
        JOIN assets a ON wo.asset_id = a.id
        JOIN technicians t ON wo.technician_id = t.id
@@ -631,9 +631,10 @@ async function runDailyCheck() {
 
       if (existingReminder.rows.length > 0) continue;
 
+      const recipientEmail = workOrder.technician_notification_email || workOrder.technician_email;
       const emailBody = `Reminder: maintenance task for ${workOrder.equipment_name} at ${workOrder.site_location} is due in ${reminder.days} days. Technician: ${workOrder.technician_name}. Duration: ${workOrder.estimated_duration_hours} hours.`;
       try {
-        await sendMail(workOrder.technician_email, `Maintenance Reminder (${reminder.days} days)`, emailBody, 'app');
+        await sendMail(recipientEmail, `Maintenance Reminder (${reminder.days} days)`, emailBody, 'app');
       } catch (error) {
         console.warn('Email sending skipped and continue running');
       }

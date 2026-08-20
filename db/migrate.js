@@ -255,6 +255,7 @@ async function runMigrations() {
     await pool.query(`
       ALTER TABLE technicians ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
       ALTER TABLE technicians ADD COLUMN IF NOT EXISTS reports_to_emp_id VARCHAR;
+      ALTER TABLE technicians ADD COLUMN IF NOT EXISTS notification_email VARCHAR;
 
       CREATE INDEX IF NOT EXISTS idx_technicians_employee_id ON technicians(employee_id);
     `);
