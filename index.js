@@ -10,6 +10,7 @@ const { pool } = require('./db');
 const { requireAuth } = require('./middleware/auth');
 const authRouter = require('./routes/auth');
 const dashboardRouter = require('./routes/dashboard');
+const employeesRouter = require('./routes/employees');
 const workOrdersRouter = require('./routes/workorders');
 const emailRouter = require('./routes/email');
 const meetingsRouter = require('./routes/meetings');
@@ -67,6 +68,7 @@ app.get('/health', async (req, res) => {
 
 app.use('/api/auth', authRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
+app.use('/api/employees', requireAuth, employeesRouter);
 app.use('/api/workorders', requireAuth, workOrdersRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/meetings', requireAuth, meetingsRouter);

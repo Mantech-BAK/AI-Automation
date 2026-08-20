@@ -140,7 +140,18 @@ router.get('/tasks/completed', async (req, res) => {
 
 router.get('/assets', async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT * FROM assets ORDER BY id`);
+    const { rows } = await pool.query(`
+      SELECT
+        assets.*,
+        ac.name AS category_name,
+        at.name AS type_name,
+        ad.name AS department_name
+      FROM assets
+      LEFT JOIN asset_categories ac ON ac.id = assets.category_id
+      LEFT JOIN asset_types at ON at.id = assets.type_id
+      LEFT JOIN asset_departments ad ON ad.id = assets.department_id
+      ORDER BY assets.id
+    `);
     return res.json(rows);
   } catch (error) {
     console.error('Assets query failed:', error);
@@ -156,20 +167,104 @@ router.get('/technicians', async (req, res) => {
         t.name,
         t.email,
         t.type_of_service,
+        t.emp_id,
+        t.contact_number,
+        t.task_assigned_count,
+        t.task_complete_count,
+        t.reports_to_emp_id,
+        et.name AS type_name,
+        d.name AS designation_name,
+        manager.name AS reports_to_name,
         COUNT(CASE WHEN w.status = 'open' THEN 1 END)::int as open_task_count,
         COUNT(CASE WHEN w.status = 'completed' THEN 1 END)::int as completed_task_count,
         MAX(CASE WHEN w.status = 'open' THEN a.site_location END) as current_site,
         MAX(CASE WHEN w.status = 'open' THEN a.equipment_name END) as current_task
       FROM technicians t
+      LEFT JOIN employees emp ON emp.id = t.employee_id
+      LEFT JOIN employee_types et ON et.id = t.type_id
+      LEFT JOIN designations d ON d.id = t.designation_id
+      LEFT JOIN employees manager ON manager.emp_id = t.reports_to_emp_id
       LEFT JOIN work_orders w ON w.technician_id = t.id
       LEFT JOIN assets a ON a.id = w.asset_id
-      GROUP BY t.id, t.name, t.email, t.type_of_service
+      GROUP BY t.id, t.name, t.email, t.type_of_service, t.emp_id, t.contact_number,
+               t.task_assigned_count, t.task_complete_count, t.reports_to_emp_id,
+               et.name, d.name, manager.name
       ORDER BY t.name
     `);
     return res.json(rows);
   } catch (error) {
     console.error('Technicians query failed:', error);
     return res.status(500).json({ error: 'Failed to load technicians' });
+  }
+});
+
+router.get('/categories', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM asset_categories ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Categories query failed:', error);
+    return res.status(500).json({ error: 'Failed to load categories' });
+  }
+});
+
+router.get('/asset-types', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM asset_types ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Asset types query failed:', error);
+    return res.status(500).json({ error: 'Failed to load asset types' });
+  }
+});
+
+router.get('/departments', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM asset_departments ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Departments query failed:', error);
+    return res.status(500).json({ error: 'Failed to load departments' });
+  }
+});
+
+router.get('/designations', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM designations ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Designations query failed:', error);
+    return res.status(500).json({ error: 'Failed to load designations' });
+  }
+});
+
+router.get('/employee-types', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM employee_types ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Employee types query failed:', error);
+    return res.status(500).json({ error: 'Failed to load employee types' });
+  }
+});
+
+router.get('/religions', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM religions ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Religions query failed:', error);
+    return res.status(500).json({ error: 'Failed to load religions' });
+  }
+});
+
+router.get('/origins', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM origins ORDER BY name`);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Origins query failed:', error);
+    return res.status(500).json({ error: 'Failed to load origins' });
   }
 });
 
@@ -372,6 +467,14 @@ router.post('/assets/add', async (req, res) => {
       estimated_duration_hours,
       last_completed_date,
       type_of_service,
+      category_id,
+      type_id,
+      department_id,
+      registration_date,
+      expiry_date,
+      reminder_days,
+      responsible_person,
+      remarks,
     } = req.body;
 
     const next_due_date = last_completed_date
@@ -391,8 +494,16 @@ router.post('/assets/add', async (req, res) => {
          estimated_duration_hours,
          last_completed_date,
          next_due_date,
-         type_of_service
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         type_of_service,
+         category_id,
+         type_id,
+         department_id,
+         registration_date,
+         expiry_date,
+         reminder_days,
+         responsible_person,
+         remarks
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
       [
         equipment_name,
@@ -402,6 +513,14 @@ router.post('/assets/add', async (req, res) => {
         last_completed_date || null,
         next_due_date,
         type_of_service || 'general',
+        category_id || null,
+        type_id || null,
+        department_id || null,
+        registration_date || null,
+        expiry_date || null,
+        reminder_days || null,
+        responsible_person || null,
+        remarks || null,
       ]
     );
 
@@ -414,13 +533,13 @@ router.post('/assets/add', async (req, res) => {
 
 router.post('/technicians/add', async (req, res) => {
   try {
-    const { name, email, type_of_service } = req.body;
+    const { name, email, type_of_service, emp_id, type_id, designation_id, contact_number } = req.body;
 
     const { rows } = await pool.query(
-      `INSERT INTO technicians (name, email, type_of_service)
-       VALUES ($1, $2, $3)
+      `INSERT INTO technicians (name, email, type_of_service, emp_id, type_id, designation_id, contact_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [name, email, type_of_service]
+      [name, email, type_of_service, emp_id || null, type_id || null, designation_id || null, contact_number || null]
     );
 
     return res.status(201).json(rows[0]);

@@ -5,6 +5,7 @@ import EmailProcessing from './components/EmailProcessing';
 import SitesPage from './components/SitesPage';
 import EquipmentPage from './components/EquipmentPage';
 import TechniciansPage from './components/TechniciansPage';
+import EmployeesPage from './components/EmployeesPage';
 import MaintenanceTasksPage from './components/MaintenanceTasksPage';
 import SchedulesPage from './components/SchedulesPage';
 import NotificationsPage from './components/NotificationsPage';
@@ -23,6 +24,12 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [employeeFilter, setEmployeeFilter] = useState('');
+
+  const handleViewEmployee = (empId: string) => {
+    setEmployeeFilter(empId);
+    setCurrentPage('employees');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +93,9 @@ function App() {
       case 'equipment':
         return <EquipmentPage />;
       case 'technicians':
-        return <TechniciansPage />;
+        return <TechniciansPage onViewEmployee={handleViewEmployee} />;
+      case 'employees':
+        return <EmployeesPage initialSearch={employeeFilter} />;
       case 'tasks':
         return <MaintenanceTasksPage />;
       case 'schedules':

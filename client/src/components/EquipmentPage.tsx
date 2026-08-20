@@ -16,11 +16,27 @@ interface Equipment {
   last_completed_date?: string | null;
   next_due_date?: string | null;
   type_of_service?: string | null;
+  category_id?: number | null;
+  type_id?: number | null;
+  department_id?: number | null;
+  category_name?: string | null;
+  type_name?: string | null;
+  department_name?: string | null;
+  registration_date?: string | null;
+  expiry_date?: string | null;
+  reminder_days?: number | null;
+  responsible_person?: string | null;
+  remarks?: string | null;
 }
 
 interface SiteOption {
   id: string;
   site_name: string;
+}
+
+interface LookupOption {
+  id: string;
+  name: string;
 }
 
 export default function EquipmentPage() {
@@ -31,6 +47,10 @@ export default function EquipmentPage() {
   const [saving, setSaving] = useState(false);
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [siteOptionsLoading, setSiteOptionsLoading] = useState(false);
+  const [categoryOptions, setCategoryOptions] = useState<LookupOption[]>([]);
+  const [typeOptions, setTypeOptions] = useState<LookupOption[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<LookupOption[]>([]);
+  const [lookupOptionsLoading, setLookupOptionsLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     equipment_name: '',
@@ -39,6 +59,14 @@ export default function EquipmentPage() {
     estimated_duration_hours: '',
     last_completed_date: '',
     type_of_service: 'general',
+    category_id: '',
+    type_id: '',
+    department_id: '',
+    registration_date: '',
+    expiry_date: '',
+    reminder_days: '7',
+    responsible_person: '',
+    remarks: '',
   });
 
   useEffect(() => {
@@ -74,6 +102,14 @@ export default function EquipmentPage() {
         estimated_duration_hours: formData.estimated_duration_hours ? Number(formData.estimated_duration_hours) : null,
         last_completed_date: formData.last_completed_date || null,
         type_of_service: formData.type_of_service || 'general',
+        category_id: formData.category_id ? Number(formData.category_id) : null,
+        type_id: formData.type_id ? Number(formData.type_id) : null,
+        department_id: formData.department_id ? Number(formData.department_id) : null,
+        registration_date: formData.registration_date || null,
+        expiry_date: formData.expiry_date || null,
+        reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
+        responsible_person: formData.responsible_person || null,
+        remarks: formData.remarks || null,
       };
 
       const response = await fetch('/api/dashboard/assets/add', {
@@ -103,6 +139,14 @@ export default function EquipmentPage() {
       estimated_duration_hours: '',
       last_completed_date: '',
       type_of_service: 'general',
+      category_id: '',
+      type_id: '',
+      department_id: '',
+      registration_date: '',
+      expiry_date: '',
+      reminder_days: '7',
+      responsible_person: '',
+      remarks: '',
     });
   }
 
@@ -119,6 +163,27 @@ export default function EquipmentPage() {
       console.error('Error fetching site options:', fetchError);
     } finally {
       setSiteOptionsLoading(false);
+    }
+  }
+
+  async function fetchLookupOptions() {
+    setLookupOptionsLoading(true);
+    try {
+      const [categoriesRes, typesRes, departmentsRes] = await Promise.all([
+        fetch('/api/dashboard/categories'),
+        fetch('/api/dashboard/asset-types'),
+        fetch('/api/dashboard/departments'),
+      ]);
+      if (!categoriesRes.ok || !typesRes.ok || !departmentsRes.ok) {
+        throw new Error('Failed to load lookup options');
+      }
+      setCategoryOptions(await categoriesRes.json());
+      setTypeOptions(await typesRes.json());
+      setDepartmentOptions(await departmentsRes.json());
+    } catch (fetchError) {
+      console.error('Error fetching lookup options:', fetchError);
+    } finally {
+      setLookupOptionsLoading(false);
     }
   }
 
@@ -142,6 +207,18 @@ export default function EquipmentPage() {
       case 'ok': return 'text-emerald-600';
       default: return 'text-slate-400';
     }
+  };
+
+  const getExpiryDateColor = (expiryDate?: string | null) => {
+    if (!expiryDate) return 'text-slate-400';
+    const expiry = new Date(expiryDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysUntilExpiry = Math.floor((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (daysUntilExpiry < 30) return 'text-red-600 font-medium';
+    if (daysUntilExpiry <= 90) return 'text-amber-600 font-medium';
+    return 'text-emerald-600';
   };
 
   if (loading) {
@@ -181,6 +258,7 @@ export default function EquipmentPage() {
               resetForm();
               setAddModalOpen(true);
               fetchSiteOptions();
+              fetchLookupOptions();
             }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
           >
@@ -218,16 +296,21 @@ export default function EquipmentPage() {
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Equipment</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type of Service</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Interval (days)</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Completed</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Next Due</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {equipment.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-slate-500">
                     <Cog size={40} className="mx-auto text-slate-300 mb-2" />
                     <p>No equipment found. Add your first equipment to get started.</p>
                   </td>
@@ -244,7 +327,9 @@ export default function EquipmentPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600">{item.site_location}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600 capitalize">{item.type_of_service || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{item.type_name || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{item.category_name || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{item.department_name || '-'}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{item.maintenance_interval_days ?? '-'}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">
                       {item.last_completed_date ? new Date(item.last_completed_date).toLocaleDateString() : '-'}
@@ -252,6 +337,13 @@ export default function EquipmentPage() {
                     <td className={`px-6 py-4 text-sm ${getDueDateColor(item.next_due_date)}`}>
                       {item.next_due_date ? new Date(item.next_due_date).toLocaleDateString() : '-'}
                     </td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {item.registration_date ? new Date(item.registration_date).toLocaleDateString() : '-'}
+                    </td>
+                    <td className={`px-6 py-4 text-sm ${getExpiryDateColor(item.expiry_date)}`}>
+                      {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
                   </tr>
                 ))
               )}
@@ -335,6 +427,96 @@ export default function EquipmentPage() {
                 onChange={(e) => setFormData({ ...formData, type_of_service: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 placeholder="e.g., electrical, mechanical, general"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+              <select
+                value={formData.category_id}
+                onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select a category'}</option>
+                {categoryOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+              <select
+                value={formData.type_id}
+                onChange={(e) => setFormData({ ...formData, type_id: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select a type'}</option>
+                {typeOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+              <select
+                value={formData.department_id}
+                onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select a department'}</option>
+                {departmentOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Registration Date</label>
+              <input
+                type="date"
+                value={formData.registration_date}
+                onChange={(e) => setFormData({ ...formData, registration_date: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Expiry Date</label>
+              <input
+                type="date"
+                value={formData.expiry_date}
+                onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Reminder Days</label>
+              <input
+                type="number"
+                value={formData.reminder_days}
+                onChange={(e) => setFormData({ ...formData, reminder_days: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="7"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Responsible Person</label>
+              <input
+                type="text"
+                value={formData.responsible_person}
+                onChange={(e) => setFormData({ ...formData, responsible_person: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="e.g., Yasir Ismail"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
+              <textarea
+                value={formData.remarks}
+                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="Additional notes"
               />
             </div>
           </div>
