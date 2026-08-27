@@ -260,6 +260,20 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_technicians_employee_id ON technicians(employee_id);
     `);
 
+    // Department-level notification recipients: which email addresses get
+    // notified when documents expire or equipment maintenance is due for a
+    // given department, independent of who the Planner task is assigned to.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS department_notification_emails (
+        id SERIAL PRIMARY KEY,
+        department_name VARCHAR NOT NULL,
+        email VARCHAR NOT NULL,
+        label VARCHAR,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(department_name, email)
+      );
+    `);
+
     const defaultSettings = [
       ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],
       ['senior_manager_email', process.env.SENIOR_MANAGER_EMAIL || ''],

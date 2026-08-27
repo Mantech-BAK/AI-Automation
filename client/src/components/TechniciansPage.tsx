@@ -10,6 +10,9 @@ import {
   CheckCircle2,
   Wrench,
   ExternalLink,
+  FileText,
+  Truck,
+  Rocket,
 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -56,6 +59,21 @@ interface TechnicianTask {
 
 type TaskModalStatus = 'open' | 'completed';
 
+type TechnicianTab = 'maintenance' | 'documentation' | 'vehicles';
+
+const TECHNICIAN_TABS: { id: TechnicianTab; label: string; icon: typeof Wrench }[] = [
+  { id: 'maintenance', label: 'Maintenance Technicians', icon: Wrench },
+  { id: 'documentation', label: 'Documentation Technicians', icon: FileText },
+  { id: 'vehicles', label: 'Vehicles', icon: Truck },
+];
+
+interface ResponsiblePerson {
+  responsible_person: string;
+  total_documents: number;
+  expiring_soon: number;
+  overdue: number;
+}
+
 function getTaskStatusColor(status?: string) {
   switch (status) {
     case 'completed': return 'bg-emerald-100 text-emerald-700';
@@ -68,9 +86,13 @@ function getTaskStatusColor(status?: string) {
 }
 
 export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps) {
+  const [activeTab, setActiveTab] = useState<TechnicianTab>('maintenance');
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [responsiblePersons, setResponsiblePersons] = useState<ResponsiblePerson[]>([]);
+  const [responsiblePersonsLoading, setResponsiblePersonsLoading] = useState(true);
+  const [responsiblePersonsError, setResponsiblePersonsError] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [employeeTypeOptions, setEmployeeTypeOptions] = useState<LookupOption[]>([]);
@@ -96,6 +118,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
 
   useEffect(() => {
     fetchTechnicians();
+    fetchResponsiblePersons();
   }, []);
 
   useEffect(() => {
@@ -122,6 +145,30 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchResponsiblePersons() {
+    try {
+      const response = await fetch('/api/dashboard/documents/responsible-persons');
+      if (!response.ok) {
+        throw new Error(`Failed to load responsible persons: ${response.statusText}`);
+      }
+      const json: ResponsiblePerson[] = await response.json();
+      setResponsiblePersons(
+        json.map((rp) => ({
+          responsible_person: rp.responsible_person,
+          total_documents: Number(rp.total_documents),
+          expiring_soon: Number(rp.expiring_soon),
+          overdue: Number(rp.overdue),
+        }))
+      );
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      console.error('Error fetching responsible persons:', fetchError);
+      setResponsiblePersonsError(message);
+    } finally {
+      setResponsiblePersonsLoading(false);
     }
   }
 
@@ -276,7 +323,92 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
         </div>
       </div>
 
-      {/* Technicians Grid */}
+      {/* Tab Switcher */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {TECHNICIAN_TABS.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-[#0f172a] text-white'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Icon size={16} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'vehicles' && (
+        <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-slate-200">
+          <Rocket size={40} className="text-slate-300 mb-3" />
+          <p className="text-lg font-semibold text-slate-600">Coming Soon</p>
+        </div>
+      )}
+
+      {activeTab === 'documentation' && (
+        responsiblePersonsLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+          </div>
+        ) : responsiblePersonsError ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
+              <p className="font-semibold">Failed to load responsible persons</p>
+              <p className="text-sm mt-2">{responsiblePersonsError}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {responsiblePersons.length === 0 ? (
+              <div className="col-span-full bg-white rounded-xl p-12 text-center border border-slate-200">
+                <FileText size={40} className="mx-auto text-slate-300 mb-2" />
+                <p className="text-slate-500">No responsible persons found for documents.</p>
+              </div>
+            ) : (
+              responsiblePersons.map((rp) => (
+                <div key={rp.responsible_person} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-semibold text-lg">
+                      {rp.responsible_person.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-800">{rp.responsible_person}</h3>
+                      <p className="text-xs text-slate-400">Document Responsible Person</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm pt-3 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Total Documents</span>
+                      <span className="font-semibold text-slate-800">{rp.total_documents}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Expiring within 30 days</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${rp.expiring_soon > 0 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {rp.expiring_soon}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Overdue</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${rp.overdue > 0 ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                        {rp.overdue}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )
+      )}
+
+      {activeTab === 'maintenance' && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {technicians.length === 0 ? (
           <div className="col-span-full bg-white rounded-xl p-12 text-center border border-slate-200">
@@ -380,6 +512,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
           ))
         )}
       </div>
+      )}
 
       {/* Add Modal */}
       <Modal

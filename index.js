@@ -16,6 +16,7 @@ const emailRouter = require('./routes/email');
 const meetingsRouter = require('./routes/meetings');
 const settingsRouter = require('./routes/settings');
 const systemRouter = require('./routes/system');
+const notificationsConfigRouter = require('./routes/notifications-config');
 const { startStatusTracker } = require('./jobs/statusTracker');
 const { startEmailProcessor } = require('./jobs/emailProcessor');
 
@@ -66,6 +67,10 @@ app.get('/health', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.send('Server is running');
+});
+
 app.use('/api/auth', authRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/employees', requireAuth, employeesRouter);
@@ -74,6 +79,7 @@ app.use('/api/email', emailRouter);
 app.use('/api/meetings', requireAuth, meetingsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/system', requireAuth, systemRouter);
+app.use('/api/notifications-config', requireAuth, notificationsConfigRouter);
 
 app.use(express.static(clientDistPath));
 

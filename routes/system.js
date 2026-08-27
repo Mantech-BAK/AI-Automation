@@ -17,14 +17,16 @@ router.post('/run-daily-check', async (req, res) => {
   try {
     const result = await runDailyCheck();
     const tasksCreated = result?.tasksCreated ?? 0;
+    const documentReminders = result?.documentRemindersSent ?? 0;
     const timestamp = new Date().toISOString();
 
     await upsertSetting('last_daily_check_run', timestamp);
 
     return res.json({
-      message: `Daily check complete. ${tasksCreated} task${tasksCreated === 1 ? '' : 's'} created.`,
+      message: `Daily check complete. ${tasksCreated} equipment task${tasksCreated === 1 ? '' : 's'} created, ${documentReminders} document reminder${documentReminders === 1 ? '' : 's'} sent.`,
       timestamp,
       tasksCreated,
+      documentReminders,
     });
   } catch (error) {
     console.error('Run daily check failed:', error);

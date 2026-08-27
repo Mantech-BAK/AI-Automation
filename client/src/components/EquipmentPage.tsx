@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
   Cog,
+  FileText,
   Loader2,
+  Pencil,
   Plus,
+  Rocket,
   Save,
+  Truck,
 } from 'lucide-react';
 import Modal from './Modal';
+import AssetEditModal, { EditableAsset } from './AssetEditModal';
 
 interface Equipment {
   id: string;
@@ -39,10 +44,41 @@ interface LookupOption {
   name: string;
 }
 
+type PageTab = 'equipment' | 'documents' | 'vehicles';
+
+function daysUntil(dateStr?: string | null): number | null {
+  if (!dateStr) return null;
+  const due = new Date(dateStr);
+  if (Number.isNaN(due.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function getExpiryColorClass(dateStr?: string | null): string {
+  const days = daysUntil(dateStr);
+  if (days === null) return 'text-slate-400';
+  if (days <= 30) return 'text-red-600 font-medium';
+  if (days <= 90) return 'text-amber-600 font-medium';
+  return 'text-emerald-600 font-medium';
+}
+
 export default function EquipmentPage() {
+  const [activeTab, setActiveTab] = useState<PageTab>('equipment');
+
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [documents, setDocuments] = useState<Equipment[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
+
+  const [equipmentDeptFilter, setEquipmentDeptFilter] = useState('all');
+  const [documentDeptFilter, setDocumentDeptFilter] = useState('all');
+
+  const [editingAsset, setEditingAsset] = useState<EditableAsset | null>(null);
+
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
@@ -71,11 +107,12 @@ export default function EquipmentPage() {
 
   useEffect(() => {
     fetchData();
+    fetchDocuments();
   }, []);
 
   async function fetchData() {
     try {
-      const response = await fetch('/api/dashboard/assets');
+      const response = await fetch('/api/dashboard/assets?category=Equipment');
       if (!response.ok) {
         throw new Error(`Failed to load equipment: ${response.statusText}`);
       }
@@ -87,6 +124,23 @@ export default function EquipmentPage() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchDocuments() {
+    try {
+      const response = await fetch('/api/dashboard/assets?category=Document');
+      if (!response.ok) {
+        throw new Error(`Failed to load documents: ${response.statusText}`);
+      }
+      const json: Equipment[] = await response.json();
+      setDocuments(json);
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      console.error('Error fetching documents:', fetchError);
+      setDocumentsError(message);
+    } finally {
+      setDocumentsLoading(false);
     }
   }
 
@@ -221,28 +275,23 @@ export default function EquipmentPage() {
     return 'text-emerald-600';
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
-          <p className="font-semibold">Failed to load equipment</p>
-          <p className="text-sm mt-2">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
   const overdueCount = equipment.filter(e => getDueDateStatus(e.next_due_date) === 'overdue').length;
   const soonCount = equipment.filter(e => getDueDateStatus(e.next_due_date) === 'soon').length;
   const okCount = equipment.filter(e => getDueDateStatus(e.next_due_date) === 'ok').length;
+
+  const equipmentDeptOptions = [...new Set(
+    equipment.map((item) => item.site_location).filter((d): d is string => Boolean(d))
+  )].sort();
+  const filteredEquipment = equipmentDeptFilter === 'all'
+    ? equipment
+    : equipment.filter((item) => item.site_location === equipmentDeptFilter);
+
+  const documentDeptOptions = [...new Set(
+    documents.map((item) => item.site_location).filter((d): d is string => Boolean(d))
+  )].sort();
+  const filteredDocuments = documentDeptFilter === 'all'
+    ? documents
+    : documents.filter((item) => item.site_location === documentDeptFilter);
 
   return (
     <div className="space-y-6">
@@ -252,105 +301,271 @@ export default function EquipmentPage() {
           <h1 className="text-2xl font-bold text-slate-800">Equipment</h1>
           <p className="text-slate-500 mt-1">Manage your equipment and assets</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => {
-              resetForm();
-              setAddModalOpen(true);
-              fetchSiteOptions();
-              fetchLookupOptions();
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
-          >
-            <Plus size={18} />
-            Add Equipment
-          </button>
-        </div>
+        {activeTab === 'equipment' && (
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                resetForm();
+                setAddModalOpen(true);
+                fetchSiteOptions();
+                fetchLookupOptions();
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
+            >
+              <Plus size={18} />
+              Add Equipment
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <p className="text-sm text-slate-500">Total</p>
-          <p className="text-2xl font-bold text-slate-800">{equipment.length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <p className="text-sm text-slate-500">Overdue</p>
-          <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <p className="text-sm text-slate-500">Due Within 7 Days</p>
-          <p className="text-2xl font-bold text-amber-600">{soonCount}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <p className="text-sm text-slate-500">On Track</p>
-          <p className="text-2xl font-bold text-emerald-600">{okCount}</p>
-        </div>
+      {/* Tab Switcher */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {([
+          { id: 'equipment', label: 'Equipment', icon: Cog },
+          { id: 'documents', label: 'Documents', icon: FileText },
+          { id: 'vehicles', label: 'Vehicles', icon: Truck },
+        ] as { id: PageTab; label: string; icon: typeof Cog }[]).map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-[#0f172a] text-white'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Icon size={16} />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Equipment Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Equipment</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Interval (days)</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Completed</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Next Due</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {equipment.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-6 py-12 text-center text-slate-500">
-                    <Cog size={40} className="mx-auto text-slate-300 mb-2" />
-                    <p>No equipment found. Add your first equipment to get started.</p>
-                  </td>
-                </tr>
-              ) : (
-                equipment.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-                          <Cog size={16} className="text-indigo-600" />
-                        </div>
-                        <p className="font-medium text-slate-800">{item.equipment_name}</p>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.site_location}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.type_name || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.category_name || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.department_name || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.maintenance_interval_days ?? '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {item.last_completed_date ? new Date(item.last_completed_date).toLocaleDateString() : '-'}
-                    </td>
-                    <td className={`px-6 py-4 text-sm ${getDueDateColor(item.next_due_date)}`}>
-                      {item.next_due_date ? new Date(item.next_due_date).toLocaleDateString() : '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {item.registration_date ? new Date(item.registration_date).toLocaleDateString() : '-'}
-                    </td>
-                    <td className={`px-6 py-4 text-sm ${getExpiryDateColor(item.expiry_date)}`}>
-                      {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {activeTab === 'equipment' && (
+        loading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
+              <p className="font-semibold">Failed to load equipment</p>
+              <p className="text-sm mt-2">{error}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <p className="text-sm text-slate-500">Total</p>
+                <p className="text-2xl font-bold text-slate-800">{equipment.length}</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <p className="text-sm text-slate-500">Overdue</p>
+                <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <p className="text-sm text-slate-500">Due Within 7 Days</p>
+                <p className="text-2xl font-bold text-amber-600">{soonCount}</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <p className="text-sm text-slate-500">On Track</p>
+                <p className="text-2xl font-bold text-emerald-600">{okCount}</p>
+              </div>
+            </div>
+
+            {/* Department filter */}
+            <select
+              value={equipmentDeptFilter}
+              onChange={(e) => setEquipmentDeptFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            >
+              <option value="all">All Departments</option>
+              {equipmentDeptOptions.map((dept) => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+
+            {/* Equipment Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Equipment</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Interval (days)</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Completed</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Next Due</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredEquipment.length === 0 ? (
+                      <tr>
+                        <td colSpan={12} className="px-6 py-12 text-center text-slate-500">
+                          <Cog size={40} className="mx-auto text-slate-300 mb-2" />
+                          <p>No equipment found. Add your first equipment to get started.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredEquipment.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+                                <Cog size={16} className="text-indigo-600" />
+                              </div>
+                              <p className="font-medium text-slate-800">{item.equipment_name}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.site_location}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.type_name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.category_name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.department_name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.maintenance_interval_days ?? '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {item.last_completed_date ? new Date(item.last_completed_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className={`px-6 py-4 text-sm ${getDueDateColor(item.next_due_date)}`}>
+                            {item.next_due_date ? new Date(item.next_due_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {item.registration_date ? new Date(item.registration_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className={`px-6 py-4 text-sm ${getExpiryDateColor(item.expiry_date)}`}>
+                            {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => setEditingAsset(item)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+                            >
+                              <Pencil size={14} />
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
+      {activeTab === 'documents' && (
+        documentsLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+          </div>
+        ) : documentsError ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
+              <p className="font-semibold">Failed to load documents</p>
+              <p className="text-sm mt-2">{documentsError}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Department filter */}
+            <select
+              value={documentDeptFilter}
+              onChange={(e) => setDocumentDeptFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            >
+              <option value="all">All Departments</option>
+              {documentDeptOptions.map((dept) => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Item Name</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reminder Days</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">In Charge</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredDocuments.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
+                          <FileText size={40} className="mx-auto text-slate-300 mb-2" />
+                          <p>No documents found.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredDocuments.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                                <FileText size={16} className="text-cyan-600" />
+                              </div>
+                              <p className="font-medium text-slate-800">{item.equipment_name}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.type_name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.site_location || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {item.registration_date ? new Date(item.registration_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className={`px-6 py-4 text-sm ${getExpiryColorClass(item.expiry_date)}`}>
+                            {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.reminder_days ?? '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.remarks || '-'}</td>
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => setEditingAsset(item)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+                            >
+                              <Pencil size={14} />
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
+      {activeTab === 'vehicles' && (
+        <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-slate-200">
+          <Rocket size={40} className="text-slate-300 mb-3" />
+          <p className="text-lg font-semibold text-slate-600">Coming Soon</p>
         </div>
-      </div>
+      )}
 
       {/* Add Modal */}
       <Modal
@@ -547,6 +762,15 @@ export default function EquipmentPage() {
           </div>
         </div>
       </Modal>
+
+      <AssetEditModal
+        asset={editingAsset}
+        onClose={() => setEditingAsset(null)}
+        onSaved={() => {
+          fetchData();
+          fetchDocuments();
+        }}
+      />
     </div>
   );
 }

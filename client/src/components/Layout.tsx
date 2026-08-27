@@ -11,6 +11,7 @@ import {
   Mail,
   Bell,
   Settings,
+  BellRing,
   LogOut,
   Menu,
   X,
@@ -28,7 +29,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'tasks', label: 'Maintenance Tasks', icon: Wrench },
   { id: 'schedules', label: 'Schedule Meeting', icon: Calendar },
-  { id: 'equipment', label: 'Equipment', icon: Cog },
+  { id: 'equipment', label: 'Asset Info', icon: Cog },
   { id: 'sites', label: 'Sites', icon: MapPin },
   { id: 'technicians', label: 'Technicians', icon: Users },
   { id: 'employees', label: 'Employee Master', icon: Contact },
@@ -36,6 +37,7 @@ const navItems = [
   { id: 'email', label: 'Email Processing', icon: Mail },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'notifications-config', label: 'Notification Config', icon: BellRing },
 ];
 
 export default function Layout({ children, currentPage, onNavigate, onSignOut }: LayoutProps) {

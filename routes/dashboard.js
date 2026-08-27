@@ -47,6 +47,64 @@ router.get('/overview', async (req, res) => {
   }
 });
 
+router.get('/overview/maintenance', async (req, res) => {
+  try {
+    const query = `
+      SELECT
+        (SELECT COUNT(*) FROM work_orders wo
+           JOIN assets a ON a.id = wo.asset_id
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Equipment') AS "totalTasks",
+        (SELECT COUNT(*) FROM work_orders wo
+           JOIN assets a ON a.id = wo.asset_id
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Equipment' AND wo.status = 'open' AND (wo.due_date IS NULL OR wo.due_date >= CURRENT_DATE)) AS "open",
+        (SELECT COUNT(*) FROM work_orders wo
+           JOIN assets a ON a.id = wo.asset_id
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Equipment' AND wo.status = 'open' AND wo.due_date < CURRENT_DATE) AS "overdue",
+        (SELECT COUNT(*) FROM work_orders wo
+           JOIN assets a ON a.id = wo.asset_id
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Equipment' AND wo.status = 'completed') AS "completed"
+    `;
+
+    const { rows } = await pool.query(query);
+    return res.json(rows[0] || {});
+  } catch (error) {
+    console.error('Maintenance overview query failed:', error);
+    return res.status(500).json({ error: 'Failed to load maintenance overview data' });
+  }
+});
+
+router.get('/overview/documentation', async (req, res) => {
+  try {
+    const query = `
+      SELECT
+        (SELECT COUNT(*) FROM assets a
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Document') AS "totalDocuments",
+        (SELECT COUNT(*) FROM assets a
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL
+             AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS "expiringWithin30",
+        (SELECT COUNT(*) FROM assets a
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL
+             AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '90 days') AS "expiringWithin90",
+        (SELECT COUNT(*) FROM assets a
+           JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS "expired"
+    `;
+
+    const { rows } = await pool.query(query);
+    return res.json(rows[0] || {});
+  } catch (error) {
+    console.error('Documentation overview query failed:', error);
+    return res.status(500).json({ error: 'Failed to load documentation overview data' });
+  }
+});
+
 router.get('/tasks', async (req, res) => {
   try {
     const days = req.query.days ? Number(req.query.days) : null;
@@ -54,6 +112,8 @@ router.get('/tasks', async (req, res) => {
 
     const technicianId = req.query.technician_id ? Number(req.query.technician_id) : null;
     const hasTechnicianFilter = Number.isFinite(technicianId) && technicianId !== null;
+
+    const { category } = req.query;
 
     const conditions = [];
     const params = [];
@@ -66,6 +126,11 @@ router.get('/tasks', async (req, res) => {
     if (hasTechnicianFilter) {
       params.push(technicianId);
       conditions.push(`wo.technician_id = $${params.length}`);
+    }
+
+    if (category === 'Document' || category === 'Equipment') {
+      params.push(category);
+      conditions.push(`ac.name = $${params.length}`);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -87,6 +152,7 @@ router.get('/tasks', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN technicians t ON wo.technician_id = t.id
+      LEFT JOIN asset_categories ac ON ac.id = a.category_id
       ${whereClause}
       ORDER BY wo.due_date NULLS LAST, wo.id
     `,
@@ -140,7 +206,24 @@ router.get('/tasks/completed', async (req, res) => {
 
 router.get('/assets', async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    const { category, department } = req.query;
+    const conditions = [];
+    const params = [];
+
+    if (category === 'Document' || category === 'Equipment') {
+      params.push(category);
+      conditions.push(`ac.name = $${params.length}`);
+    }
+
+    if (department) {
+      params.push(department);
+      conditions.push(`assets.site_location = $${params.length}`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await pool.query(
+      `
       SELECT
         assets.*,
         ac.name AS category_name,
@@ -150,12 +233,36 @@ router.get('/assets', async (req, res) => {
       LEFT JOIN asset_categories ac ON ac.id = assets.category_id
       LEFT JOIN asset_types at ON at.id = assets.type_id
       LEFT JOIN asset_departments ad ON ad.id = assets.department_id
+      ${whereClause}
       ORDER BY assets.id
-    `);
+    `,
+      params
+    );
     return res.json(rows);
   } catch (error) {
     console.error('Assets query failed:', error);
     return res.status(500).json({ error: 'Failed to load assets' });
+  }
+});
+
+router.get('/documents/responsible-persons', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        responsible_person,
+        COUNT(*) AS total_documents,
+        COUNT(CASE WHEN expiry_date <= CURRENT_DATE + 30 THEN 1 END) AS expiring_soon,
+        COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) AS overdue
+      FROM assets
+      WHERE category_id = (SELECT id FROM asset_categories WHERE name = 'Document')
+        AND responsible_person IS NOT NULL
+      GROUP BY responsible_person
+      ORDER BY overdue DESC, expiring_soon DESC
+    `);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Responsible persons query failed:', error);
+    return res.status(500).json({ error: 'Failed to load responsible persons' });
   }
 });
 
@@ -528,6 +635,74 @@ router.post('/assets/add', async (req, res) => {
   } catch (error) {
     console.error('Add asset failed:', error);
     return res.status(500).json({ error: 'Failed to add asset' });
+  }
+});
+
+router.put('/assets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      equipment_name,
+      site_location,
+      maintenance_interval_days,
+      estimated_duration_hours,
+      next_due_date,
+      type_of_service,
+      category_id,
+      type_id,
+      department_id,
+      registration_date,
+      expiry_date,
+      reminder_days,
+      responsible_person,
+      remarks,
+    } = req.body;
+
+    const { rows } = await pool.query(
+      `UPDATE assets SET
+         equipment_name = $1,
+         site_location = $2,
+         maintenance_interval_days = $3,
+         estimated_duration_hours = $4,
+         next_due_date = $5,
+         type_of_service = $6,
+         category_id = $7,
+         type_id = $8,
+         department_id = $9,
+         registration_date = $10,
+         expiry_date = $11,
+         reminder_days = $12,
+         responsible_person = $13,
+         remarks = $14
+       WHERE id = $15
+       RETURNING *`,
+      [
+        equipment_name,
+        site_location,
+        maintenance_interval_days || null,
+        estimated_duration_hours || null,
+        next_due_date || null,
+        type_of_service || 'general',
+        category_id || null,
+        type_id || null,
+        department_id || null,
+        registration_date || null,
+        expiry_date || null,
+        reminder_days || null,
+        responsible_person || null,
+        remarks || null,
+        id,
+      ]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    return res.json(rows[0]);
+  } catch (error) {
+    console.error('Update asset failed:', error);
+    return res.status(500).json({ error: 'Failed to update asset' });
   }
 });
 

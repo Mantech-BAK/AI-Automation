@@ -11,6 +11,7 @@ import SchedulesPage from './components/SchedulesPage';
 import NotificationsPage from './components/NotificationsPage';
 import CalendarPage from './components/CalendarPage';
 import SettingsPage from './components/SettingsPage';
+import NotificationsConfigPage from './components/NotificationsConfigPage';
 import LoginPage from './pages/LoginPage';
 
 interface SessionUser {
@@ -85,7 +86,7 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard onNavigate={setCurrentPage} />;
+        return <Dashboard />;
       case 'email':
         return <EmailProcessing />;
       case 'sites':
@@ -106,8 +107,10 @@ function App() {
         return <CalendarPage />;
       case 'settings':
         return <SettingsPage />;
+      case 'notifications-config':
+        return <NotificationsConfigPage />;
       default:
-        return <Dashboard onNavigate={setCurrentPage} />;
+        return <Dashboard />;
     }
   };
 
