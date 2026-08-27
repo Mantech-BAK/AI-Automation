@@ -482,10 +482,23 @@ function toGraphStartDateTime(dateValue, slotDateTime = null) {
 
   if (!dateValue) return null;
 
-  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return null;
+  // Build the datetime string directly from the date's own digits instead of
+  // routing through `new Date(...).toISOString()` - that round-trip depends on
+  // date-only strings being parsed as UTC, which is easy to break (e.g. if a
+  // Date object or a datetime string ever ends up here instead of a plain
+  // 'YYYY-MM-DD' string) and would silently shift the calendar day.
+  let isoDate;
+  if (dateValue instanceof Date) {
+    const year = dateValue.getFullYear();
+    const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const day = String(dateValue.getDate()).padStart(2, '0');
+    isoDate = `${year}-${month}-${day}`;
+  } else {
+    isoDate = String(dateValue).slice(0, 10);
+  }
 
-  const isoDate = date.toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return null;
+
   return `${isoDate}T09:00:00`;
 }
 
@@ -529,6 +542,8 @@ async function createCalendarEvent(asset, technician, managerEmail, dueDate = nu
         dateTime: endDateTime,
         timeZone,
       },
+      // This is a plain reminder appointment, not a meeting - no Teams link.
+      isOnlineMeeting: overrides.isOnlineMeeting ?? false,
     };
 
     await graphRequest('POST', `/users/${encodeURIComponent(overrides.singleRecipientEmail)}/events`, singleEventBody, 'app');
@@ -604,7 +619,7 @@ async function runDailyCheck() {
     );
 
     if (existingOrder.rows.length > 0) {
-      console.log(`Asset ${asset.equipment_name} already has an open work order - skipping`);
+      console.log(`Asset ${asset.equipment_name} already has open work order - skipping Planner task creation`);
       continue;
     }
 
@@ -619,7 +634,12 @@ async function runDailyCheck() {
       // don't create the Planner task yet - technicians should only see it
       // on the day the work is actually due.
       try {
-        const notes = JSON.stringify({ asset_id: asset.id });
+        const notes = JSON.stringify({
+          asset_id: asset.id,
+          equipment_name: asset.equipment_name,
+          department: asset.site_location,
+          due_date: asset.next_due_date,
+        });
 
         const alreadySent = await pool.query(
           `SELECT 1 FROM notification_log
@@ -692,8 +712,8 @@ async function runDailyCheck() {
     await assignPlannerTask(plannerTaskId, technician);
 
     const workOrderResult = await pool.query(
-      `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date)
-       VALUES ('open', $1, $2, $3, $4)
+      `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date, task_type)
+       VALUES ('open', $1, $2, $3, $4, 'equipment')
        RETURNING *`,
       [asset.id, technician.id, plannerTaskId, workOrderDueDate]
     );
@@ -751,7 +771,12 @@ async function runDailyCheck() {
       const daysRemaining = Math.round((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       const isDueOrOverdue = daysRemaining <= 0;
 
-      const notes = JSON.stringify({ asset_id: doc.id });
+      const notes = JSON.stringify({
+        asset_id: doc.id,
+        document_name: doc.equipment_name,
+        department: doc.site_location,
+        expiry_date: doc.expiry_date,
+      });
       const documentDescription = `Document type: ${doc.type_name || 'N/A'}\nDepartment: ${doc.site_location}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`;
 
       if (!isDueOrOverdue) {
@@ -778,7 +803,9 @@ async function runDailyCheck() {
             timeZone: 'Arab Standard Time',
             startDateTime: `${doc.expiry_date}T09:00:00`,
             endDateTime: `${doc.expiry_date}T10:00:00`,
+            isOnlineMeeting: false,
           });
+          console.log(`Calendar reminder event created for document: ${doc.equipment_name} on ${doc.expiry_date}`);
         } catch (calendarError) {
           console.warn(`Calendar event skipped for document ${doc.equipment_name}:`, calendarError.message);
         }
@@ -810,46 +837,63 @@ async function runDailyCheck() {
         continue;
       }
 
-      // DUE / OVERDUE: create the Planner task, once.
-      const alreadyCreated = await pool.query(
-        `SELECT 1 FROM notification_log WHERE notification_type = 'document_task_created' AND notes = $1 LIMIT 1`,
-        [notes]
+      // DUE / OVERDUE: create the Planner task, once. Same dedup pattern as
+      // equipment - a work_order row is the source of truth for "already
+      // has a task", not notification_log (which only records that a
+      // notification was sent, and isn't reliable if a prior run's Graph
+      // call failed after the notification already went out).
+      const existingOrder = await pool.query(
+        `SELECT id FROM work_orders WHERE asset_id = $1 AND status NOT IN ('completed', 'rejected') LIMIT 1`,
+        [doc.id]
       );
 
-      if (alreadyCreated.rows.length > 0) {
+      if (existingOrder.rows.length > 0) {
+        console.log(`Asset ${doc.equipment_name} already has open work order - skipping Planner task creation`);
         continue;
       }
 
-      // Planner task + calendar event MUST run before the notification_log
-      // insert below so a Graph failure is visible in the logs immediately,
-      // rather than being masked by a notification that already "succeeded".
+      // Planner task + calendar event MUST run before the work_order insert
+      // below so a Graph failure is visible in the logs immediately, rather
+      // than being masked by a work order that already "succeeded" - and so
+      // a failed attempt is retried on the next run instead of being
+      // permanently skipped.
+      let plannerTaskId = null;
       try {
-        await createPlannerTask(doc, {
+        plannerTaskId = await createPlannerTask(doc, {
           title: `Document Renewal Required - ${doc.equipment_name} (${doc.site_location}) - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
           dueDateTime: `${doc.expiry_date}T09:00:00Z`,
           description: documentDescription,
           assigneeId: MY_USER_ID,
         });
+        console.log(`Created Planner task for document: ${doc.equipment_name} expiring ${doc.expiry_date}`);
 
+        // Plain Outlook reminder appointment on the shared calendar - not a
+        // Teams meeting, so no online-meeting link is attached.
         await createCalendarEvent(doc, null, null, null, null, {
-          title: `Document Renewal - ${doc.equipment_name} - ${doc.site_location}`,
+          title: `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location} - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
           description: documentDescription,
           singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
           timeZone: 'Arab Standard Time',
           startDateTime: `${doc.expiry_date}T09:00:00`,
           endDateTime: `${doc.expiry_date}T10:00:00`,
+          isOnlineMeeting: false,
         });
-
-        console.log(`Created Planner task and calendar event for document: ${doc.equipment_name} expiring ${doc.expiry_date}`);
+        console.log(`Calendar reminder event created for document: ${doc.equipment_name} on ${doc.expiry_date}`);
       } catch (graphError) {
         console.error(`Planner task / calendar event creation failed for document ${doc.equipment_name}:`, graphError.message);
         errors++;
       }
 
-      await pool.query(
-        `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
-        ['document_task_created', null, notes]
-      );
+      if (plannerTaskId) {
+        const workOrderResult = await pool.query(
+          `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date, notes, task_type)
+           VALUES ('open', $1, NULL, $2, $3, $4, 'document')
+           RETURNING *`,
+          [doc.id, plannerTaskId, doc.expiry_date, 'Document renewal task']
+        );
+        const workOrder = workOrderResult.rows[0];
+        await logNotification(workOrder.id, 'document_task_created');
+      }
 
       const daysLabel = daysRemaining === 0 ? 'due today' : `${Math.abs(daysRemaining)} day(s) overdue`;
       const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location}`;

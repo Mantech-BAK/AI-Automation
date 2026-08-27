@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import EmailProcessing from './components/EmailProcessing';
 import SitesPage from './components/SitesPage';
+import DepartmentsPage from './components/DepartmentsPage';
 import EquipmentPage from './components/EquipmentPage';
 import TechniciansPage from './components/TechniciansPage';
 import EmployeesPage from './components/EmployeesPage';
@@ -11,7 +12,6 @@ import SchedulesPage from './components/SchedulesPage';
 import NotificationsPage from './components/NotificationsPage';
 import CalendarPage from './components/CalendarPage';
 import SettingsPage from './components/SettingsPage';
-import NotificationsConfigPage from './components/NotificationsConfigPage';
 import LoginPage from './pages/LoginPage';
 
 interface SessionUser {
@@ -91,6 +91,8 @@ function App() {
         return <EmailProcessing />;
       case 'sites':
         return <SitesPage />;
+      case 'departments':
+        return <DepartmentsPage />;
       case 'equipment':
         return <EquipmentPage />;
       case 'technicians':
@@ -107,8 +109,6 @@ function App() {
         return <CalendarPage />;
       case 'settings':
         return <SettingsPage />;
-      case 'notifications-config':
-        return <NotificationsConfigPage />;
       default:
         return <Dashboard />;
     }

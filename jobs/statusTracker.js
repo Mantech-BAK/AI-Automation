@@ -6,7 +6,23 @@ const { graphRequest } = require('../graph/client');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
-async function applyAssetRecurrence(assetId, maintenanceIntervalDays) {
+async function applyAssetRecurrence(assetId, maintenanceIntervalDays, taskType) {
+  if (taskType === 'document') {
+    // Renewing a document: today becomes the new registration date, and the
+    // next expiry is calculated from today plus the interval - not from the
+    // old expiry date, since the renewal itself resets the clock.
+    await pool.query(
+      `UPDATE assets
+       SET registration_date = CURRENT_DATE,
+           last_completed_date = CURRENT_DATE,
+           next_due_date = CURRENT_DATE + ($1 || ' days')::interval,
+           expiry_date = CURRENT_DATE + ($1 || ' days')::interval
+       WHERE id = $2`,
+      [maintenanceIntervalDays, assetId]
+    );
+    return;
+  }
+
   await pool.query(
     `UPDATE assets
      SET last_completed_date = CURRENT_DATE,
@@ -35,7 +51,7 @@ async function processWorkOrder(workOrder) {
     [workOrder.id]
   );
 
-  await applyAssetRecurrence(workOrder.asset_id, workOrder.maintenance_interval_days);
+  await applyAssetRecurrence(workOrder.asset_id, workOrder.maintenance_interval_days, workOrder.task_type);
 }
 
 async function runStatusTracker() {
@@ -44,6 +60,7 @@ async function runStatusTracker() {
            wo.status,
            wo.planner_task_id,
            wo.asset_id,
+           wo.task_type,
            a.maintenance_interval_days
     FROM work_orders wo
     JOIN assets a ON a.id = wo.asset_id

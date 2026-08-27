@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Loader2,
   Wrench,
+  FileText,
   Calendar as CalendarIcon,
   MapPin,
   User,
@@ -11,9 +12,22 @@ import {
 
 interface ScheduleItem {
   id: string;
+  task_type?: string | null;
   equipment_name?: string | null;
   site_location?: string | null;
   due_date?: string | null;
+  status?: string;
+  technician_name?: string | null;
+}
+
+type CalendarEventType = 'maintenance' | 'document';
+
+interface CalendarEvent {
+  id: string;
+  type: CalendarEventType;
+  title: string;
+  date: string | null;
+  site_location?: string | null;
   status?: string;
   technician_name?: string | null;
 }
@@ -25,17 +39,17 @@ function toDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function dueDateKey(dueDate?: string | null): string | null {
-  if (!dueDate) return null;
-  return dueDate.slice(0, 10);
+function eventDateKey(eventDate?: string | null): string | null {
+  if (!eventDate) return null;
+  return eventDate.slice(0, 10);
 }
 
-function formatDueDate(dueDate?: string | null): string {
-  if (!dueDate) return '-';
-  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dueDate);
-  const iso = hasOffset ? dueDate : `${dueDate.slice(0, 10)}T00:00:00Z`;
+function formatEventDate(eventDate?: string | null): string {
+  if (!eventDate) return '-';
+  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(eventDate);
+  const iso = hasOffset ? eventDate : `${eventDate.slice(0, 10)}T00:00:00Z`;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return dueDate;
+  if (Number.isNaN(date.getTime())) return eventDate;
   return date.toLocaleString('en-GB', {
     timeZone: 'Asia/Bahrain',
     day: '2-digit',
@@ -57,6 +71,9 @@ export default function CalendarPage() {
 
   async function fetchData() {
     try {
+      // Only pull from work_orders (via /schedules) - this way the calendar
+      // shows exactly the tasks the daily check actually created, not every
+      // document's expiry date regardless of whether a task exists for it.
       const response = await fetch('/api/dashboard/schedules');
 
       if (!response.ok) {
@@ -74,18 +91,28 @@ export default function CalendarPage() {
     }
   }
 
+  const events = useMemo<CalendarEvent[]>(() => schedules.map((item) => ({
+    id: `task-${item.id}`,
+    type: item.task_type === 'document' ? 'document' : 'maintenance',
+    title: item.equipment_name || 'Untitled',
+    date: item.due_date ?? null,
+    site_location: item.site_location,
+    status: item.status,
+    technician_name: item.technician_name,
+  })), [schedules]);
+
   const eventsByDate = useMemo(() => {
-    const map = new Map<string, ScheduleItem[]>();
-    for (const item of schedules) {
-      const key = dueDateKey(item.due_date);
+    const map = new Map<string, CalendarEvent[]>();
+    for (const event of events) {
+      const key = eventDateKey(event.date);
       if (!key) continue;
       if (!map.has(key)) {
         map.set(key, []);
       }
-      map.get(key)!.push(item);
+      map.get(key)!.push(event);
     }
     return map;
-  }, [schedules]);
+  }, [events]);
 
   const todayKey = toDateKey(new Date());
   const sevenDaysFromNowKey = useMemo(() => {
@@ -94,18 +121,20 @@ export default function CalendarPage() {
     return toDateKey(d);
   }, []);
 
-  const getEventColor = (item: ScheduleItem): 'red' | 'orange' | 'blue' => {
-    const key = dueDateKey(item.due_date);
+  const getEventColor = (event: CalendarEvent): 'red' | 'orange' | 'blue' | 'purple' => {
+    if (event.type === 'document') return 'purple';
+    const key = eventDateKey(event.date);
     if (!key) return 'blue';
     if (key < todayKey) return 'red';
     if (key <= sevenDaysFromNowKey) return 'orange';
     return 'blue';
   };
 
-  const eventDotClass = (color: 'red' | 'orange' | 'blue') => {
+  const eventDotClass = (color: 'red' | 'orange' | 'blue' | 'purple') => {
     switch (color) {
       case 'red': return 'bg-red-500';
       case 'orange': return 'bg-amber-500';
+      case 'purple': return 'bg-purple-500';
       default: return 'bg-blue-500';
     }
   };
@@ -192,7 +221,7 @@ export default function CalendarPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Calendar</h1>
-          <p className="text-slate-500 mt-1">View maintenance schedules and tasks</p>
+          <p className="text-slate-500 mt-1">View maintenance schedules, tasks, and document renewals</p>
         </div>
         <button
           onClick={goToToday}
@@ -223,6 +252,14 @@ export default function CalendarPage() {
             </button>
           </div>
 
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-4 px-6 py-2 border-b border-slate-100 text-xs text-slate-500">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" /> Overdue</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" /> Due soon</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500" /> Maintenance</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-500" /> Document renewal</span>
+          </div>
+
           {/* Day Headers */}
           <div className="grid grid-cols-7">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
@@ -242,7 +279,7 @@ export default function CalendarPage() {
                 return <div key={`empty-${idx}`} className="min-h-[80px] border-b border-r border-slate-100" />;
               }
 
-              const events = getEventsForDate(date);
+              const dayEvents = getEventsForDate(date);
               const today = isToday(date);
               const selected = isSelected(date);
 
@@ -263,17 +300,17 @@ export default function CalendarPage() {
                     {date.getDate()}
                   </div>
                   <div className="space-y-1">
-                    {events.slice(0, 2).map((event) => (
+                    {dayEvents.slice(0, 2).map((event) => (
                       <div
                         key={event.id}
                         className={`px-1.5 py-0.5 text-xs rounded truncate text-white ${eventDotClass(getEventColor(event))}`}
                       >
-                        {event.equipment_name || 'Untitled'}
+                        {event.title}
                       </div>
                     ))}
-                    {events.length > 2 && (
+                    {dayEvents.length > 2 && (
                       <div className="text-xs text-slate-400 px-1">
-                        +{events.length - 2} more
+                        +{dayEvents.length - 2} more
                       </div>
                     )}
                   </div>
@@ -299,7 +336,7 @@ export default function CalendarPage() {
             ) : selectedEvents.length === 0 ? (
               <div className="text-center py-8">
                 <CalendarIcon size={40} className="mx-auto text-slate-300 mb-2" />
-                <p className="text-slate-500">No maintenance due on this date</p>
+                <p className="text-slate-500">Nothing due on this date</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -307,10 +344,14 @@ export default function CalendarPage() {
                   <div key={event.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
                     <div className="flex items-start gap-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${eventDotClass(getEventColor(event))}`}>
-                        <Wrench size={16} className="text-white" />
+                        {event.type === 'document' ? (
+                          <FileText size={16} className="text-white" />
+                        ) : (
+                          <Wrench size={16} className="text-white" />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-slate-800 text-sm">{event.equipment_name || 'Untitled'}</p>
+                        <p className="font-medium text-slate-800 text-sm">{event.title}</p>
                         <div className="mt-1.5 space-y-1 text-xs text-slate-500">
                           {event.site_location && (
                             <p className="flex items-center gap-1.5">
@@ -324,16 +365,22 @@ export default function CalendarPage() {
                               {event.technician_name}
                             </p>
                           )}
-                          {event.due_date && (
+                          {event.date && (
                             <p className="flex items-center gap-1.5">
                               <CalendarIcon size={12} />
-                              {formatDueDate(event.due_date)}
+                              {event.type === 'document' ? `Expires ${formatEventDate(event.date)}` : formatEventDate(event.date)}
                             </p>
                           )}
                         </div>
-                        <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(event.status)}`}>
-                          {event.status || 'unknown'}
-                        </span>
+                        {event.type === 'maintenance' ? (
+                          <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(event.status)}`}>
+                            {event.status || 'unknown'}
+                          </span>
+                        ) : (
+                          <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                            Document Renewal
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

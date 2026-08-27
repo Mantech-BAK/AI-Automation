@@ -5,13 +5,13 @@ import {
   Calendar,
   Cog,
   MapPin,
+  Building2,
   Users,
   Contact,
   CalendarDays,
   Mail,
   Bell,
   Settings,
-  BellRing,
   LogOut,
   Menu,
   X,
@@ -27,17 +27,17 @@ interface LayoutProps {
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'equipment', label: 'Asset Information', icon: Cog },
+  { id: 'departments', label: 'Departments', icon: Building2 },
+  { id: 'employees', label: 'Employee Master', icon: Contact },
+  { id: 'technicians', label: 'Technicians', icon: Users },
+  { id: 'sites', label: 'Sites', icon: MapPin },
   { id: 'tasks', label: 'Maintenance Tasks', icon: Wrench },
   { id: 'schedules', label: 'Schedule Meeting', icon: Calendar },
-  { id: 'equipment', label: 'Asset Info', icon: Cog },
-  { id: 'sites', label: 'Sites', icon: MapPin },
-  { id: 'technicians', label: 'Technicians', icon: Users },
-  { id: 'employees', label: 'Employee Master', icon: Contact },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'email', label: 'Email Processing', icon: Mail },
+  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'notifications-config', label: 'Notification Config', icon: BellRing },
 ];
 
 export default function Layout({ children, currentPage, onNavigate, onSignOut }: LayoutProps) {
@@ -72,11 +72,9 @@ export default function Layout({ children, currentPage, onNavigate, onSignOut }:
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-6 border-b border-slate-700">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-lg flex items-center justify-center">
-              <Wrench size={18} className="text-white" />
-            </div>
-            <span className="font-semibold text-lg tracking-tight">BAK Group</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <img src="/bak-logo.png" alt="BAK Group" className="h-8 w-auto flex-shrink-0" />
+            <span className="font-semibold text-lg tracking-tight truncate">BAK Group</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}

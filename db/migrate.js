@@ -208,6 +208,18 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_assets_department_id ON assets(department_id);
     `);
 
+    // assets: organisational department, kept separate from site_location
+    // (physical location) so the two can diverge later without a schema
+    // change. For now they're seeded equal - only backfill rows that have
+    // never been set, so a future manual edit here is never clobbered by a
+    // later migration run.
+    await pool.query(`
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS department VARCHAR;
+    `);
+    await pool.query(`
+      UPDATE assets SET department = site_location WHERE department IS NULL;
+    `);
+
     // technicians: HR/employee record fields.
     await pool.query(`
       ALTER TABLE technicians ADD COLUMN IF NOT EXISTS emp_id VARCHAR UNIQUE;
@@ -258,6 +270,12 @@ async function runMigrations() {
       ALTER TABLE technicians ADD COLUMN IF NOT EXISTS notification_email VARCHAR;
 
       CREATE INDEX IF NOT EXISTS idx_technicians_employee_id ON technicians(employee_id);
+    `);
+
+    // work_orders: separates equipment maintenance tasks from document
+    // renewal tasks so each tab can query its own task type directly.
+    await pool.query(`
+      ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS task_type VARCHAR DEFAULT 'equipment';
     `);
 
     // Department-level notification recipients: which email addresses get

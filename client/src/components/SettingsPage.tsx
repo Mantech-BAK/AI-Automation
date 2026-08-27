@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   Settings as SettingsIcon,
   Bell,
+  BellRing,
+  Building2,
   Clock,
   Sparkles,
   Info,
@@ -11,10 +13,22 @@ import {
   CheckCircle2,
   Play,
   Mail,
+  Plus,
   Trash2,
   ShieldAlert,
 } from 'lucide-react';
 import Modal from './Modal';
+
+interface DepartmentEmailConfig {
+  id: string;
+  email: string;
+  label: string | null;
+}
+
+interface DepartmentConfigGroup {
+  department_name: string;
+  emails: DepartmentEmailConfig[];
+}
 
 interface SettingsData {
   maintenance_manager_email: string;
@@ -115,9 +129,83 @@ export default function SettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState<{ error: boolean; text: string } | null>(null);
 
+  const [notifConfigDepartments, setNotifConfigDepartments] = useState<string[]>([]);
+  const [notifConfigGroups, setNotifConfigGroups] = useState<DepartmentConfigGroup[]>([]);
+  const [notifConfigLoading, setNotifConfigLoading] = useState(true);
+  const [notifConfigError, setNotifConfigError] = useState<string | null>(null);
+  const [notifConfigSelectedDept, setNotifConfigSelectedDept] = useState<string | null>(null);
+  const [notifConfigNewEmail, setNotifConfigNewEmail] = useState('');
+  const [notifConfigNewLabel, setNotifConfigNewLabel] = useState('');
+  const [notifConfigSaving, setNotifConfigSaving] = useState(false);
+
   useEffect(() => {
     fetchSettings();
+    fetchNotificationConfig();
   }, []);
+
+  async function fetchNotificationConfig() {
+    setNotifConfigLoading(true);
+    try {
+      const [departmentsRes, configsRes] = await Promise.all([
+        fetch('/api/notifications-config/departments'),
+        fetch('/api/notifications-config'),
+      ]);
+      if (!departmentsRes.ok || !configsRes.ok) {
+        throw new Error('Failed to load notification configuration');
+      }
+      const departmentsJson: string[] = await departmentsRes.json();
+      const configsJson: DepartmentConfigGroup[] = await configsRes.json();
+
+      setNotifConfigDepartments(departmentsJson);
+      setNotifConfigGroups(configsJson);
+      setNotifConfigSelectedDept((prev) => prev || departmentsJson[0] || null);
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      console.error('Error fetching notification config:', fetchError);
+      setNotifConfigError(message);
+    } finally {
+      setNotifConfigLoading(false);
+    }
+  }
+
+  async function handleAddNotificationEmail() {
+    if (!notifConfigSelectedDept || !notifConfigNewEmail.trim()) return;
+
+    setNotifConfigSaving(true);
+    try {
+      const response = await fetch('/api/notifications-config/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          department_name: notifConfigSelectedDept,
+          email: notifConfigNewEmail.trim(),
+          label: notifConfigNewLabel.trim() || null,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to add email: ${response.statusText}`);
+      }
+      setNotifConfigNewEmail('');
+      setNotifConfigNewLabel('');
+      await fetchNotificationConfig();
+    } catch (fetchError) {
+      console.error('Error adding notification email:', fetchError);
+    } finally {
+      setNotifConfigSaving(false);
+    }
+  }
+
+  async function handleDeleteNotificationEmail(id: string) {
+    try {
+      const response = await fetch(`/api/notifications-config/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        throw new Error(`Failed to delete email: ${response.statusText}`);
+      }
+      await fetchNotificationConfig();
+    } catch (fetchError) {
+      console.error('Error deleting notification email:', fetchError);
+    }
+  }
 
   async function fetchSettings() {
     try {
@@ -263,6 +351,7 @@ export default function SettingsPage() {
     { id: 'controls', label: 'System Controls', icon: Play },
     { id: 'reset', label: 'Reset Data', icon: Trash2 },
     { id: 'about', label: 'About', icon: Info },
+    { id: 'notification-config', label: 'Notification Config', icon: BellRing },
   ];
 
   const SaveFeedback = ({ section }: { section: string }) => {
@@ -753,6 +842,145 @@ export default function SettingsPage() {
                   <p className="text-xl font-bold text-slate-800 mt-1">{settings.about.total_tasks_created}</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'notification-config' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-2">Notification Config</h2>
+              <p className="text-sm text-slate-500 mb-6">Configure which email addresses receive notifications for each department</p>
+
+              <div className="flex items-start gap-3 bg-cyan-50 border border-cyan-200 rounded-xl p-4 mb-6">
+                <Info size={18} className="text-cyan-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-cyan-800">
+                  Notification emails are sent to these addresses when documents expire or equipment maintenance is due for each department.
+                  Planner tasks are still assigned only to the responsible person.
+                </p>
+              </div>
+
+              {notifConfigLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : notifConfigError ? (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{notifConfigError}</p>
+              ) : (
+                <div className="flex flex-col lg:flex-row gap-6">
+                  {/* Department list */}
+                  <div className="lg:w-64 flex-shrink-0">
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <nav className="p-2">
+                        {notifConfigDepartments.length === 0 ? (
+                          <p className="px-3 py-2.5 text-sm text-slate-400">No departments found.</p>
+                        ) : (
+                          notifConfigDepartments.map((dept) => {
+                            const count = notifConfigGroups.find((c) => c.department_name === dept)?.emails.length || 0;
+                            const isActive = notifConfigSelectedDept === dept;
+                            return (
+                              <button
+                                key={dept}
+                                onClick={() => setNotifConfigSelectedDept(dept)}
+                                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                                  isActive
+                                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
+                                    : 'text-slate-600 hover:bg-slate-100'
+                                }`}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <Building2 size={16} className={isActive ? 'text-white' : 'text-slate-400'} />
+                                  {dept}
+                                </span>
+                                <span
+                                  className={`text-xs px-1.5 py-0.5 rounded-full ${
+                                    isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                                  }`}
+                                >
+                                  {count}
+                                </span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </nav>
+                    </div>
+                  </div>
+
+                  {/* Selected department panel */}
+                  <div className="flex-1">
+                    {!notifConfigSelectedDept ? (
+                      <div className="bg-white rounded-xl border border-slate-200 p-6 text-slate-500 text-sm">
+                        Select a department to configure its notification emails.
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-6">
+                        <h3 className="text-lg font-semibold text-slate-800">{notifConfigSelectedDept}</h3>
+
+                        <div className="space-y-2">
+                          {(notifConfigGroups.find((c) => c.department_name === notifConfigSelectedDept)?.emails || []).length === 0 ? (
+                            <div className="text-center py-8 text-slate-400">
+                              <Mail size={32} className="mx-auto mb-2 text-slate-300" />
+                              <p className="text-sm">No notification emails configured for this department yet.</p>
+                            </div>
+                          ) : (
+                            (notifConfigGroups.find((c) => c.department_name === notifConfigSelectedDept)?.emails || []).map((cfg) => (
+                              <div
+                                key={cfg.id}
+                                className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg border border-slate-200"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center flex-shrink-0">
+                                    <Mail size={16} className="text-cyan-600" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-slate-800 truncate">{cfg.email}</p>
+                                    {cfg.label && <p className="text-xs text-slate-500 truncate">{cfg.label}</p>}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteNotificationEmail(cfg.id)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors flex-shrink-0"
+                                >
+                                  <Trash2 size={14} />
+                                  Remove
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        {/* Add email section */}
+                        <div className="pt-4 border-t border-slate-200">
+                          <p className="text-sm font-medium text-slate-700 mb-3">Add Email</p>
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            <input
+                              type="email"
+                              value={notifConfigNewEmail}
+                              onChange={(e) => setNotifConfigNewEmail(e.target.value)}
+                              placeholder="email@example.com"
+                              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                            />
+                            <input
+                              type="text"
+                              value={notifConfigNewLabel}
+                              onChange={(e) => setNotifConfigNewLabel(e.target.value)}
+                              placeholder="Label (optional)"
+                              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                            />
+                            <button
+                              onClick={handleAddNotificationEmail}
+                              disabled={!notifConfigNewEmail.trim() || notifConfigSaving}
+                              className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-shadow disabled:opacity-50 whitespace-nowrap"
+                            >
+                              {notifConfigSaving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

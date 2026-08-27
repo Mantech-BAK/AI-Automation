@@ -12,8 +12,38 @@ interface Notification {
   id: string;
   notification_type: string;
   sent_at: string;
+  notes?: string | null;
+  description?: string | null;
   equipment_name?: string | null;
   site_location?: string | null;
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  document_task_created: 'Document Task Created',
+  document_reminder: 'Document Reminder',
+  equipment_reminder: 'Equipment Reminder',
+  equipment_task_created: 'Equipment Task Created',
+  task_created: 'Task Created',
+};
+
+function getNotificationDescription(notif: Notification): string {
+  if (notif.notes) {
+    try {
+      const parsed = JSON.parse(notif.notes);
+      const name: string | undefined = parsed.document_name || parsed.equipment_name;
+      const department: string | undefined = parsed.department;
+      if (name) {
+        return [name, department].filter(Boolean).join(' - ');
+      }
+    } catch {
+      return notif.notes;
+    }
+  }
+
+  return (
+    [notif.description || notif.equipment_name, notif.site_location].filter(Boolean).join(' - ') ||
+    'No details available'
+  );
 }
 
 export default function NotificationsPage() {
@@ -66,7 +96,16 @@ export default function NotificationsPage() {
     }
   };
 
-  const formatTypeLabel = (type: string) => type.replace(/([a-z])(\d)/i, '$1 $2').replace(/_/g, ' ');
+  const formatTypeLabel = (type: string) => {
+    if (TYPE_LABELS[type]) return TYPE_LABELS[type];
+    return type
+      .replace(/([a-z])(\d)/i, '$1 $2')
+      .replace(/_/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
 
   if (loading) {
     return (
@@ -117,7 +156,7 @@ export default function NotificationsPage() {
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-slate-800 capitalize">{formatTypeLabel(notif.notification_type)}</h3>
                   <p className="text-sm text-slate-500 mt-1">
-                    {[notif.equipment_name, notif.site_location].filter(Boolean).join(' - ') || 'No details available'}
+                    {getNotificationDescription(notif)}
                   </p>
                   <p className="text-xs text-slate-400 mt-3">
                     {new Date(notif.sent_at).toLocaleDateString()} at{' '}

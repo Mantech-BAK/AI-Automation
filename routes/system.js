@@ -76,9 +76,13 @@ router.post('/reset-data', async (req, res) => {
     counts.notification_log = notificationResult.rowCount;
     console.log(`reset-data: deleted ${notificationResult.rowCount} rows from notification_log`);
 
+    // The calendar has no separate cache - CalendarPage always reads live from
+    // GET /api/dashboard/schedules, which queries work_orders directly. So
+    // deleting work_orders here is sufficient to empty the calendar; there is
+    // nothing else to clear.
     const workOrdersResult = await client.query('DELETE FROM work_orders');
     counts.work_orders = workOrdersResult.rowCount;
-    console.log(`reset-data: deleted ${workOrdersResult.rowCount} rows from work_orders`);
+    console.log(`reset-data: deleted ${workOrdersResult.rowCount} rows from work_orders (calendar will be empty until the next daily check run)`);
 
     await client.query('ALTER SEQUENCE email_action_items_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE email_summaries_id_seq RESTART WITH 1');

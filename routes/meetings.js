@@ -264,9 +264,19 @@ router.post('/check-availability', async (req, res) => {
   }
 });
 
+const NON_MEETING_SUBJECT_PREFIXES = [
+  'Maintenance Task',
+  'Maintenance:',
+  'Maintenance Due Soon',
+  'Document Renewal',
+  'Document Renewal Reminder',
+  'Document Renewal Required',
+  'Document Expiring Soon',
+];
+
 function isMaintenanceEventSubject(subject) {
   const value = subject || '';
-  return value.startsWith('Maintenance Task') || value.startsWith('Maintenance:');
+  return NON_MEETING_SUBJECT_PREFIXES.some((prefix) => value.startsWith(prefix));
 }
 
 router.get('/upcoming', async (req, res) => {

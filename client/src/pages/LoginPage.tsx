@@ -1,5 +1,4 @@
 import { FormEvent, useState } from 'react';
-import { Wrench } from 'lucide-react';
 
 interface SessionUser {
   id: number;
@@ -49,9 +48,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0f172a] px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-xl flex items-center justify-center mb-4">
-            <Wrench size={24} className="text-white" />
-          </div>
+          <img src="/bak-logo.png" alt="BAK Group" className="h-20 w-auto mb-4" />
           <h1 className="text-xl font-semibold text-slate-900 text-center">
             BAK Group Maintenance System
           </h1>

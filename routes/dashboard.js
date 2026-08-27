@@ -113,7 +113,7 @@ router.get('/tasks', async (req, res) => {
     const technicianId = req.query.technician_id ? Number(req.query.technician_id) : null;
     const hasTechnicianFilter = Number.isFinite(technicianId) && technicianId !== null;
 
-    const { category } = req.query;
+    const { category, task_type: taskType } = req.query;
 
     const conditions = [];
     const params = [];
@@ -133,17 +133,28 @@ router.get('/tasks', async (req, res) => {
       conditions.push(`ac.name = $${params.length}`);
     }
 
+    if (taskType === 'equipment' || taskType === 'document') {
+      params.push(taskType);
+      conditions.push(`wo.task_type = $${params.length}`);
+    }
+
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows } = await pool.query(
       `
       SELECT
         wo.id,
+        wo.asset_id,
+        wo.task_type,
+        wo.planner_task_id,
         a.equipment_name,
+        a.equipment_name AS document_name,
         a.site_location,
+        a.site_location AS department,
         t.name AS technician_name,
         wo.status,
         wo.due_date,
+        wo.due_date AS expiry_date,
         a.estimated_duration_hours,
         CASE
           WHEN wo.due_date < CURRENT_DATE THEN (CURRENT_DATE - wo.due_date)
@@ -335,6 +346,71 @@ router.get('/departments', async (req, res) => {
   }
 });
 
+// Note: this is deliberately NOT at the bare /departments path - that's
+// already used above for the asset_departments lookup table (populates the
+// Department dropdown on the Add Equipment / Add Employee forms). This is a
+// different concept: the organisational departments derived from assets and
+// employees, for the Departments overview page.
+router.get('/departments/list', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        d.name,
+        COUNT(DISTINCT CASE WHEN ac.name = 'Document' THEN a.id END) AS document_count
+      FROM (
+        SELECT DISTINCT department AS name FROM assets WHERE department IS NOT NULL
+        UNION
+        SELECT DISTINCT department_text AS name FROM employees WHERE department_text IS NOT NULL
+      ) d
+      LEFT JOIN assets a ON a.department = d.name
+      LEFT JOIN asset_categories ac ON ac.id = a.category_id
+      GROUP BY d.name
+      ORDER BY d.name
+    `);
+    return res.json(rows);
+  } catch (error) {
+    console.error('Departments list query failed:', error);
+    return res.status(500).json({ error: 'Failed to load departments list' });
+  }
+});
+
+router.get('/departments/:name/tasks', async (req, res) => {
+  try {
+    const { name } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        wo.id,
+        wo.asset_id,
+        wo.task_type,
+        wo.planner_task_id,
+        a.equipment_name,
+        a.equipment_name AS document_name,
+        a.site_location,
+        a.site_location AS department,
+        wo.status,
+        wo.due_date,
+        wo.due_date AS expiry_date,
+        CASE
+          WHEN wo.due_date < CURRENT_DATE THEN (CURRENT_DATE - wo.due_date)
+          ELSE 0
+        END AS days_overdue
+      FROM work_orders wo
+      JOIN assets a ON a.id = wo.asset_id
+      WHERE a.site_location = $1
+      ORDER BY wo.due_date NULLS LAST, wo.id
+    `,
+      [name]
+    );
+
+    return res.json(rows);
+  } catch (error) {
+    console.error('Department tasks query failed:', error);
+    return res.status(500).json({ error: 'Failed to load department tasks' });
+  }
+});
+
 router.get('/designations', async (req, res) => {
   try {
     const { rows } = await pool.query(`SELECT * FROM designations ORDER BY name`);
@@ -379,14 +455,16 @@ router.get('/notifications', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
-        nl.*, 
+        nl.*,
         wo.status AS work_order_status,
         wo.due_date AS work_order_due_date,
-        a.equipment_name,
-        a.site_location
+        COALESCE(a.equipment_name, a_notes.equipment_name) AS equipment_name,
+        COALESCE(a.site_location, a_notes.site_location) AS site_location,
+        COALESCE(a.equipment_name, a_notes.equipment_name) AS description
       FROM notification_log nl
       LEFT JOIN work_orders wo ON nl.work_order_id = wo.id
       LEFT JOIN assets a ON wo.asset_id = a.id
+      LEFT JOIN assets a_notes ON a_notes.id = (nl.notes::json->>'asset_id')::integer
       WHERE nl.sent_at::date = CURRENT_DATE
       ORDER BY nl.sent_at DESC
     `);
@@ -402,9 +480,12 @@ router.get('/sites', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT
         a.site_location,
-        COUNT(a.id) AS equipment_count,
-        SUM(CASE WHEN wo.status = 'open' THEN 1 ELSE 0 END) AS open_work_orders
+        COUNT(DISTINCT CASE WHEN ac.name = 'Equipment' THEN a.id END) AS equipment_count,
+        COUNT(DISTINCT CASE WHEN ac.name = 'Document' THEN a.id END) AS document_count,
+        COUNT(DISTINCT CASE WHEN ac.name = 'Vehicle' THEN a.id END) AS vehicle_count,
+        COUNT(DISTINCT CASE WHEN wo.status = 'open' THEN wo.id END) AS open_work_orders
       FROM assets a
+      LEFT JOIN asset_categories ac ON ac.id = a.category_id
       LEFT JOIN work_orders wo ON wo.asset_id = a.id
       GROUP BY a.site_location
       ORDER BY a.site_location

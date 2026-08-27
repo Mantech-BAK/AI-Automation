@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   MapPin,
   Loader2,
-  Cog,
   ClipboardList,
   CalendarDays,
   CheckCircle2,
@@ -23,6 +22,8 @@ interface SiteRecord {
 interface SiteStat {
   site_location: string;
   equipment_count: number;
+  document_count: number;
+  vehicle_count: number;
   open_work_orders: number;
 }
 
@@ -192,6 +193,8 @@ export default function SitesPage() {
     return {
       ...record,
       equipment_count: Number(stat?.equipment_count || 0),
+      document_count: Number(stat?.document_count || 0),
+      vehicle_count: Number(stat?.vehicle_count || 0),
       open_work_orders: Number(stat?.open_work_orders || 0),
     };
   });
@@ -324,20 +327,23 @@ export default function SitesPage() {
                 </p>
               )}
 
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Cog size={16} className="text-indigo-500" />
-                  <div>
-                    <p className="font-semibold text-slate-800">{site.equipment_count}</p>
-                    <p className="text-xs text-slate-400">Equipment</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <ClipboardList size={16} className="text-amber-500" />
-                  <div>
-                    <p className="font-semibold text-slate-800">{site.open_work_orders}</p>
-                    <p className="text-xs text-slate-400">Open Tasks</p>
-                  </div>
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
+                <span className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium">
+                  Equipment: {site.equipment_count}
+                </span>
+                <span className="px-2 py-1 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-medium">
+                  Documents: {site.document_count}
+                </span>
+                <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium">
+                  Vehicles: {site.vehicle_count}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-slate-600 pt-3 mt-3 border-t border-slate-100">
+                <ClipboardList size={16} className="text-amber-500" />
+                <div>
+                  <p className="font-semibold text-slate-800">{site.open_work_orders}</p>
+                  <p className="text-xs text-slate-400">Open Tasks</p>
                 </div>
               </div>
             </div>
