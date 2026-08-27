@@ -105,6 +105,72 @@ router.get('/overview/documentation', async (req, res) => {
   }
 });
 
+// Single aggregate endpoint for the Dashboard tiles, so the page can render
+// with one round trip instead of stitching together several overview calls.
+router.get('/summary', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status NOT IN ('completed', 'rejected') AND due_date < CURRENT_DATE) AS overdue_tasks,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status NOT IN ('completed', 'rejected')) AS open_tasks,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status = 'completed') AS completed_tasks,
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Equipment') AS total_equipment,
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS expired_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS expiring_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Document') AS total_documents,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'document' AND status NOT IN ('completed', 'rejected')) AS pending_renewals,
+        (SELECT COUNT(*) FROM technicians) AS total_technicians,
+        (SELECT COUNT(*) FROM employees) AS total_employees,
+        (SELECT COUNT(*) FROM (
+          SELECT DISTINCT department AS name FROM assets WHERE department IS NOT NULL
+          UNION
+          SELECT DISTINCT department_text AS name FROM employees WHERE department_text IS NOT NULL
+        ) d) AS total_departments,
+        (SELECT COUNT(DISTINCT site_location) FROM assets) AS total_sites,
+        (SELECT COUNT(*) FROM email_summaries WHERE date_received::date = CURRENT_DATE) AS emails_today,
+        (SELECT COUNT(*) FROM notification_log WHERE sent_at::date = CURRENT_DATE) AS notifications_today,
+        (SELECT COUNT(*) FROM vehicles) AS total_vehicles,
+        (SELECT COUNT(*) FROM vehicle_tasks WHERE status != 'completed' AND expiry_date IS NOT NULL AND expiry_date < CURRENT_DATE) AS vehicle_tasks_overdue,
+        (SELECT COUNT(*) FROM vehicle_tasks WHERE status != 'completed' AND expiry_date IS NOT NULL AND expiry_date >= CURRENT_DATE AND expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS vehicle_tasks_expiring_30,
+        (SELECT COUNT(*) FROM vehicle_tasks WHERE status != 'completed') AS vehicle_pending_renewals
+    `);
+
+    return res.json(rows[0] || {});
+  } catch (error) {
+    console.error('Dashboard summary query failed:', error);
+    return res.status(500).json({ error: 'Failed to load dashboard summary' });
+  }
+});
+
+router.get('/tasks/history/:asset_id', async (req, res) => {
+  try {
+    const { asset_id } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        wo.id,
+        wo.status,
+        wo.due_date,
+        wo.created_at,
+        wo.completed_at,
+        wo.planner_task_id,
+        t.name AS technician_name
+      FROM work_orders wo
+      LEFT JOIN technicians t ON wo.technician_id = t.id
+      WHERE wo.asset_id = $1
+      ORDER BY wo.created_at DESC
+    `,
+      [asset_id]
+    );
+
+    return res.json(rows);
+  } catch (error) {
+    console.error('Task history query failed:', error);
+    return res.status(500).json({ error: 'Failed to load task history' });
+  }
+});
+
 router.get('/tasks', async (req, res) => {
   try {
     const days = req.query.days ? Number(req.query.days) : null;
@@ -151,10 +217,14 @@ router.get('/tasks', async (req, res) => {
         a.equipment_name AS document_name,
         a.site_location,
         a.site_location AS department,
+        a.department AS asset_department,
+        a.responsible_person,
         t.name AS technician_name,
         wo.status,
         wo.due_date,
         wo.due_date AS expiry_date,
+        wo.created_at,
+        wo.completed_at,
         a.estimated_duration_hours,
         CASE
           WHEN wo.due_date < CURRENT_DATE THEN (CURRENT_DATE - wo.due_date)

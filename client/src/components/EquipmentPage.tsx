@@ -5,12 +5,12 @@ import {
   Loader2,
   Pencil,
   Plus,
-  Rocket,
   Save,
   Truck,
 } from 'lucide-react';
 import Modal from './Modal';
 import AssetEditModal, { EditableAsset } from './AssetEditModal';
+import VehiclesPage from './VehiclesPage';
 
 interface Equipment {
   id: string;
@@ -63,8 +63,14 @@ function getExpiryColorClass(dateStr?: string | null): string {
   return 'text-emerald-600 font-medium';
 }
 
-export default function EquipmentPage() {
-  const [activeTab, setActiveTab] = useState<PageTab>('equipment');
+interface EquipmentPageProps {
+  initialTab?: PageTab;
+  initialExpiredOnly?: boolean;
+}
+
+export default function EquipmentPage({ initialTab, initialExpiredOnly }: EquipmentPageProps = {}) {
+  const [activeTab, setActiveTab] = useState<PageTab>(initialTab || 'equipment');
+  const [expiredOnlyFilter, setExpiredOnlyFilter] = useState(Boolean(initialExpiredOnly));
 
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -289,9 +295,15 @@ export default function EquipmentPage() {
   const documentDeptOptions = [...new Set(
     documents.map((item) => item.site_location).filter((d): d is string => Boolean(d))
   )].sort();
-  const filteredDocuments = documentDeptFilter === 'all'
+  const isExpired = (dateStr?: string | null) => {
+    const days = daysUntil(dateStr);
+    return days !== null && days < 0;
+  };
+
+  const filteredDocuments = (documentDeptFilter === 'all'
     ? documents
-    : documents.filter((item) => item.site_location === documentDeptFilter);
+    : documents.filter((item) => item.site_location === documentDeptFilter)
+  ).filter((item) => !expiredOnlyFilter || isExpired(item.expiry_date));
 
   return (
     <div className="space-y-6">
@@ -482,17 +494,30 @@ export default function EquipmentPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Department filter */}
-            <select
-              value={documentDeptFilter}
-              onChange={(e) => setDocumentDeptFilter(e.target.value)}
-              className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-            >
-              <option value="all">All Departments</option>
-              {documentDeptOptions.map((dept) => (
-                <option key={dept} value={dept}>{dept}</option>
-              ))}
-            </select>
+            {/* Department + expired filter */}
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={documentDeptFilter}
+                onChange={(e) => setDocumentDeptFilter(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              >
+                <option value="all">All Departments</option>
+                {documentDeptOptions.map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setExpiredOnlyFilter((prev) => !prev)}
+                className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  expiredOnlyFilter
+                    ? 'bg-red-600 text-white'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Expired only
+              </button>
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
@@ -560,12 +585,7 @@ export default function EquipmentPage() {
         )
       )}
 
-      {activeTab === 'vehicles' && (
-        <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-slate-200">
-          <Rocket size={40} className="text-slate-300 mb-3" />
-          <p className="text-lg font-semibold text-slate-600">Coming Soon</p>
-        </div>
-      )}
+      {activeTab === 'vehicles' && <VehiclesPage readOnly />}
 
       {/* Add Modal */}
       <Modal

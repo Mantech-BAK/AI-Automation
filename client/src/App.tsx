@@ -12,6 +12,8 @@ import SchedulesPage from './components/SchedulesPage';
 import NotificationsPage from './components/NotificationsPage';
 import CalendarPage from './components/CalendarPage';
 import SettingsPage from './components/SettingsPage';
+import UsersPage from './components/UsersPage';
+import VehiclesPage from './components/VehiclesPage';
 import LoginPage from './pages/LoginPage';
 
 interface SessionUser {
@@ -21,15 +23,30 @@ interface SessionUser {
   role: string;
 }
 
+export interface NavFilter {
+  tab?: 'equipment' | 'documents' | 'vehicles';
+  expiredOnly?: boolean;
+  taskDayTile?: string;
+  taskDocTile?: string;
+  taskStatus?: string;
+  vehicleId?: number;
+}
+
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [employeeFilter, setEmployeeFilter] = useState('');
+  const [navFilter, setNavFilter] = useState<NavFilter | null>(null);
 
   const handleViewEmployee = (empId: string) => {
     setEmployeeFilter(empId);
     setCurrentPage('employees');
+  };
+
+  const handleNavigate = (page: string, filter?: NavFilter) => {
+    setCurrentPage(page);
+    setNavFilter(filter ?? null);
   };
 
   useEffect(() => {
@@ -86,7 +103,7 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onNavigate={handleNavigate} />;
       case 'email':
         return <EmailProcessing />;
       case 'sites':
@@ -94,13 +111,13 @@ function App() {
       case 'departments':
         return <DepartmentsPage />;
       case 'equipment':
-        return <EquipmentPage />;
+        return <EquipmentPage initialTab={navFilter?.tab} initialExpiredOnly={navFilter?.expiredOnly} />;
       case 'technicians':
         return <TechniciansPage onViewEmployee={handleViewEmployee} />;
       case 'employees':
         return <EmployeesPage initialSearch={employeeFilter} />;
       case 'tasks':
-        return <MaintenanceTasksPage />;
+        return <MaintenanceTasksPage initialFilter={navFilter} onNavigate={handleNavigate} />;
       case 'schedules':
         return <SchedulesPage />;
       case 'notifications':
@@ -109,13 +126,17 @@ function App() {
         return <CalendarPage />;
       case 'settings':
         return <SettingsPage />;
+      case 'users':
+        return <UsersPage />;
+      case 'vehicles':
+        return <VehiclesPage initialSelectedVehicleId={navFilter?.vehicleId ?? null} />;
       default:
-        return <Dashboard />;
+        return <Dashboard onNavigate={handleNavigate} />;
     }
   };
 
   return (
-    <Layout currentPage={currentPage} onNavigate={setCurrentPage} onSignOut={handleSignOut}>
+    <Layout currentPage={currentPage} onNavigate={(page) => handleNavigate(page)} onSignOut={handleSignOut}>
       {renderPage()}
     </Layout>
   );

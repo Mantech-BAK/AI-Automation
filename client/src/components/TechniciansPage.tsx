@@ -12,7 +12,7 @@ import {
   ExternalLink,
   FileText,
   Truck,
-  Rocket,
+  Car,
 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -74,6 +74,21 @@ interface ResponsiblePerson {
   overdue: number;
 }
 
+interface Vehicle {
+  id: number;
+  vehicle_no: string;
+  incharge?: string | null;
+  expired_tasks: number;
+  expiring_tasks: number;
+}
+
+interface InchargeGroup {
+  incharge: string;
+  vehicle_count: number;
+  expiring_soon: number;
+  overdue: number;
+}
+
 function getTaskStatusColor(status?: string) {
   switch (status) {
     case 'completed': return 'bg-emerald-100 text-emerald-700';
@@ -93,6 +108,9 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
   const [responsiblePersons, setResponsiblePersons] = useState<ResponsiblePerson[]>([]);
   const [responsiblePersonsLoading, setResponsiblePersonsLoading] = useState(true);
   const [responsiblePersonsError, setResponsiblePersonsError] = useState<string | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehiclesError, setVehiclesError] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [employeeTypeOptions, setEmployeeTypeOptions] = useState<LookupOption[]>([]);
@@ -119,6 +137,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
   useEffect(() => {
     fetchTechnicians();
     fetchResponsiblePersons();
+    fetchVehicles();
   }, []);
 
   useEffect(() => {
@@ -169,6 +188,23 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
       setResponsiblePersonsError(message);
     } finally {
       setResponsiblePersonsLoading(false);
+    }
+  }
+
+  async function fetchVehicles() {
+    try {
+      const response = await fetch('/api/vehicles');
+      if (!response.ok) {
+        throw new Error(`Failed to load vehicles: ${response.statusText}`);
+      }
+      const json: Vehicle[] = await response.json();
+      setVehicles(json);
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      console.error('Error fetching vehicles:', fetchError);
+      setVehiclesError(message);
+    } finally {
+      setVehiclesLoading(false);
     }
   }
 
@@ -260,6 +296,20 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
     }
   }
 
+  const inchargeGroups: InchargeGroup[] = Object.values(
+    vehicles.reduce((acc: Record<string, InchargeGroup>, vehicle) => {
+      const incharge = vehicle.incharge?.trim();
+      if (!incharge) return acc;
+      if (!acc[incharge]) {
+        acc[incharge] = { incharge, vehicle_count: 0, expiring_soon: 0, overdue: 0 };
+      }
+      acc[incharge].vehicle_count += 1;
+      acc[incharge].expiring_soon += vehicle.expiring_tasks;
+      acc[incharge].overdue += vehicle.expired_tasks;
+      return acc;
+    }, {})
+  ).sort((a, b) => a.incharge.localeCompare(b.incharge));
+
   const isAvailable = (tech: Technician) => !tech.current_site;
 
   const getLocationBadgeColor = (tech: Technician) =>
@@ -346,10 +396,59 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
       </div>
 
       {activeTab === 'vehicles' && (
-        <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-slate-200">
-          <Rocket size={40} className="text-slate-300 mb-3" />
-          <p className="text-lg font-semibold text-slate-600">Coming Soon</p>
-        </div>
+        vehiclesLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+          </div>
+        ) : vehiclesError ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-6">
+              <p className="font-semibold">Failed to load vehicles</p>
+              <p className="text-sm mt-2">{vehiclesError}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {inchargeGroups.length === 0 ? (
+              <div className="col-span-full bg-white rounded-xl p-12 text-center border border-slate-200">
+                <Car size={40} className="mx-auto text-slate-300 mb-2" />
+                <p className="text-slate-500">No vehicle incharge persons found.</p>
+              </div>
+            ) : (
+              inchargeGroups.map((group) => (
+                <div key={group.incharge} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-semibold text-lg">
+                      {group.incharge.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-800">{group.incharge}</h3>
+                      <p className="text-xs text-slate-400">Vehicle Incharge</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm pt-3 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Vehicles</span>
+                      <span className="font-semibold text-slate-800">{group.vehicle_count}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Expiring within 30 days</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${group.expiring_soon > 0 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {group.expiring_soon}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Overdue</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${group.overdue > 0 ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                        {group.overdue}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )
       )}
 
       {activeTab === 'documentation' && (

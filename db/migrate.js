@@ -292,6 +292,39 @@ async function runMigrations() {
       );
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS vehicles (
+        id SERIAL PRIMARY KEY,
+        vehicle_no VARCHAR NOT NULL,
+        vehicle_name VARCHAR NOT NULL,
+        vehicle_type VARCHAR,
+        model VARCHAR,
+        cr_no VARCHAR,
+        department VARCHAR,
+        site_location VARCHAR,
+        incharge VARCHAR,
+        remarks TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS vehicle_tasks (
+        id SERIAL PRIMARY KEY,
+        vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
+        task_name VARCHAR NOT NULL,
+        task_type VARCHAR NOT NULL,
+        expiry_date DATE,
+        registration_date DATE,
+        reminder_days INTEGER DEFAULT 30,
+        status VARCHAR DEFAULT 'open',
+        planner_task_id VARCHAR,
+        completed_at TIMESTAMP,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_vehicle_tasks_vehicle_id ON vehicle_tasks(vehicle_id);
+    `);
+
     const defaultSettings = [
       ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],
       ['senior_manager_email', process.env.SENIOR_MANAGER_EMAIL || ''],

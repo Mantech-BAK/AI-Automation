@@ -4,6 +4,7 @@ import {
   Wrench,
   Calendar,
   Cog,
+  Car,
   MapPin,
   Building2,
   Users,
@@ -12,6 +13,7 @@ import {
   Mail,
   Bell,
   Settings,
+  UserCog,
   LogOut,
   Menu,
   X,
@@ -28,6 +30,7 @@ interface LayoutProps {
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'equipment', label: 'Asset Information', icon: Cog },
+  { id: 'vehicles', label: 'Vehicles', icon: Car },
   { id: 'departments', label: 'Departments', icon: Building2 },
   { id: 'employees', label: 'Employee Master', icon: Contact },
   { id: 'technicians', label: 'Technicians', icon: Users },
@@ -38,6 +41,7 @@ const navItems = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'users', label: 'Users', icon: UserCog },
 ];
 
 export default function Layout({ children, currentPage, onNavigate, onSignOut }: LayoutProps) {

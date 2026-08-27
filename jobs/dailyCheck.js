@@ -596,6 +596,7 @@ async function logNotification(workOrderId, notificationType) {
 async function runDailyCheck() {
   let tasksCreated = 0;
   let documentRemindersSent = 0;
+  let vehicleTaskRemindersSent = 0;
   let errors = 0;
 
   // Self-healing schema: notification_log needs somewhere to stash the asset_id
@@ -921,6 +922,158 @@ async function runDailyCheck() {
     }
   }
 
+  // --- Vehicle Tasks Check ---
+  console.log('--- Vehicle Tasks Check ---');
+
+  const vehicleTasksResult = await pool.query(`
+    SELECT vt.*, v.vehicle_no, v.vehicle_name, v.department, v.site_location, v.incharge
+    FROM vehicle_tasks vt
+    JOIN vehicles v ON v.id = vt.vehicle_id
+    WHERE vt.status != 'completed'
+      AND vt.expiry_date IS NOT NULL
+      AND vt.expiry_date <= CURRENT_DATE + INTERVAL '90 days'
+  `);
+
+  for (const task of vehicleTasksResult.rows) {
+    try {
+      const expiry = new Date(task.expiry_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysRemaining = Math.round((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const isDueOrOverdue = daysRemaining <= 0;
+
+      const notes = JSON.stringify({
+        vehicle_id: task.vehicle_id,
+        vehicle_task_id: task.id,
+        vehicle_name: task.vehicle_name,
+        task_type: task.task_type,
+        expiry_date: task.expiry_date,
+      });
+      const taskDescription = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpires: ${task.expiry_date}\nDays remaining: ${daysRemaining} days`;
+      const vehicleAsset = {
+        equipment_name: `${task.vehicle_name} - ${task.task_type}`,
+        site_location: task.department || task.site_location,
+        estimated_duration_hours: 1,
+      };
+
+      if (!isDueOrOverdue) {
+        if (daysRemaining > 30) {
+          // More than 30 days out - within the 90-day lookahead window but
+          // not yet time to remind, same as the document check.
+          continue;
+        }
+
+        // EXPIRING WITHIN 30 DAYS: send a reminder and put a calendar hold on
+        // the expiry date, but don't create the Planner task yet.
+        const alreadySent = await pool.query(
+          `SELECT 1 FROM notification_log
+           WHERE notification_type = 'vehicle_task_reminder'
+             AND notes = $1
+             AND sent_at >= NOW() - INTERVAL '24 hours'
+           LIMIT 1`,
+          [notes]
+        );
+
+        if (alreadySent.rows.length > 0) {
+          continue;
+        }
+
+        try {
+          await createCalendarEvent(vehicleAsset, null, null, null, null, {
+            title: `Vehicle Task Expiring Soon - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`,
+            description: taskDescription,
+            singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
+            timeZone: 'Arab Standard Time',
+            startDateTime: `${task.expiry_date}T09:00:00`,
+            endDateTime: `${task.expiry_date}T10:00:00`,
+            isOnlineMeeting: false,
+          });
+        } catch (calendarError) {
+          console.warn(`Calendar event skipped for vehicle task ${task.vehicle_name} - ${task.task_type}:`, calendarError.message);
+        }
+
+        const subject = `Vehicle Task Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`;
+        const emailBody = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpiry date: ${task.expiry_date}\n${daysRemaining} day(s) remaining`;
+
+        try {
+          const departmentEmails = await getDepartmentNotificationEmails(task.department);
+          await sendMail(departmentEmails, subject, emailBody, 'app');
+        } catch (error) {
+          console.warn('Email sending skipped and continue running');
+        }
+
+        await pool.query(
+          `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
+          ['vehicle_task_reminder', null, notes]
+        );
+
+        console.log(`Vehicle task reminder: ${task.vehicle_name} - ${task.task_type} expires ${task.expiry_date}`);
+        vehicleTaskRemindersSent++;
+        continue;
+      }
+
+      // DUE / OVERDUE: create the Planner task once. Vehicle tasks don't have
+      // a work_orders row like equipment/documents do, so dedup is against
+      // the task's own planner_task_id - once it's set, an active Planner
+      // task already exists and this task is skipped until it's renewed
+      // (which clears it via the /complete endpoint's status change).
+      if (task.planner_task_id) {
+        console.log(`Vehicle task ${task.vehicle_name} - ${task.task_type} already has an open Planner task - skipping`);
+        continue;
+      }
+
+      let plannerTaskId = null;
+      try {
+        plannerTaskId = await createPlannerTask(vehicleAsset, {
+          title: `Vehicle Renewal Required - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
+          dueDateTime: `${task.expiry_date}T09:00:00Z`,
+          description: taskDescription,
+          assigneeId: MY_USER_ID,
+        });
+        console.log(`Created Planner task for vehicle task: ${task.vehicle_name} - ${task.task_type} expiring ${task.expiry_date}`);
+
+        await createCalendarEvent(vehicleAsset, null, null, null, null, {
+          title: `Vehicle Renewal Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
+          description: taskDescription,
+          singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
+          timeZone: 'Arab Standard Time',
+          startDateTime: `${task.expiry_date}T09:00:00`,
+          endDateTime: `${task.expiry_date}T10:00:00`,
+          isOnlineMeeting: false,
+        });
+      } catch (graphError) {
+        console.error(`Planner task / calendar event creation failed for vehicle task ${task.vehicle_name} - ${task.task_type}:`, graphError.message);
+        errors++;
+      }
+
+      if (plannerTaskId) {
+        await pool.query(`UPDATE vehicle_tasks SET planner_task_id = $1 WHERE id = $2`, [plannerTaskId, task.id]);
+
+        await pool.query(
+          `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
+          ['vehicle_task_created', null, notes]
+        );
+      }
+
+      const daysLabel = daysRemaining === 0 ? 'due today' : `${Math.abs(daysRemaining)} day(s) overdue`;
+      const subject = `Vehicle Task Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`;
+      const emailBody = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpiry date: ${task.expiry_date}\n${daysLabel}`;
+
+      try {
+        const departmentEmails = await getDepartmentNotificationEmails(task.department);
+        await sendMail(departmentEmails, subject, emailBody, 'app');
+      } catch (error) {
+        console.warn('Email sending skipped and continue running');
+      }
+
+      console.log(`Vehicle task reminder: ${task.vehicle_name} - ${task.task_type} expires ${task.expiry_date}`);
+      vehicleTaskRemindersSent++;
+    } catch (error) {
+      console.error(`Vehicle task check failed for task ${task.id}:`, error.message);
+      errors++;
+    }
+  }
+
   const reminders = [
     { days: 7, type: 'reminder7' },
     { days: 3, type: 'reminder3' },
@@ -997,9 +1150,9 @@ async function runDailyCheck() {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`
   );
 
-  console.log(`Daily check summary — Equipment tasks created: ${tasksCreated}, Document reminders sent: ${documentRemindersSent}, Errors: ${errors}`);
+  console.log(`Daily check summary — Equipment tasks created: ${tasksCreated}, Document reminders sent: ${documentRemindersSent}, Vehicle task reminders sent: ${vehicleTaskRemindersSent}, Errors: ${errors}`);
 
-  return { tasksCreated, documentRemindersSent, errors };
+  return { tasksCreated, documentRemindersSent, vehicleTaskRemindersSent, errors };
 }
 
 cron.schedule('0 6 * * *', async () => {
