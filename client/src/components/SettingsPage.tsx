@@ -71,7 +71,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   reminder_second_days: 3,
   reminder_final_days: 1,
   escalation_days_after_due: 0,
-  ai_model: 'llama-3.1-8b-instant',
+  ai_model: 'openai/gpt-oss-20b',
   ai_api_key_set: false,
   about: {
     version: '1.0.0',
@@ -83,10 +83,10 @@ const DEFAULT_SETTINGS: SettingsData = {
 };
 
 const AI_MODEL_OPTIONS = [
-  'llama-3.1-8b-instant',
+  'openai/gpt-oss-20b',
   'llama-3.3-70b-versatile',
   'llama3-70b-8192',
-  'llama3-8b-8192',
+  'openai/gpt-oss-20b',
   'gemma2-9b-it',
 ];
 

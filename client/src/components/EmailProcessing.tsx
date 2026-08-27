@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   Clock,
   FileText,
+  FileClock,
+  Handshake,
   AlertCircle,
   MessageSquare,
 } from 'lucide-react';
@@ -32,7 +34,7 @@ interface ProcessedEmail {
   action_items?: ActionItem[];
 }
 
-type EmailCategory = 'all' | 'Maintenance Request' | 'Work Report' | 'Vendor' | 'Escalation' | 'Inquiry' | 'Other';
+type EmailCategory = 'all' | 'Maintenance Request' | 'Work Report' | 'Vendor' | 'Client' | 'Document Renewal Request' | 'Escalation' | 'Inquiry' | 'Other';
 
 function getSenderDisplay(sender?: string | null): string {
   if (!sender) return 'Unknown sender';
@@ -49,6 +51,8 @@ const categoryConfig: Record<Exclude<EmailCategory, 'all'>, { color: string }> =
   'Maintenance Request': { color: 'bg-blue-100 text-blue-700' },
   'Work Report': { color: 'bg-emerald-100 text-emerald-700' },
   'Vendor': { color: 'bg-purple-100 text-purple-700' },
+  'Client': { color: 'bg-teal-100 text-teal-700' },
+  'Document Renewal Request': { color: 'bg-indigo-100 text-indigo-700' },
   'Escalation': { color: 'bg-red-100 text-red-700' },
   'Inquiry': { color: 'bg-amber-100 text-amber-700' },
   'Other': { color: 'bg-slate-100 text-slate-700' },
@@ -194,7 +198,7 @@ export default function EmailProcessing() {
 
       {/* Filter Tabs */}
       <div className="flex flex-wrap gap-2">
-        {(['all', 'Maintenance Request', 'Work Report', 'Vendor', 'Escalation', 'Inquiry', 'Other'] as EmailCategory[]).map((category) => {
+        {(['all', 'Maintenance Request', 'Work Report', 'Vendor', 'Client', 'Document Renewal Request', 'Escalation', 'Inquiry', 'Other'] as EmailCategory[]).map((category) => {
           const isActive = activeFilter === category;
           const count = category === 'all'
             ? emails.length
@@ -217,6 +221,8 @@ export default function EmailProcessing() {
               {category === 'Maintenance Request' && <FileText size={16} />}
               {category === 'Work Report' && <CheckCircle2 size={16} />}
               {category === 'Vendor' && <Tag size={16} />}
+              {category === 'Client' && <Handshake size={16} />}
+              {category === 'Document Renewal Request' && <FileClock size={16} />}
               {category === 'Escalation' && <AlertCircle size={16} />}
               {category === 'Inquiry' && <MessageSquare size={16} />}
               {category === 'Other' && <FileText size={16} />}

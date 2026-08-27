@@ -125,7 +125,7 @@ async function callGroq(prompt, emailBody) {
   const messages = [{ role: 'user', content: `${prompt}\n\nEmail content:\n${emailBody}` }];
 
   try {
-    const completion = await groq.chat.completions.create({ messages, model: 'llama-3.1-8b-instant' });
+    const completion = await groq.chat.completions.create({ messages, model: 'openai/gpt-oss-20b' });
     return completion.choices[0].message.content;
   } catch (error) {
     if (error?.status === 429) {
@@ -133,7 +133,7 @@ async function callGroq(prompt, emailBody) {
       await sleep(30000);
 
       try {
-        const retryCompletion = await groq.chat.completions.create({ messages, model: 'llama-3.1-8b-instant' });
+        const retryCompletion = await groq.chat.completions.create({ messages, model: 'openai/gpt-oss-20b' });
         return retryCompletion.choices[0].message.content;
       } catch (retryError) {
         console.error('Email skipped due to rate limit:', retryError.message, retryError.stack);
@@ -149,7 +149,7 @@ async function callGroq(prompt, emailBody) {
 async function summarizeEmail(cleanedText) {
   const prompt = [
     'Summarize this maintenance email in 3 sentences focusing on what action is needed, which equipment or location is involved, and who needs to do it.',
-    'Classify this email into exactly one of these categories using these rules: Use Maintenance Request if the email reports a broken or malfunctioning piece of equipment that needs inspection or repair. Use Work Report if the email confirms that maintenance work has already been completed or provides a summary of finished tasks. Use Vendor if the email is from a supplier or contractor about quotations, deliveries, invoices, contracts, or spare parts. Use Escalation if the email uses urgent language, mentions management involvement, threatens consequences, or follows up on a previously unresolved issue. Use Inquiry if the email is asking a question or requesting information such as schedules, names, or dates without reporting a problem. Use Other for anything that does not clearly fit the above categories such as HR matters, administrative notices, or general announcements.',
+    'Classify this email into exactly one of these categories using these rules: Use Maintenance Request if the email reports a broken or malfunctioning piece of equipment that needs inspection or repair. Use Work Report if the email confirms that maintenance work has already been completed or provides a summary of finished tasks. Use Vendor if the email is from a supplier or contractor about quotations, deliveries, invoices, contracts, or spare parts. Use Client only if the email explicitly mentions a specific external client company by name, or is clearly from an external customer writing about their own project or a complaint they have — do not use Client for internal discussion that only mentions clients in general terms. Use Document Renewal Request only if the email is specifically requesting that a document, certificate, license, or permit be renewed — do not use this category if the email is only asking about a document\'s current status, validity, or expiry date for audit, verification, or record-keeping purposes; classify those as Inquiry instead. Use Escalation if the email uses urgent language, mentions management involvement, threatens consequences, or follows up on a previously unresolved issue. Use Inquiry if the email is asking a question, requesting information, or requesting a status update (including asking about a document\'s status for an audit) without reporting a problem or making a complaint. Use Other for anything that does not clearly fit the above categories such as HR matters, administrative notices, or general announcements.',
     'Return only a valid JSON object with fields summary and category, where category is exactly one of the category names above with no other text.'
   ].join(' ');
 

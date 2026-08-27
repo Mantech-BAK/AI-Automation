@@ -307,7 +307,7 @@ async function runMigrations() {
       ['reminder_second_days', '3'],
       ['reminder_final_days', '1'],
       ['escalation_days_after_due', '0'],
-      ['ai_model', 'llama-3.1-8b-instant'],
+      ['ai_model', 'openai/gpt-oss-20b'],
     ];
 
     for (const [key, value] of defaultSettings) {

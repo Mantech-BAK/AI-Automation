@@ -57,7 +57,7 @@ async function loadSettingsResponse() {
     reminder_second_days: Number(map.reminder_second_days ?? 3),
     reminder_final_days: Number(map.reminder_final_days ?? 1),
     escalation_days_after_due: Number(map.escalation_days_after_due ?? 0),
-    ai_model: map.ai_model || 'llama-3.1-8b-instant',
+    ai_model: map.ai_model || 'openai/gpt-oss-20b',
     ai_api_key_set: Boolean(map.ai_api_key),
     about: {
       version: packageJson.version || '1.0.0',

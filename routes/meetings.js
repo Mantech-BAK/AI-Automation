@@ -135,7 +135,7 @@ async function callGroq(prompt, content) {
   const groq = new Groq({ apiKey });
   const completion = await groq.chat.completions.create({
     messages: [{ role: 'user', content: `${prompt}\n\nMeeting notes:\n${content}` }],
-    model: 'llama-3.1-8b-instant',
+    model: 'openai/gpt-oss-20b',
   });
   return completion.choices[0].message.content;
 }
