@@ -3,17 +3,20 @@ const path = require('path');
 const dotenv = require('dotenv');
 const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
-const { createTaskForWorkOrder } = require('../jobs/dailyCheck');
+const { createTaskForWorkOrder, resolveEmailChain } = require('../jobs/dailyCheck');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const router = express.Router();
 const {
   SERVICE_ACCOUNT_EMAIL,
-  MAINTENANCE_MANAGER_EMAIL,
 } = process.env;
 
 async function sendApprovalRequestEmail(workOrder, asset) {
+  // No hardcoded manager address - resolves the asset's responsible person
+  // (falling back through their manager, then the first admin user).
+  const { to } = await resolveEmailChain(asset.responsible_person);
+
   const body = {
     message: {
       subject: `Approval needed: work order ${workOrder.id}`,
@@ -21,13 +24,13 @@ async function sendApprovalRequestEmail(workOrder, asset) {
         contentType: 'Text',
         content: `A new work order requires approval.\n\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nReason: ${workOrder.notes || 'No reason provided'}\nEstimated duration: ${workOrder.estimated_duration_hours || 'N/A'} hours\nWork order ID: ${workOrder.id}\n\nPlease review and approve or reject this work order.`,
       },
-      toRecipients: [
+      toRecipients: to ? [
         {
           emailAddress: {
-            address: MAINTENANCE_MANAGER_EMAIL,
+            address: to,
           },
         },
-      ],
+      ] : [],
     },
     saveToSentItems: 'true',
   };
@@ -44,7 +47,7 @@ router.post('/create', async (req, res) => {
     }
 
     const assetResult = await pool.query(
-      `SELECT * FROM assets WHERE equipment_name = $1 AND site_location = $2 LIMIT 1`,
+      `SELECT * FROM assets WHERE equipment_name = $1 AND site_location ILIKE $2 LIMIT 1`,
       [equipment_name, site_location]
     );
 
@@ -130,7 +133,7 @@ router.post('/:id/complete', async (req, res) => {
     const { id } = req.params;
 
     const { rows: existingRows } = await pool.query(
-      `SELECT wo.*, a.id AS asset_id, a.maintenance_interval_days
+      `SELECT wo.*, a.id AS asset_id, a.maintenance_interval_days, a.frequency_days, a.expiry_date
        FROM work_orders wo
        JOIN assets a ON a.id = wo.asset_id
        WHERE wo.id = $1
@@ -153,18 +156,25 @@ router.post('/:id/complete', async (req, res) => {
     );
 
     if (existing.task_type === 'document') {
-      // Renewing a document: today becomes the new registration date, and
-      // the next expiry is calculated from today plus the interval - not
-      // from the old expiry date, since the renewal itself resets the clock.
-      await pool.query(
+      // Renewing a document: the next expiry is calculated from the OLD
+      // expiry date plus the renewal frequency - not from today - so the
+      // renewal cycle stays anchored to the document's actual expiry
+      // schedule even if it's renewed early or late. registration_date is
+      // left untouched (it records when the document was first registered,
+      // not each renewal).
+      const frequencyDays = existing.frequency_days || 365;
+      const oldExpiryDate = existing.expiry_date;
+      const { rows: renewedRows } = await pool.query(
         `UPDATE assets
-         SET registration_date = CURRENT_DATE,
-             last_completed_date = CURRENT_DATE,
-             next_due_date = CURRENT_DATE + ($1 || ' days')::interval,
-             expiry_date = CURRENT_DATE + ($1 || ' days')::interval
-         WHERE id = $2`,
-        [existing.maintenance_interval_days, existing.asset_id]
+         SET last_completed_date = CURRENT_DATE,
+             next_due_date = COALESCE(expiry_date, CURRENT_DATE) + ($1 || ' days')::interval,
+             expiry_date = COALESCE(expiry_date, CURRENT_DATE) + ($1 || ' days')::interval
+         WHERE id = $2
+         RETURNING expiry_date`,
+        [frequencyDays, existing.asset_id]
       );
+      const newExpiryDate = renewedRows[0]?.expiry_date;
+      console.log(`Document renewed. Old expiry: ${oldExpiryDate}. New expiry: ${newExpiryDate}. Frequency: ${frequencyDays} days.`);
     } else {
       await pool.query(
         `UPDATE assets

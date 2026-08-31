@@ -325,9 +325,108 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_vehicle_tasks_vehicle_id ON vehicle_tasks(vehicle_id);
     `);
 
+    // How often each item needs servicing/renewal, in days - drives the next
+    // expiry/due date calculation when a task is marked complete.
+    await pool.query(`
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS frequency_days INTEGER DEFAULT 365;
+      ALTER TABLE vehicle_tasks ADD COLUMN IF NOT EXISTS frequency_days INTEGER DEFAULT 365;
+    `);
+
+    // Notification email resolved from the employee master record, so
+    // document/vehicle reminders can be addressed to a real mailbox instead
+    // of the free-text responsible_person/incharge name.
+    await pool.query(`
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS notification_email VARCHAR;
+    `);
+
+    // Per-user page access. Roles beyond 'admin' are gated by this list
+    // rather than by the single `role` column, so a user can hold more than
+    // one area of access at once (e.g. equipment + vehicles but not document).
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '[]'::jsonb;
+    `);
+
+    // One-off case normalization: department/site names entered inconsistently
+    // over time (e.g. "rubber plant" vs "Rubber Plant" vs "RUBBER PLANT") are
+    // collapsed to Title Case so equality/grouping isn't silently split across
+    // near-duplicate values. Routes normalize new writes the same way going
+    // forward - see toTitleCase() in utils/text.js.
+    await pool.query(`
+      UPDATE assets SET
+        site_location = INITCAP(LOWER(TRIM(site_location))),
+        department = INITCAP(LOWER(TRIM(department)))
+      WHERE site_location IS NOT NULL OR department IS NOT NULL;
+
+      UPDATE employees SET department_text = INITCAP(LOWER(TRIM(department_text)))
+      WHERE department_text IS NOT NULL;
+
+      UPDATE asset_departments SET name = INITCAP(LOWER(TRIM(name)))
+      WHERE name IS NOT NULL;
+
+      UPDATE vehicles SET
+        department = INITCAP(LOWER(TRIM(department))),
+        site_location = INITCAP(LOWER(TRIM(site_location)))
+      WHERE department IS NOT NULL OR site_location IS NOT NULL;
+
+      UPDATE sites SET site_name = INITCAP(LOWER(TRIM(site_name)))
+      WHERE site_name IS NOT NULL;
+    `);
+
+    // Normalizing case can produce duplicate asset_departments rows (e.g.
+    // "Rubber Plant" and "rubber plant" both become "Rubber Plant") - keep the
+    // lowest id per name and repoint any foreign keys before dropping the rest.
+    await pool.query(`
+      WITH duplicates AS (
+        SELECT id, name, MIN(id) OVER (PARTITION BY name) AS keep_id
+        FROM asset_departments
+      ),
+      to_remove AS (
+        SELECT id, keep_id FROM duplicates WHERE id != keep_id
+      )
+      UPDATE assets SET department_id = to_remove.keep_id
+      FROM to_remove WHERE assets.department_id = to_remove.id;
+
+      WITH duplicates AS (
+        SELECT id, name, MIN(id) OVER (PARTITION BY name) AS keep_id
+        FROM asset_departments
+      ),
+      to_remove AS (
+        SELECT id, keep_id FROM duplicates WHERE id != keep_id
+      )
+      UPDATE employees SET department_id = to_remove.keep_id
+      FROM to_remove WHERE employees.department_id = to_remove.id;
+
+      DELETE FROM asset_departments a USING (
+        SELECT id, MIN(id) OVER (PARTITION BY name) AS keep_id
+        FROM asset_departments
+      ) d
+      WHERE a.id = d.id AND a.id != d.keep_id;
+    `);
+
+    // Meetings created through the Schedule Meeting feature, stored locally
+    // so "upcoming meetings" doesn't depend on Graph calendar access.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS meetings (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR NOT NULL,
+        start_time TIMESTAMPTZ NOT NULL,
+        end_time TIMESTAMPTZ NOT NULL,
+        join_url VARCHAR,
+        attendees JSONB DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_meetings_start_time ON meetings(start_time);
+    `);
+
+    // These two settings are no longer used - manager emails are now resolved
+    // dynamically from the employees table (see resolveEmailChain() in
+    // jobs/dailyCheck.js) instead of a hardcoded settings value.
+    await pool.query(`
+      DELETE FROM settings WHERE key IN ('maintenance_manager_email', 'senior_manager_email');
+    `);
+
     const defaultSettings = [
-      ['maintenance_manager_email', process.env.MAINTENANCE_MANAGER_EMAIL || ''],
-      ['senior_manager_email', process.env.SENIOR_MANAGER_EMAIL || ''],
       ['daily_check_time', '6'],
       ['working_hours_start', '07:30'],
       ['working_hours_end', '16:30'],

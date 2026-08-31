@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users as UsersIcon, Plus, Trash2, Loader2, ShieldCheck, User as UserIcon } from 'lucide-react';
+import { Users as UsersIcon, Plus, Trash2, Loader2, ShieldCheck, User as UserIcon, KeyRound } from 'lucide-react';
 import Modal from './Modal';
 
 interface AppUser {
@@ -7,6 +7,7 @@ interface AppUser {
   name: string;
   email: string;
   role: string;
+  permissions: string[];
   created_at: string;
 }
 
@@ -15,7 +16,14 @@ const emptyForm = {
   email: '',
   password: '',
   role: 'user',
+  permissions: [] as string[],
 };
+
+const PERMISSION_OPTIONS: { id: string; label: string; badgeClass: string }[] = [
+  { id: 'equipment', label: 'Equipment Maintenance', badgeClass: 'bg-cyan-100 text-cyan-700' },
+  { id: 'document', label: 'Documents', badgeClass: 'bg-amber-100 text-amber-700' },
+  { id: 'vehicles', label: 'Vehicles', badgeClass: 'bg-emerald-100 text-emerald-700' },
+];
 
 export default function UsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -29,6 +37,10 @@ export default function UsersPage() {
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [updatingRoleId, setUpdatingRoleId] = useState<number | null>(null);
+
+  const [permissionsUser, setPermissionsUser] = useState<AppUser | null>(null);
+  const [permissionsDraft, setPermissionsDraft] = useState<string[]>([]);
+  const [savingPermissions, setSavingPermissions] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -122,6 +134,39 @@ export default function UsersPage() {
     }
   }
 
+  function openPermissionsModal(user: AppUser) {
+    setPermissionsUser(user);
+    setPermissionsDraft(user.permissions || []);
+  }
+
+  function togglePermission(permissionId: string) {
+    setPermissionsDraft((prev) =>
+      prev.includes(permissionId) ? prev.filter((p) => p !== permissionId) : [...prev, permissionId]
+    );
+  }
+
+  async function handleSavePermissions() {
+    if (!permissionsUser) return;
+    setSavingPermissions(true);
+    try {
+      const response = await fetch(`/api/users/${permissionsUser.id}/update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: permissionsDraft }),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json?.error || 'Failed to update permissions');
+      }
+      setPermissionsUser(null);
+      await fetchUsers();
+    } catch (updateError) {
+      window.alert(updateError instanceof Error ? updateError.message : 'Failed to update permissions');
+    } finally {
+      setSavingPermissions(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -187,18 +232,47 @@ export default function UsersPage() {
                     <p className="text-sm text-slate-500 truncate">{user.email}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDeleteUser(user)}
-                  disabled={deletingId === user.id}
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
-                  title="Delete user"
-                >
-                  {deletingId === user.id ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Trash2 size={16} />
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {user.role !== 'admin' && (
+                    <button
+                      onClick={() => openPermissionsModal(user)}
+                      className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+                      title="Manage permissions"
+                    >
+                      <KeyRound size={16} />
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={() => handleDeleteUser(user)}
+                    disabled={deletingId === user.id}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                    title="Delete user"
+                  >
+                    {deletingId === user.id ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={16} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {user.role === 'admin' ? (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                    Full Access
+                  </span>
+                ) : user.permissions && user.permissions.length > 0 ? (
+                  PERMISSION_OPTIONS.filter((option) => user.permissions.includes(option.id)).map((option) => (
+                    <span key={option.id} className={`px-2.5 py-1 rounded-full text-xs font-medium ${option.badgeClass}`}>
+                      {option.label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+                    No access assigned
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
@@ -272,6 +346,32 @@ export default function UsersPage() {
             </select>
           </div>
 
+          {form.role === 'user' && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Permissions</label>
+              <div className="space-y-2">
+                {PERMISSION_OPTIONS.map((option) => (
+                  <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={form.permissions.includes(option.id)}
+                      onChange={() =>
+                        setForm({
+                          ...form,
+                          permissions: form.permissions.includes(option.id)
+                            ? form.permissions.filter((p) => p !== option.id)
+                            : [...form.permissions, option.id],
+                        })
+                      }
+                      className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setAddModalOpen(false)}
@@ -286,6 +386,45 @@ export default function UsersPage() {
             >
               {submitting && <Loader2 size={14} className="animate-spin" />}
               Add User
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={permissionsUser !== null} onClose={() => setPermissionsUser(null)} title="Manage Permissions">
+        <div className="space-y-4">
+          {permissionsUser && (
+            <p className="text-sm text-slate-500">
+              Choose which areas <span className="font-medium text-slate-700">{permissionsUser.name}</span> can access.
+            </p>
+          )}
+          <div className="space-y-2">
+            {PERMISSION_OPTIONS.map((option) => (
+              <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={permissionsDraft.includes(option.id)}
+                  onChange={() => togglePermission(option.id)}
+                  className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setPermissionsUser(null)}
+              className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSavePermissions}
+              disabled={savingPermissions}
+              className="flex items-center gap-2 px-4 py-2 bg-[#0f172a] text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
+            >
+              {savingPermissions && <Loader2 size={14} className="animate-spin" />}
+              Save
             </button>
           </div>
         </div>

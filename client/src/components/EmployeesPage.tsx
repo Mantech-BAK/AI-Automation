@@ -30,6 +30,7 @@ interface Employee {
   reports_to_name?: string | null;
   reports_to_emp_id?: string | null;
   is_technician: boolean;
+  notification_email?: string | null;
 }
 
 type TechnicianFilter = 'all' | 'technicians';
@@ -67,6 +68,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     cost_center: '',
     reports_to_name: '',
     is_technician: false,
+    notification_email: '',
   });
 
   const [designationOptions, setDesignationOptions] = useState<LookupOption[]>([]);
@@ -88,6 +90,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     reports_to: '',
     is_technician: false,
     type_of_service: 'General',
+    notification_email: '',
   });
 
   useEffect(() => {
@@ -158,6 +161,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
         religion_id: formData.religion_id ? Number(formData.religion_id) : null,
         reports_to: formData.reports_to || null,
         is_technician: formData.is_technician,
+        notification_email: formData.notification_email || null,
         ...(formData.is_technician ? { type_of_service: formData.type_of_service.toLowerCase() } : {}),
       };
 
@@ -193,6 +197,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
       reports_to: '',
       is_technician: false,
       type_of_service: 'General',
+      notification_email: '',
     });
   }
 
@@ -208,6 +213,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
       cost_center: emp.cost_center || '',
       reports_to_name: emp.reports_to_name || '',
       is_technician: emp.is_technician,
+      notification_email: emp.notification_email || '',
     });
   }
 
@@ -541,6 +547,16 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
                 ))}
               </select>
             </div>
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Notification Email</label>
+              <input
+                type="email"
+                value={formData.notification_email}
+                onChange={(e) => setFormData({ ...formData, notification_email: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="Used to email this person document/vehicle renewal reminders"
+              />
+            </div>
             <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5">
               <label className="text-sm font-medium text-slate-700">Is Technician</label>
               <button
@@ -689,6 +705,16 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
                 value={editFormData.reports_to_name}
                 onChange={(e) => setEditFormData({ ...editFormData, reports_to_name: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Notification Email</label>
+              <input
+                type="email"
+                value={editFormData.notification_email}
+                onChange={(e) => setEditFormData({ ...editFormData, notification_email: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="Used to email this person document/vehicle renewal reminders"
               />
             </div>
             <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5">

@@ -31,6 +31,7 @@ interface MaintenanceTask {
   department?: string | null;
   asset_department?: string | null;
   responsible_person?: string | null;
+  frequency_days?: number | null;
   technician_name?: string | null;
   status?: string;
   due_date?: string | null;
@@ -944,6 +945,14 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
                   <p className="text-slate-400 text-xs uppercase tracking-wide">Responsible Person</p>
                   <p className="text-slate-800 font-medium">{selectedTask.responsible_person || '-'}</p>
                 </div>
+                {selectedTask.task_type === 'document' && (
+                  <div>
+                    <p className="text-slate-400 text-xs uppercase tracking-wide">Renewal Frequency</p>
+                    <p className="text-slate-800 font-medium">
+                      {selectedTask.frequency_days != null ? `Every ${selectedTask.frequency_days} days` : '-'}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-slate-400 text-xs uppercase tracking-wide">Status</p>
                   <span className={`inline-block mt-0.5 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(selectedTask)}`}>

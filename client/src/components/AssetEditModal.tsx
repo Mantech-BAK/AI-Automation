@@ -16,6 +16,7 @@ export interface EditableAsset {
   registration_date?: string | null;
   expiry_date?: string | null;
   reminder_days?: number | null;
+  frequency_days?: number | null;
   responsible_person?: string | null;
   remarks?: string | null;
 }
@@ -45,6 +46,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
     registration_date: '',
     expiry_date: '',
     reminder_days: '',
+    frequency_days: '',
     responsible_person: '',
     remarks: '',
   });
@@ -63,6 +65,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
       registration_date: asset.registration_date ? asset.registration_date.slice(0, 10) : '',
       expiry_date: asset.expiry_date ? asset.expiry_date.slice(0, 10) : '',
       reminder_days: asset.reminder_days != null ? String(asset.reminder_days) : '',
+      frequency_days: asset.frequency_days != null ? String(asset.frequency_days) : '',
       responsible_person: asset.responsible_person || '',
       remarks: asset.remarks || '',
     });
@@ -91,6 +94,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
         registration_date: formData.registration_date || null,
         expiry_date: formData.expiry_date || null,
         reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
+        frequency_days: formData.frequency_days ? Number(formData.frequency_days) : null,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
       };
@@ -210,6 +214,16 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
               value={formData.reminder_days}
               onChange={(e) => setFormData({ ...formData, reminder_days: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Frequency (days)</label>
+            <input
+              type="number"
+              value={formData.frequency_days}
+              onChange={(e) => setFormData({ ...formData, frequency_days: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="365"
             />
           </div>
           <div>

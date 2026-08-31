@@ -78,11 +78,12 @@ async function runStatusTracker() {
 }
 
 function startStatusTracker() {
-  cron.schedule('0 * * * *', async () => {
+  cron.schedule('*/2 * * * *', async () => {
+    console.log('Status tracker running - checking Planner task completions every 2 minutes');
     try {
       await runStatusTracker();
     } catch (error) {
-      console.error('Status tracker hourly job failed:', error);
+      console.error('Status tracker job failed:', error);
     }
   });
 }

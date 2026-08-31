@@ -31,8 +31,6 @@ interface DepartmentConfigGroup {
 }
 
 interface SettingsData {
-  maintenance_manager_email: string;
-  senior_manager_email: string;
   daily_check_time: string;
   working_hours_start: string;
   working_hours_end: string;
@@ -57,8 +55,6 @@ interface SettingsData {
 }
 
 const DEFAULT_SETTINGS: SettingsData = {
-  maintenance_manager_email: '',
-  senior_manager_email: '',
   daily_check_time: '6',
   working_hours_start: '07:30',
   working_hours_end: '16:30',
@@ -429,24 +425,6 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-slate-800 mb-6">System Settings</h2>
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Maintenance Manager Email</label>
-                  <input
-                    type="email"
-                    value={settings.maintenance_manager_email}
-                    onChange={(e) => updateField('maintenance_manager_email', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Senior Manager Email</label>
-                  <input
-                    type="email"
-                    value={settings.senior_manager_email}
-                    onChange={(e) => updateField('senior_manager_email', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Daily Check Time</label>
                   <select
                     value={settings.daily_check_time}
@@ -492,8 +470,6 @@ export default function SettingsPage() {
               <div className="mt-6 flex items-center gap-3">
                 <button
                   onClick={() => saveSection('system', {
-                    maintenance_manager_email: settings.maintenance_manager_email,
-                    senior_manager_email: settings.senior_manager_email,
                     daily_check_time: settings.daily_check_time,
                     working_hours_start: settings.working_hours_start,
                     working_hours_end: settings.working_hours_end,

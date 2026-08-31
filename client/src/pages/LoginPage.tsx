@@ -5,6 +5,7 @@ interface SessionUser {
   email: string;
   name: string;
   role: string;
+  permissions: string[];
 }
 
 interface LoginPageProps {

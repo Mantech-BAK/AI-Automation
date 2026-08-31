@@ -25,7 +25,17 @@ interface LayoutProps {
   currentPage: string;
   onNavigate: (page: string) => void;
   onSignOut?: () => void;
+  role?: string;
+  permissions?: string[];
 }
+
+// Pages that need at least one of the listed permissions when the user isn't
+// an admin. Any nav item not listed here is shown to every logged-in user.
+const NAV_PERMISSION_REQUIREMENTS: Record<string, string[]> = {
+  equipment: ['equipment', 'document', 'vehicles'],
+  tasks: ['equipment', 'document', 'vehicles'],
+  vehicles: ['vehicles'],
+};
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -44,8 +54,16 @@ const navItems = [
   { id: 'users', label: 'Users', icon: UserCog },
 ];
 
-export default function Layout({ children, currentPage, onNavigate, onSignOut }: LayoutProps) {
+export default function Layout({ children, currentPage, onNavigate, onSignOut, role, permissions = [] }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (role === 'admin') return true;
+    if (item.id === 'users') return false;
+    const required = NAV_PERMISSION_REQUIREMENTS[item.id];
+    if (!required) return true;
+    return required.some((permission) => permissions.includes(permission));
+  });
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -91,7 +109,7 @@ export default function Layout({ children, currentPage, onNavigate, onSignOut }:
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
           <ul className="space-y-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentPage === item.id;
               return (

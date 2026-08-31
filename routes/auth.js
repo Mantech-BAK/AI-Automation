@@ -13,7 +13,7 @@ router.post('/login', async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT id, email, name, role, password_hash FROM users WHERE email = $1`,
+      `SELECT id, email, name, role, permissions, password_hash FROM users WHERE email = $1`,
       [email]
     );
 
@@ -33,6 +33,7 @@ router.post('/login', async (req, res) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      permissions: user.permissions || [],
     };
 
     return res.json({ success: true, user: req.session.user });

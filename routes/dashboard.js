@@ -3,6 +3,7 @@ const path = require('path');
 const dotenv = require('dotenv');
 const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
+const { toTitleCase } = require('../utils/text');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -219,6 +220,7 @@ router.get('/tasks', async (req, res) => {
         a.site_location AS department,
         a.department AS asset_department,
         a.responsible_person,
+        a.frequency_days,
         t.name AS technician_name,
         wo.status,
         wo.due_date,
@@ -298,7 +300,7 @@ router.get('/assets', async (req, res) => {
 
     if (department) {
       params.push(department);
-      conditions.push(`assets.site_location = $${params.length}`);
+      conditions.push(`assets.site_location ILIKE $${params.length}`);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -468,7 +470,7 @@ router.get('/departments/:name/tasks', async (req, res) => {
         END AS days_overdue
       FROM work_orders wo
       JOIN assets a ON a.id = wo.asset_id
-      WHERE a.site_location = $1
+      WHERE a.site_location ILIKE $1
       ORDER BY wo.due_date NULLS LAST, wo.id
     `,
       [name]
@@ -621,7 +623,7 @@ router.post('/sites/add', async (req, res) => {
       `INSERT INTO sites (site_name, location, description)
        VALUES ($1, $2, $3)
        RETURNING *`,
-      [site_name.trim(), location || null, description || null]
+      [toTitleCase(site_name), location || null, description || null]
     );
 
     return res.status(201).json(rows[0]);
@@ -646,7 +648,7 @@ router.delete('/sites/:id', async (req, res) => {
     }
 
     const { rows: assetRows } = await pool.query(
-      `SELECT COUNT(*) AS count FROM assets WHERE site_location = $1`,
+      `SELECT COUNT(*) AS count FROM assets WHERE site_location ILIKE $1`,
       [site.site_name]
     );
 
@@ -731,6 +733,7 @@ router.post('/assets/add', async (req, res) => {
       registration_date,
       expiry_date,
       reminder_days,
+      frequency_days,
       responsible_person,
       remarks,
     } = req.body;
@@ -759,13 +762,14 @@ router.post('/assets/add', async (req, res) => {
          registration_date,
          expiry_date,
          reminder_days,
+         frequency_days,
          responsible_person,
          remarks
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
         equipment_name,
-        site_location,
+        toTitleCase(site_location),
         maintenance_interval_days,
         estimated_duration_hours,
         last_completed_date || null,
@@ -777,6 +781,7 @@ router.post('/assets/add', async (req, res) => {
         registration_date || null,
         expiry_date || null,
         reminder_days || null,
+        frequency_days || 365,
         responsible_person || null,
         remarks || null,
       ]
@@ -805,6 +810,7 @@ router.put('/assets/:id', async (req, res) => {
       registration_date,
       expiry_date,
       reminder_days,
+      frequency_days,
       responsible_person,
       remarks,
     } = req.body;
@@ -823,13 +829,14 @@ router.put('/assets/:id', async (req, res) => {
          registration_date = $10,
          expiry_date = $11,
          reminder_days = $12,
-         responsible_person = $13,
-         remarks = $14
-       WHERE id = $15
+         frequency_days = $13,
+         responsible_person = $14,
+         remarks = $15
+       WHERE id = $16
        RETURNING *`,
       [
         equipment_name,
-        site_location,
+        toTitleCase(site_location),
         maintenance_interval_days || null,
         estimated_duration_hours || null,
         next_due_date || null,
@@ -840,6 +847,7 @@ router.put('/assets/:id', async (req, res) => {
         registration_date || null,
         expiry_date || null,
         reminder_days || null,
+        frequency_days || 365,
         responsible_person || null,
         remarks || null,
         id,

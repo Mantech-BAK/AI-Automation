@@ -5,8 +5,6 @@ const packageJson = require('../package.json');
 const router = express.Router();
 
 const EDITABLE_KEYS = [
-  'maintenance_manager_email',
-  'senior_manager_email',
   'daily_check_time',
   'working_hours_start',
   'working_hours_end',
@@ -43,8 +41,6 @@ async function loadSettingsResponse() {
   ]);
 
   return {
-    maintenance_manager_email: map.maintenance_manager_email || '',
-    senior_manager_email: map.senior_manager_email || '',
     daily_check_time: map.daily_check_time || '6',
     working_hours_start: map.working_hours_start || '07:30',
     working_hours_end: map.working_hours_end || '16:30',

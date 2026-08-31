@@ -30,6 +30,7 @@ interface Equipment {
   registration_date?: string | null;
   expiry_date?: string | null;
   reminder_days?: number | null;
+  frequency_days?: number | null;
   responsible_person?: string | null;
   remarks?: string | null;
 }
@@ -107,6 +108,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
     registration_date: '',
     expiry_date: '',
     reminder_days: '7',
+    frequency_days: '365',
     responsible_person: '',
     remarks: '',
   });
@@ -168,6 +170,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
         registration_date: formData.registration_date || null,
         expiry_date: formData.expiry_date || null,
         reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
+        frequency_days: formData.frequency_days ? Number(formData.frequency_days) : null,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
       };
@@ -205,6 +208,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
       registration_date: '',
       expiry_date: '',
       reminder_days: '7',
+      frequency_days: '365',
       responsible_person: '',
       remarks: '',
     });
@@ -530,6 +534,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reminder Days</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frequency (Days)</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">In Charge</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
@@ -538,7 +543,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
@@ -563,6 +568,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
                             {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.reminder_days ?? '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.frequency_days ?? '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.remarks || '-'}</td>
                           <td className="px-6 py-4">
@@ -732,6 +738,16 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
                 onChange={(e) => setFormData({ ...formData, reminder_days: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 placeholder="7"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Frequency (days)</label>
+              <input
+                type="number"
+                value={formData.frequency_days}
+                onChange={(e) => setFormData({ ...formData, frequency_days: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="365"
               />
             </div>
             <div>

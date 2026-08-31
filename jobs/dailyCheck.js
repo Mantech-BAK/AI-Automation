@@ -9,8 +9,6 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const {
   PLANNER_PLAN_ID,
   SERVICE_ACCOUNT_EMAIL,
-  MAINTENANCE_MANAGER_EMAIL,
-  SENIOR_MANAGER_EMAIL,
   TEAM_GROUP_ID,
   TEAMS_CHANNEL_ID,
   MY_USER_ID,
@@ -330,9 +328,12 @@ async function assignTaskAndNotify(workOrder, asset, technician, availability = 
     [technician.id]
   );
 
+  const emailChain = await resolveEmailChain(technician.name);
+  const ccEmails = await getDepartmentCcEmails(asset.department || asset.site_location);
+
   const emailBody = `New maintenance task created:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nTechnician: ${technician.name}\nDue date: ${workOrderDueDate}\nDuration: ${asset.estimated_duration_hours} hours`;
   try {
-    await sendMail(MAINTENANCE_MANAGER_EMAIL, 'New Maintenance Task', emailBody, 'app');
+    await sendMail(emailChain.to, 'New Maintenance Task', emailBody, 'app', ccEmails);
   } catch (error) {
     console.warn('Email sending skipped and continue running');
   }
@@ -345,7 +346,7 @@ async function assignTaskAndNotify(workOrder, asset, technician, availability = 
   }
 
   try {
-    await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, workOrderDueDate, availability.slotDateTime);
+    await createCalendarEvent(asset, technician, emailChain.to, workOrderDueDate, availability.slotDateTime);
   } catch (error) {
     console.warn('Calendar event skipped and continue running');
   }
@@ -399,8 +400,9 @@ function getSendMailEndpoint(authType = 'delegated') {
   return `/users/${SERVICE_ACCOUNT_EMAIL}/sendMail`;
 }
 
-async function sendMail(to, subject, content, authType = 'delegated') {
+async function sendMail(to, subject, content, authType = 'delegated', cc = []) {
   const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  const ccRecipients = (Array.isArray(cc) ? cc : [cc]).filter(Boolean);
 
   const body = {
     message: {
@@ -412,6 +414,9 @@ async function sendMail(to, subject, content, authType = 'delegated') {
       toRecipients: recipients.map((address) => ({
         emailAddress: { address },
       })),
+      ccRecipients: ccRecipients.map((address) => ({
+        emailAddress: { address },
+      })),
     },
     saveToSentItems: 'true',
   };
@@ -419,25 +424,68 @@ async function sendMail(to, subject, content, authType = 'delegated') {
   await graphRequest('POST', getSendMailEndpoint(authType), body, authType);
 }
 
-// Department-level notification recipients, configured via the Notification
-// Config page. Falls back to MAINTENANCE_MANAGER_EMAIL when a department has
-// no configured emails - this is for the notification email only, it has no
-// effect on who the Planner task itself gets assigned to.
-async function getDepartmentNotificationEmails(departmentName) {
+// Last-resort recipient when nobody more specific can be found - the first
+// admin user, never a hardcoded address.
+async function getAdminFallbackEmail() {
+  const { rows } = await pool.query(`SELECT email FROM users WHERE role = 'admin' LIMIT 1`);
+  return rows[0]?.email || null;
+}
+
+// Resolves a responsible person (a document's responsible_person, a vehicle's
+// incharge, or a technician's name) to real mailboxes via the employee master
+// record: their own notification_email first, then their manager's, then the
+// first admin user. manager_email is always looked up independently (even
+// when the person's own email was found) so escalation call sites can address
+// the manager directly once something goes overdue, without a second query.
+// Never exposed to the frontend - this lookup only happens here, server-side.
+async function resolveEmailChain(responsiblePersonName) {
+  let primaryEmail = null;
+  let managerEmail = null;
+
+  if (responsiblePersonName) {
+    const ownResult = await pool.query(
+      `SELECT notification_email FROM employees WHERE name ILIKE $1 LIMIT 1`,
+      [responsiblePersonName]
+    );
+    primaryEmail = ownResult.rows[0]?.notification_email || null;
+
+    const managerResult = await pool.query(
+      `SELECT e2.notification_email
+       FROM employees e1
+       JOIN employees e2 ON e2.name ILIKE e1.reports_to_name
+       WHERE e1.name ILIKE $1
+       LIMIT 1`,
+      [responsiblePersonName]
+    );
+    managerEmail = managerResult.rows[0]?.notification_email || null;
+  }
+
+  if (!primaryEmail) {
+    primaryEmail = managerEmail;
+  }
+
+  if (!primaryEmail) {
+    primaryEmail = await getAdminFallbackEmail();
+  }
+
+  return { to: primaryEmail, manager_email: managerEmail };
+}
+
+// CC list for reminders: only the department's configured notification
+// emails, with no fallback - the primary recipient (resolved via
+// resolveEmailChain) already has its own fallback, so this stays empty rather
+// than duplicating an address into both TO and CC.
+async function getDepartmentCcEmails(departmentName) {
   if (!departmentName) {
-    return [MAINTENANCE_MANAGER_EMAIL];
+    return [];
   }
 
   const { rows } = await pool.query(
-    `SELECT email FROM department_notification_emails WHERE LOWER(department_name) = LOWER($1)`,
+    `SELECT email FROM department_notification_emails WHERE department_name ILIKE $1`,
     [departmentName]
   );
 
-  if (rows.length > 0) {
-    return rows.map((row) => row.email);
-  }
-
-  return [MAINTENANCE_MANAGER_EMAIL];
+  return rows.map((row) => row.email);
 }
 
 async function postTeamsMessage(message) {
@@ -672,8 +720,11 @@ async function runDailyCheck() {
 
         const emailBody = `Upcoming maintenance:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nDue date: ${asset.next_due_date}\nDays remaining: ${daysRemaining} days`;
         try {
-          const departmentEmails = await getDepartmentNotificationEmails(asset.site_location);
-          await sendMail(departmentEmails, `Maintenance Reminder - ${asset.equipment_name}`, emailBody, 'app');
+          // No technician assigned yet at this pre-due stage - resolves
+          // straight to the admin fallback, with department watchers CC'd.
+          const emailChain = await resolveEmailChain(null);
+          const ccEmails = await getDepartmentCcEmails(asset.department || asset.site_location);
+          await sendMail(emailChain.to, `Maintenance Reminder - ${asset.equipment_name}`, emailBody, 'app', ccEmails);
         } catch (error) {
           console.warn('Email sending skipped and continue running');
         }
@@ -727,10 +778,12 @@ async function runDailyCheck() {
       [technician.id]
     );
 
+    const equipmentEmailChain = await resolveEmailChain(technician.name);
+    const equipmentCcEmails = await getDepartmentCcEmails(asset.department || asset.site_location);
+
     const emailBody = `New maintenance task created:\nEquipment: ${asset.equipment_name}\nSite: ${asset.site_location}\nTechnician: ${technician.name}\nDue date: ${workOrderDueDate}\nDuration: ${asset.estimated_duration_hours} hours`;
     try {
-      const departmentEmails = await getDepartmentNotificationEmails(asset.site_location);
-      await sendMail(departmentEmails, 'New Maintenance Task', emailBody, 'app');
+      await sendMail(equipmentEmailChain.to, 'New Maintenance Task', emailBody, 'app', equipmentCcEmails);
     } catch (error) {
       console.warn('Email sending skipped and continue running');
     }
@@ -743,7 +796,7 @@ async function runDailyCheck() {
     }
 
     try {
-      await createCalendarEvent(asset, technician, MAINTENANCE_MANAGER_EMAIL, workOrderDueDate, availability.slotDateTime);
+      await createCalendarEvent(asset, technician, equipmentEmailChain.to, workOrderDueDate, availability.slotDateTime);
     } catch (error) {
       console.warn('Calendar event skipped and continue running');
     }
@@ -761,7 +814,7 @@ async function runDailyCheck() {
     LEFT JOIN asset_types at ON at.id = a.type_id
     WHERE ac.name = 'Document'
       AND a.expiry_date IS NOT NULL
-      AND a.expiry_date <= CURRENT_DATE + INTERVAL '90 days'
+      AND a.expiry_date <= CURRENT_DATE + INTERVAL '365 days'
   `);
 
   for (const doc of documentsResult.rows) {
@@ -770,7 +823,12 @@ async function runDailyCheck() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const daysRemaining = Math.round((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      const isDueOrOverdue = daysRemaining <= 0;
+      const reminderWindowDays = doc.reminder_days || 30;
+
+      if (daysRemaining > reminderWindowDays) {
+        // Outside this document's own reminder window - nothing to do yet.
+        continue;
+      }
 
       const notes = JSON.stringify({
         asset_id: doc.id,
@@ -779,26 +837,44 @@ async function runDailyCheck() {
         expiry_date: doc.expiry_date,
       });
       const documentDescription = `Document type: ${doc.type_name || 'N/A'}\nDepartment: ${doc.site_location}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`;
+      const documentEmailChain = await resolveEmailChain(doc.responsible_person);
+      const ccEmails = await getDepartmentCcEmails(doc.department || doc.site_location);
+      // Document escalation: once actually overdue, address the responsible
+      // person's manager instead of (or in addition to) the person themself.
+      const toEmail = daysRemaining <= 0
+        ? (documentEmailChain.manager_email || documentEmailChain.to)
+        : documentEmailChain.to;
 
-      if (!isDueOrOverdue) {
-        // PRE-EXPIRY: send a reminder and put a calendar hold on the expiry
-        // date, but don't create the Planner task yet.
-        const alreadySent = await pool.query(
-          `SELECT 1 FROM notification_log
-           WHERE notification_type = 'document_reminder'
-             AND notes = $1
-             AND sent_at >= NOW() - INTERVAL '24 hours'
-           LIMIT 1`,
-          [notes]
-        );
+      // FIRST REMINDER for this cycle: no active work order yet, so create
+      // the Planner task right away instead of waiting for the due date -
+      // dedup is the same work_order-based check used everywhere else (a
+      // completed/rejected work order doesn't count, so a renewed document
+      // starts a fresh cycle here once its new expiry falls back in range).
+      const existingOrder = await pool.query(
+        `SELECT id FROM work_orders WHERE asset_id = $1 AND status NOT IN ('completed', 'rejected') LIMIT 1`,
+        [doc.id]
+      );
 
-        if (alreadySent.rows.length > 0) {
-          continue;
-        }
-
+      if (existingOrder.rows.length === 0) {
+        // Planner task + calendar event MUST run before the work_order insert
+        // below so a Graph failure is visible in the logs immediately, rather
+        // than being masked by a work order that already "succeeded" - and so
+        // a failed attempt is retried on the next run instead of being
+        // permanently skipped.
+        let plannerTaskId = null;
         try {
+          plannerTaskId = await createPlannerTask(doc, {
+            title: `Document Renewal Required - ${doc.equipment_name} (${doc.site_location}) - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
+            dueDateTime: `${doc.expiry_date}T09:00:00Z`,
+            description: documentDescription,
+            assigneeId: MY_USER_ID,
+          });
+          console.log(`Created Planner task for document: ${doc.equipment_name} expiring ${doc.expiry_date}`);
+
+          // Plain Outlook reminder appointment on the shared calendar - not a
+          // Teams meeting, so no online-meeting link is attached.
           await createCalendarEvent(doc, null, null, null, null, {
-            title: `Document Expiring Soon - ${doc.equipment_name} - ${doc.site_location}`,
+            title: `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location} - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
             description: documentDescription,
             singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
             timeZone: 'Arab Standard Time',
@@ -807,16 +883,27 @@ async function runDailyCheck() {
             isOnlineMeeting: false,
           });
           console.log(`Calendar reminder event created for document: ${doc.equipment_name} on ${doc.expiry_date}`);
-        } catch (calendarError) {
-          console.warn(`Calendar event skipped for document ${doc.equipment_name}:`, calendarError.message);
+        } catch (graphError) {
+          console.error(`Planner task / calendar event creation failed for document ${doc.equipment_name}:`, graphError.message);
+          errors++;
+        }
+
+        if (plannerTaskId) {
+          const workOrderResult = await pool.query(
+            `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date, notes, task_type)
+             VALUES ('open', $1, NULL, $2, $3, $4, 'document')
+             RETURNING *`,
+            [doc.id, plannerTaskId, doc.expiry_date, 'Document renewal task']
+          );
+          const workOrder = workOrderResult.rows[0];
+          await logNotification(workOrder.id, 'document_task_created');
         }
 
         const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location}`;
         const emailBody = `Item: ${doc.equipment_name}\nDepartment: ${doc.site_location}\nExpiry date: ${doc.expiry_date}\n${daysRemaining} day(s) remaining\nResponsible person: ${doc.responsible_person || 'N/A'}`;
 
         try {
-          const departmentEmails = await getDepartmentNotificationEmails(doc.site_location);
-          await sendMail(departmentEmails, subject, emailBody, 'app');
+          await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
         } catch (error) {
           console.warn('Email sending skipped and continue running');
         }
@@ -828,81 +915,37 @@ async function runDailyCheck() {
           console.warn('Teams message skipped (delegated auth not available) and continue running');
         }
 
-        await pool.query(
-          `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
-          ['document_reminder', null, notes]
-        );
-
         console.log(`Document reminder sent for ${doc.equipment_name} expiring ${doc.expiry_date}`);
         documentRemindersSent++;
         continue;
       }
 
-      // DUE / OVERDUE: create the Planner task, once. Same dedup pattern as
-      // equipment - a work_order row is the source of truth for "already
-      // has a task", not notification_log (which only records that a
-      // notification was sent, and isn't reliable if a prior run's Graph
-      // call failed after the notification already went out).
-      const existingOrder = await pool.query(
-        `SELECT id FROM work_orders WHERE asset_id = $1 AND status NOT IN ('completed', 'rejected') LIMIT 1`,
-        [doc.id]
+      // SUBSEQUENT DAYS: the Planner task already exists for this cycle -
+      // just send a throttled (once per 24h) follow-up, escalating the
+      // wording once the document is actually due/overdue.
+      const alreadySentToday = await pool.query(
+        `SELECT 1 FROM notification_log
+         WHERE notification_type = 'document_reminder'
+           AND notes = $1
+           AND sent_at >= NOW() - INTERVAL '24 hours'
+         LIMIT 1`,
+        [notes]
       );
 
-      if (existingOrder.rows.length > 0) {
-        console.log(`Asset ${doc.equipment_name} already has open work order - skipping Planner task creation`);
+      if (alreadySentToday.rows.length > 0) {
         continue;
       }
 
-      // Planner task + calendar event MUST run before the work_order insert
-      // below so a Graph failure is visible in the logs immediately, rather
-      // than being masked by a work order that already "succeeded" - and so
-      // a failed attempt is retried on the next run instead of being
-      // permanently skipped.
-      let plannerTaskId = null;
-      try {
-        plannerTaskId = await createPlannerTask(doc, {
-          title: `Document Renewal Required - ${doc.equipment_name} (${doc.site_location}) - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
-          dueDateTime: `${doc.expiry_date}T09:00:00Z`,
-          description: documentDescription,
-          assigneeId: MY_USER_ID,
-        });
-        console.log(`Created Planner task for document: ${doc.equipment_name} expiring ${doc.expiry_date}`);
-
-        // Plain Outlook reminder appointment on the shared calendar - not a
-        // Teams meeting, so no online-meeting link is attached.
-        await createCalendarEvent(doc, null, null, null, null, {
-          title: `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location} - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
-          description: documentDescription,
-          singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
-          timeZone: 'Arab Standard Time',
-          startDateTime: `${doc.expiry_date}T09:00:00`,
-          endDateTime: `${doc.expiry_date}T10:00:00`,
-          isOnlineMeeting: false,
-        });
-        console.log(`Calendar reminder event created for document: ${doc.equipment_name} on ${doc.expiry_date}`);
-      } catch (graphError) {
-        console.error(`Planner task / calendar event creation failed for document ${doc.equipment_name}:`, graphError.message);
-        errors++;
-      }
-
-      if (plannerTaskId) {
-        const workOrderResult = await pool.query(
-          `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date, notes, task_type)
-           VALUES ('open', $1, NULL, $2, $3, $4, 'document')
-           RETURNING *`,
-          [doc.id, plannerTaskId, doc.expiry_date, 'Document renewal task']
-        );
-        const workOrder = workOrderResult.rows[0];
-        await logNotification(workOrder.id, 'document_task_created');
-      }
-
-      const daysLabel = daysRemaining === 0 ? 'due today' : `${Math.abs(daysRemaining)} day(s) overdue`;
+      const daysLabel = daysRemaining > 0
+        ? `${daysRemaining} day(s) remaining`
+        : daysRemaining === 0
+          ? 'due today'
+          : `${Math.abs(daysRemaining)} day(s) overdue`;
       const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location}`;
       const emailBody = `Item: ${doc.equipment_name}\nDepartment: ${doc.site_location}\nExpiry date: ${doc.expiry_date}\n${daysLabel}\nResponsible person: ${doc.responsible_person || 'N/A'}`;
 
       try {
-        const departmentEmails = await getDepartmentNotificationEmails(doc.site_location);
-        await sendMail(departmentEmails, subject, emailBody, 'app');
+        await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
       } catch (error) {
         console.warn('Email sending skipped and continue running');
       }
@@ -913,6 +956,11 @@ async function runDailyCheck() {
       } catch (error) {
         console.warn('Teams message skipped (delegated auth not available) and continue running');
       }
+
+      await pool.query(
+        `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
+        ['document_reminder', null, notes]
+      );
 
       console.log(`Document reminder sent for ${doc.equipment_name} expiring ${doc.expiry_date}`);
       documentRemindersSent++;
@@ -931,7 +979,7 @@ async function runDailyCheck() {
     JOIN vehicles v ON v.id = vt.vehicle_id
     WHERE vt.status != 'completed'
       AND vt.expiry_date IS NOT NULL
-      AND vt.expiry_date <= CURRENT_DATE + INTERVAL '90 days'
+      AND vt.expiry_date <= CURRENT_DATE + INTERVAL '365 days'
   `);
 
   for (const task of vehicleTasksResult.rows) {
@@ -940,7 +988,12 @@ async function runDailyCheck() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const daysRemaining = Math.round((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      const isDueOrOverdue = daysRemaining <= 0;
+      const reminderWindowDays = task.reminder_days || 30;
+
+      if (daysRemaining > reminderWindowDays) {
+        // Outside this task's own reminder window - nothing to do yet.
+        continue;
+      }
 
       const notes = JSON.stringify({
         vehicle_id: task.vehicle_id,
@@ -955,32 +1008,32 @@ async function runDailyCheck() {
         site_location: task.department || task.site_location,
         estimated_duration_hours: 1,
       };
+      const vehicleEmailChain = await resolveEmailChain(task.incharge);
+      const ccEmails = await getDepartmentCcEmails(task.department);
+      // Vehicle escalation: once actually overdue, address the incharge
+      // person's manager instead of (or in addition to) the person themself.
+      const toEmail = daysRemaining <= 0
+        ? (vehicleEmailChain.manager_email || vehicleEmailChain.to)
+        : vehicleEmailChain.to;
 
-      if (!isDueOrOverdue) {
-        if (daysRemaining > 30) {
-          // More than 30 days out - within the 90-day lookahead window but
-          // not yet time to remind, same as the document check.
-          continue;
-        }
-
-        // EXPIRING WITHIN 30 DAYS: send a reminder and put a calendar hold on
-        // the expiry date, but don't create the Planner task yet.
-        const alreadySent = await pool.query(
-          `SELECT 1 FROM notification_log
-           WHERE notification_type = 'vehicle_task_reminder'
-             AND notes = $1
-             AND sent_at >= NOW() - INTERVAL '24 hours'
-           LIMIT 1`,
-          [notes]
-        );
-
-        if (alreadySent.rows.length > 0) {
-          continue;
-        }
-
+      // FIRST REMINDER for this cycle: no Planner task yet - create it right
+      // away instead of waiting for the due date. Vehicle tasks don't have a
+      // work_orders row like equipment/documents do, so dedup is against the
+      // task's own planner_task_id, which /complete clears on renewal so the
+      // next cycle can create a fresh one.
+      if (!task.planner_task_id) {
+        let plannerTaskId = null;
         try {
+          plannerTaskId = await createPlannerTask(vehicleAsset, {
+            title: `Vehicle Renewal Required - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
+            dueDateTime: `${task.expiry_date}T09:00:00Z`,
+            description: taskDescription,
+            assigneeId: MY_USER_ID,
+          });
+          console.log(`Created Planner task for vehicle task: ${task.vehicle_name} - ${task.task_type} expiring ${task.expiry_date}`);
+
           await createCalendarEvent(vehicleAsset, null, null, null, null, {
-            title: `Vehicle Task Expiring Soon - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`,
+            title: `Vehicle Renewal Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
             description: taskDescription,
             singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
             timeZone: 'Arab Standard Time',
@@ -988,83 +1041,68 @@ async function runDailyCheck() {
             endDateTime: `${task.expiry_date}T10:00:00`,
             isOnlineMeeting: false,
           });
-        } catch (calendarError) {
-          console.warn(`Calendar event skipped for vehicle task ${task.vehicle_name} - ${task.task_type}:`, calendarError.message);
+        } catch (graphError) {
+          console.error(`Planner task / calendar event creation failed for vehicle task ${task.vehicle_name} - ${task.task_type}:`, graphError.message);
+          errors++;
+        }
+
+        if (plannerTaskId) {
+          await pool.query(`UPDATE vehicle_tasks SET planner_task_id = $1 WHERE id = $2`, [plannerTaskId, task.id]);
+
+          await pool.query(
+            `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
+            ['vehicle_task_created', null, notes]
+          );
         }
 
         const subject = `Vehicle Task Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`;
         const emailBody = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpiry date: ${task.expiry_date}\n${daysRemaining} day(s) remaining`;
 
         try {
-          const departmentEmails = await getDepartmentNotificationEmails(task.department);
-          await sendMail(departmentEmails, subject, emailBody, 'app');
+          await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
         } catch (error) {
           console.warn('Email sending skipped and continue running');
         }
-
-        await pool.query(
-          `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
-          ['vehicle_task_reminder', null, notes]
-        );
 
         console.log(`Vehicle task reminder: ${task.vehicle_name} - ${task.task_type} expires ${task.expiry_date}`);
         vehicleTaskRemindersSent++;
         continue;
       }
 
-      // DUE / OVERDUE: create the Planner task once. Vehicle tasks don't have
-      // a work_orders row like equipment/documents do, so dedup is against
-      // the task's own planner_task_id - once it's set, an active Planner
-      // task already exists and this task is skipped until it's renewed
-      // (which clears it via the /complete endpoint's status change).
-      if (task.planner_task_id) {
-        console.log(`Vehicle task ${task.vehicle_name} - ${task.task_type} already has an open Planner task - skipping`);
+      // SUBSEQUENT DAYS: Planner task already exists for this cycle - just
+      // send a throttled (once per 24h) follow-up, escalating the wording
+      // once the task is actually due/overdue.
+      const alreadySentToday = await pool.query(
+        `SELECT 1 FROM notification_log
+         WHERE notification_type = 'vehicle_task_reminder'
+           AND notes = $1
+           AND sent_at >= NOW() - INTERVAL '24 hours'
+         LIMIT 1`,
+        [notes]
+      );
+
+      if (alreadySentToday.rows.length > 0) {
         continue;
       }
 
-      let plannerTaskId = null;
-      try {
-        plannerTaskId = await createPlannerTask(vehicleAsset, {
-          title: `Vehicle Renewal Required - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
-          dueDateTime: `${task.expiry_date}T09:00:00Z`,
-          description: taskDescription,
-          assigneeId: MY_USER_ID,
-        });
-        console.log(`Created Planner task for vehicle task: ${task.vehicle_name} - ${task.task_type} expiring ${task.expiry_date}`);
-
-        await createCalendarEvent(vehicleAsset, null, null, null, null, {
-          title: `Vehicle Renewal Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
-          description: taskDescription,
-          singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
-          timeZone: 'Arab Standard Time',
-          startDateTime: `${task.expiry_date}T09:00:00`,
-          endDateTime: `${task.expiry_date}T10:00:00`,
-          isOnlineMeeting: false,
-        });
-      } catch (graphError) {
-        console.error(`Planner task / calendar event creation failed for vehicle task ${task.vehicle_name} - ${task.task_type}:`, graphError.message);
-        errors++;
-      }
-
-      if (plannerTaskId) {
-        await pool.query(`UPDATE vehicle_tasks SET planner_task_id = $1 WHERE id = $2`, [plannerTaskId, task.id]);
-
-        await pool.query(
-          `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
-          ['vehicle_task_created', null, notes]
-        );
-      }
-
-      const daysLabel = daysRemaining === 0 ? 'due today' : `${Math.abs(daysRemaining)} day(s) overdue`;
+      const daysLabel = daysRemaining > 0
+        ? `${daysRemaining} day(s) remaining`
+        : daysRemaining === 0
+          ? 'due today'
+          : `${Math.abs(daysRemaining)} day(s) overdue`;
       const subject = `Vehicle Task Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`;
       const emailBody = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpiry date: ${task.expiry_date}\n${daysLabel}`;
 
       try {
-        const departmentEmails = await getDepartmentNotificationEmails(task.department);
-        await sendMail(departmentEmails, subject, emailBody, 'app');
+        await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
       } catch (error) {
         console.warn('Email sending skipped and continue running');
       }
+
+      await pool.query(
+        `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
+        ['vehicle_task_reminder', null, notes]
+      );
 
       console.log(`Vehicle task reminder: ${task.vehicle_name} - ${task.task_type} expires ${task.expiry_date}`);
       vehicleTaskRemindersSent++;
@@ -1125,9 +1163,14 @@ async function runDailyCheck() {
 
     if (recentEscalation.rows.length > 0) continue;
 
+    // Equipment escalation: address the technician's manager (reports_to),
+    // falling back to the first admin user if no manager is on file.
+    const escalationChain = await resolveEmailChain(workOrder.technician_name);
+    const escalationEmail = escalationChain.manager_email || await getAdminFallbackEmail();
+
     const emailBody = `Escalation: maintenance task for ${workOrder.equipment_name} at ${workOrder.site_location} is overdue. Technician: ${workOrder.technician_name}. Due date: ${workOrder.due_date}. Duration: ${workOrder.estimated_duration_hours} hours.`;
     try {
-      await sendMail(SENIOR_MANAGER_EMAIL, 'Escalated Overdue Maintenance Task', emailBody, 'app');
+      await sendMail(escalationEmail, 'Escalated Overdue Maintenance Task', emailBody, 'app');
     } catch (error) {
       console.warn('Email sending skipped and continue running');
     }
@@ -1141,7 +1184,7 @@ async function runDailyCheck() {
 
     await pool.query(
       `INSERT INTO escalation_log (work_order_id, escalated_to) VALUES ($1, $2)`,
-      [workOrder.id, SENIOR_MANAGER_EMAIL]
+      [workOrder.id, escalationEmail]
     );
   }
 
@@ -1166,4 +1209,6 @@ cron.schedule('0 6 * * *', async () => {
 module.exports = {
   runDailyCheck,
   createTaskForWorkOrder,
+  resolveEmailChain,
+  getAdminFallbackEmail,
 };

@@ -36,6 +36,7 @@ interface VehicleTask {
   expiry_date?: string | null;
   registration_date?: string | null;
   reminder_days?: number | null;
+  frequency_days?: number | null;
   status: string;
   planner_task_id?: string | null;
   completed_at?: string | null;
@@ -68,6 +69,7 @@ const emptyTaskForm = {
   registration_date: '',
   expiry_date: '',
   reminder_days: '30',
+  frequency_days: '365',
 };
 
 function daysUntil(dateStr?: string | null): number | null {
@@ -117,7 +119,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
 
   const [editingTask, setEditingTask] = useState<VehicleTask | null>(null);
-  const [editTaskForm, setEditTaskForm] = useState({ registration_date: '', expiry_date: '', reminder_days: '30' });
+  const [editTaskForm, setEditTaskForm] = useState({ registration_date: '', expiry_date: '', reminder_days: '30', frequency_days: '365' });
   const [savingEditTask, setSavingEditTask] = useState(false);
 
   const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
@@ -246,6 +248,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
       registration_date: task.registration_date ? task.registration_date.slice(0, 10) : '',
       expiry_date: task.expiry_date ? task.expiry_date.slice(0, 10) : '',
       reminder_days: String(task.reminder_days ?? 30),
+      frequency_days: String(task.frequency_days ?? 365),
     });
   }
 
@@ -260,6 +263,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
           registration_date: editTaskForm.registration_date || null,
           expiry_date: editTaskForm.expiry_date || null,
           reminder_days: Number(editTaskForm.reminder_days) || 30,
+          frequency_days: Number(editTaskForm.frequency_days) || 365,
         }),
       });
       const json = await response.json();
@@ -711,6 +715,16 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Frequency (days)</label>
+            <input
+              type="number"
+              value={taskForm.frequency_days}
+              onChange={(e) => setTaskForm({ ...taskForm, frequency_days: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="365"
+            />
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setAddTaskVehicleId(null)}
@@ -760,6 +774,16 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
               value={editTaskForm.reminder_days}
               onChange={(e) => setEditTaskForm({ ...editTaskForm, reminder_days: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Frequency (days)</label>
+            <input
+              type="number"
+              value={editTaskForm.frequency_days}
+              onChange={(e) => setEditTaskForm({ ...editTaskForm, frequency_days: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="365"
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">

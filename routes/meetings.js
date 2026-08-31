@@ -110,14 +110,26 @@ function normalizeDateTime(value) {
   return { dateTime: value, timeZone: 'UTC' };
 }
 
-function graphDateTimeToUtcIso(dt) {
-  if (!dt?.dateTime) return null;
-  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dt.dateTime);
-  if (hasOffset) return dt.dateTime;
-  if (!dt.timeZone || dt.timeZone.toUpperCase() === 'UTC') {
-    return `${dt.dateTime}Z`;
+// Converts a normalized {dateTime, timeZone} value to a real UTC instant.
+// SchedulesPage sends a naive "YYYY-MM-DDTHH:mm:ss" dateTime paired with
+// timeZone "Asia/Bahrain" - that needs an actual offset conversion here
+// (unlike when forwarding to Graph, which interprets the timeZone field
+// itself) because this value is stored in a TIMESTAMPTZ column.
+function normalizedDateTimeToUtcIso(normalized) {
+  const raw = normalized?.dateTime || '';
+  const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(raw);
+  if (hasOffset) return raw;
+
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(raw);
+  if (!match) return raw;
+  const [, dateStr, hourStr, minuteStr] = match;
+
+  const timeZone = (normalized?.timeZone || 'UTC').toLowerCase();
+  if (timeZone.includes('bahrain') || timeZone.includes('arab standard')) {
+    return bahrainWallClockToUtcIso(dateStr, `${hourStr}:${minuteStr}`);
   }
-  return dt.dateTime;
+
+  return `${raw}Z`;
 }
 
 function parseJsonResponse(rawText) {
@@ -225,8 +237,8 @@ router.post('/find-slots', async (req, res) => {
 
     return res.json({ slots: topSlots });
   } catch (error) {
-    console.error('Find meeting slots failed:', error);
-    return res.status(500).json({ error: 'Failed to find meeting slots' });
+    console.error('Find meeting slots failed:', error.status, JSON.stringify(error.body) || error.message, error.stack);
+    return res.status(500).json({ error: `Failed to find meeting slots: ${formatGraphError(error)}` });
   }
 });
 
@@ -259,56 +271,46 @@ router.post('/check-availability', async (req, res) => {
     const { results } = await checkAttendeesAvailability(fullAttendees, date, startTime, endTime, names);
     return res.json({ results });
   } catch (error) {
-    console.error('Check availability failed:', error);
-    return res.status(500).json({ error: 'Failed to check availability' });
+    console.error('Check availability failed:', error.status, JSON.stringify(error.body) || error.message, error.stack);
+    return res.status(500).json({ error: `Failed to check availability: ${formatGraphError(error)}` });
   }
 });
 
-const NON_MEETING_SUBJECT_PREFIXES = [
-  'Maintenance Task',
-  'Maintenance:',
-  'Maintenance Due Soon',
-  'Document Renewal',
-  'Document Renewal Reminder',
-  'Document Renewal Required',
-  'Document Expiring Soon',
-];
-
-function isMaintenanceEventSubject(subject) {
-  const value = subject || '';
-  return NON_MEETING_SUBJECT_PREFIXES.some((prefix) => value.startsWith(prefix));
+// Graph errors carry the useful detail in error.body.error.message (set by
+// graphRequest) rather than the generic error.message - surface that instead
+// of a bare "Internal Server Error" so the real cause is visible to the
+// caller and in the logs.
+function formatGraphError(error) {
+  return error?.body?.error?.message || error?.message || 'Unknown error';
 }
 
 router.get('/upcoming', async (req, res) => {
   try {
-    const now = new Date();
-    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const todayIso = now.toISOString();
-    const thirtyDaysIso = thirtyDaysFromNow.toISOString();
+    // Reads from the local meetings table instead of Graph's shared calendar
+    // - meetings created through /create are saved there, so this works
+    // regardless of Application Access Policy restrictions on the mailbox.
+    const { rows } = await pool.query(
+      `SELECT id, title, start_time, end_time, join_url, attendees
+       FROM meetings
+       WHERE start_time > NOW()
+       ORDER BY start_time ASC
+       LIMIT 20`
+    );
 
-    const filter = `start/dateTime ge '${todayIso}' and end/dateTime le '${thirtyDaysIso}'`;
-    const select = 'id,subject,start,end,webLink,onlineMeeting,attendees';
-    const endpoint = `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events?$filter=${encodeURIComponent(filter)}&$orderby=${encodeURIComponent('start/dateTime asc')}&$top=20&$select=${select}`;
-
-    const result = await graphRequest('GET', endpoint, null, 'app');
-    const events = Array.isArray(result?.value) ? result.value : [];
-
-    const meetings = events
-      .filter((event) => !isMaintenanceEventSubject(event.subject))
-      .map((event) => ({
-        id: event.id,
-        subject: event.subject,
-        start: graphDateTimeToUtcIso(event.start),
-        end: graphDateTimeToUtcIso(event.end),
-        attendeeCount: Array.isArray(event.attendees) ? event.attendees.length : 0,
-        webLink: event.webLink || null,
-        joinUrl: event.onlineMeeting?.joinUrl || null,
-      }));
+    const meetings = rows.map((row) => ({
+      id: String(row.id),
+      subject: row.title,
+      start: new Date(row.start_time).toISOString(),
+      end: new Date(row.end_time).toISOString(),
+      attendeeCount: Array.isArray(row.attendees) ? row.attendees.length : 0,
+      webLink: null,
+      joinUrl: row.join_url || null,
+    }));
 
     return res.json({ meetings });
   } catch (error) {
-    console.error('Load upcoming meetings failed:', error);
-    return res.status(500).json({ error: 'Failed to load upcoming meetings' });
+    console.error('Load upcoming meetings failed:', error.message, error.stack);
+    return res.status(200).json({ meetings: [] });
   }
 });
 
@@ -350,6 +352,20 @@ router.post('/create', async (req, res) => {
 
     const joinUrl = event?.onlineMeeting?.joinUrl || null;
 
+    // Save locally so GET /upcoming can list this meeting without depending
+    // on Graph calendar access.
+    await pool.query(
+      `INSERT INTO meetings (title, start_time, end_time, join_url, attendees)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        title,
+        normalizedDateTimeToUtcIso(startDateTime),
+        normalizedDateTimeToUtcIso(endDateTime),
+        joinUrl,
+        JSON.stringify(attendees),
+      ]
+    );
+
     return res.status(201).json({
       title,
       start: startDateTime,
@@ -360,8 +376,8 @@ router.post('/create', async (req, res) => {
       onlineMeeting: event?.onlineMeeting || null,
     });
   } catch (error) {
-    console.error('Create meeting failed:', error);
-    return res.status(500).json({ error: 'Failed to create meeting' });
+    console.error('Create meeting failed:', error.status, JSON.stringify(error.body) || error.message, error.stack);
+    return res.status(500).json({ error: `Failed to create meeting: ${formatGraphError(error)}` });
   }
 });
 
@@ -385,8 +401,8 @@ router.post('/process-notes', async (req, res) => {
 
     return res.json({ action_items: createdTasks });
   } catch (error) {
-    console.error('Process meeting notes failed:', error);
-    return res.status(500).json({ error: 'Failed to process meeting notes' });
+    console.error('Process meeting notes failed:', error.status, JSON.stringify(error.body) || error.message, error.stack);
+    return res.status(500).json({ error: `Failed to process meeting notes: ${formatGraphError(error)}` });
   }
 });
 

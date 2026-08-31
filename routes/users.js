@@ -4,10 +4,16 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
+const VALID_PERMISSIONS = ['equipment', 'document', 'vehicles'];
+
+function isValidPermissionsArray(permissions) {
+  return Array.isArray(permissions) && permissions.every((p) => VALID_PERMISSIONS.includes(p));
+}
+
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
+      `SELECT id, email, name, role, permissions, created_at FROM users ORDER BY created_at DESC`
     );
     return res.json(rows);
   } catch (error) {
@@ -18,7 +24,7 @@ router.get('/', async (req, res) => {
 
 router.post('/add', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, permissions } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
@@ -28,13 +34,17 @@ router.post('/add', async (req, res) => {
       return res.status(400).json({ error: 'Role must be admin or user' });
     }
 
+    if (permissions !== undefined && !isValidPermissionsArray(permissions)) {
+      return res.status(400).json({ error: `Permissions must be an array containing only: ${VALID_PERMISSIONS.join(', ')}` });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, email, name, role, created_at`,
-      [name, email, passwordHash, role || 'user']
+      `INSERT INTO users (name, email, password_hash, role, permissions)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, email, name, role, permissions, created_at`,
+      [name, email, passwordHash, role || 'user', JSON.stringify(permissions || [])]
     );
 
     return res.status(201).json(rows[0]);
@@ -50,20 +60,34 @@ router.post('/add', async (req, res) => {
 router.put('/:id/update', async (req, res) => {
   try {
     const { id } = req.params;
-    const { role } = req.body;
+    const { role, permissions } = req.body;
 
-    if (role !== 'admin' && role !== 'user') {
+    if (role === undefined && permissions === undefined) {
+      return res.status(400).json({ error: 'Provide role and/or permissions to update' });
+    }
+
+    if (role !== undefined && role !== 'admin' && role !== 'user') {
       return res.status(400).json({ error: 'Role must be admin or user' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role, created_at`,
-      [role, id]
-    );
+    if (permissions !== undefined && !isValidPermissionsArray(permissions)) {
+      return res.status(400).json({ error: `Permissions must be an array containing only: ${VALID_PERMISSIONS.join(', ')}` });
+    }
 
-    if (!rows.length) {
+    const { rows: existingRows } = await pool.query(`SELECT role, permissions FROM users WHERE id = $1`, [id]);
+    const existing = existingRows[0];
+
+    if (!existing) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    const nextRole = role !== undefined ? role : existing.role;
+    const nextPermissions = permissions !== undefined ? permissions : existing.permissions;
+
+    const { rows } = await pool.query(
+      `UPDATE users SET role = $1, permissions = $2 WHERE id = $3 RETURNING id, email, name, role, permissions, created_at`,
+      [nextRole, JSON.stringify(nextPermissions || []), id]
+    );
 
     return res.json(rows[0]);
   } catch (error) {

@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
+const { toTitleCase } = require('../utils/text');
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ router.get('/', async (req, res) => {
 
     if (department) {
       params.push(department);
-      conditions.push(`e.department_text = $${params.length}`);
+      conditions.push(`e.department_text ILIKE $${params.length}`);
     }
 
     if (is_technician === 'true') {
@@ -113,6 +114,7 @@ router.post('/add', async (req, res) => {
       origin_id,
       reports_to,
       is_technician,
+      notification_email,
     } = req.body;
 
     if (!emp_id || !name) {
@@ -128,8 +130,8 @@ router.post('/add', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO employees (
          emp_id, name, email, contact_number, designation_id, department_id,
-         employee_type_id, religion_id, origin_id, reports_to, is_technician
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         employee_type_id, religion_id, origin_id, reports_to, is_technician, notification_email
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         emp_id,
@@ -143,6 +145,7 @@ router.post('/add', async (req, res) => {
         origin_id || null,
         reportsToId,
         Boolean(is_technician),
+        notification_email || null,
       ]
     );
 
@@ -191,6 +194,7 @@ router.put('/:id/update', async (req, res) => {
       cost_center,
       reports_to_name,
       is_technician,
+      notification_email,
     } = req.body;
 
     const { rows: existingRows } = await pool.query(`SELECT * FROM employees WHERE id = $1`, [id]);
@@ -212,19 +216,21 @@ router.put('/:id/update', async (req, res) => {
          gender = $6,
          cost_center = $7,
          reports_to_name = $8,
-         is_technician = $9
-       WHERE id = $10
+         is_technician = $9,
+         notification_email = $10
+       WHERE id = $11
        RETURNING *`,
       [
         name !== undefined ? name : existing.name,
         designation_text !== undefined ? designation_text : existing.designation_text,
-        department_text !== undefined ? department_text : existing.department_text,
+        department_text !== undefined ? toTitleCase(department_text) : existing.department_text,
         religion_text !== undefined ? religion_text : existing.religion_text,
         nationality !== undefined ? nationality : existing.nationality,
         gender !== undefined ? gender : existing.gender,
         cost_center !== undefined ? cost_center : existing.cost_center,
         reports_to_name !== undefined ? reports_to_name : existing.reports_to_name,
         nextIsTechnician,
+        notification_email !== undefined ? notification_email : existing.notification_email,
         id,
       ]
     );
