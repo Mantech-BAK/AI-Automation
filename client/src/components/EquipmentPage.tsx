@@ -31,6 +31,7 @@ interface Equipment {
   expiry_date?: string | null;
   reminder_days?: number | null;
   frequency_days?: number | null;
+  tolerance_days?: number | null;
   responsible_person?: string | null;
   remarks?: string | null;
 }
@@ -46,6 +47,17 @@ interface LookupOption {
 }
 
 type PageTab = 'equipment' | 'documents' | 'vehicles';
+
+type DocExpiryTile = 'all' | 'expired' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
+
+const DOC_EXPIRY_TILES: { id: DocExpiryTile; label: string; activeClass: string; inactiveClass: string }[] = [
+  { id: 'all', label: 'All Documents', activeClass: 'bg-slate-200 border-slate-600 text-slate-800', inactiveClass: 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100' },
+  { id: 'expired', label: 'Expired', activeClass: 'bg-red-100 border-red-600 text-red-800', inactiveClass: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100' },
+  { id: 'expiring7', label: 'Expiring Within 7 Days', activeClass: 'bg-orange-100 border-orange-600 text-orange-800', inactiveClass: 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100' },
+  { id: 'expiring30', label: 'Expiring Within 30 Days', activeClass: 'bg-amber-100 border-amber-500 text-amber-800', inactiveClass: 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' },
+  { id: 'expiring90', label: 'Expiring Within 90 Days', activeClass: 'bg-yellow-100 border-yellow-500 text-yellow-800', inactiveClass: 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100' },
+  { id: 'notSoon', label: 'Not Expiring Soon', activeClass: 'bg-emerald-100 border-emerald-600 text-emerald-800', inactiveClass: 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' },
+];
 
 function daysUntil(dateStr?: string | null): number | null {
   if (!dateStr) return null;
@@ -66,12 +78,12 @@ function getExpiryColorClass(dateStr?: string | null): string {
 
 interface EquipmentPageProps {
   initialTab?: PageTab;
-  initialExpiredOnly?: boolean;
+  initialDocExpiryTile?: DocExpiryTile;
 }
 
-export default function EquipmentPage({ initialTab, initialExpiredOnly }: EquipmentPageProps = {}) {
+export default function EquipmentPage({ initialTab, initialDocExpiryTile }: EquipmentPageProps = {}) {
   const [activeTab, setActiveTab] = useState<PageTab>(initialTab || 'equipment');
-  const [expiredOnlyFilter, setExpiredOnlyFilter] = useState(Boolean(initialExpiredOnly));
+  const [docExpiryTile, setDocExpiryTile] = useState<DocExpiryTile>(initialDocExpiryTile || 'all');
 
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,6 +121,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
     expiry_date: '',
     reminder_days: '7',
     frequency_days: '365',
+    tolerance_days: '0',
     responsible_person: '',
     remarks: '',
   });
@@ -120,7 +133,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
 
   async function fetchData() {
     try {
-      const response = await fetch('/api/dashboard/assets?category=Equipment');
+      const response = await fetch('/api/dashboard/assets?type=Equipment');
       if (!response.ok) {
         throw new Error(`Failed to load equipment: ${response.statusText}`);
       }
@@ -137,7 +150,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
 
   async function fetchDocuments() {
     try {
-      const response = await fetch('/api/dashboard/assets?category=Document');
+      const response = await fetch('/api/dashboard/assets?type=Document');
       if (!response.ok) {
         throw new Error(`Failed to load documents: ${response.statusText}`);
       }
@@ -171,6 +184,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
         expiry_date: formData.expiry_date || null,
         reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
         frequency_days: formData.frequency_days ? Number(formData.frequency_days) : null,
+        tolerance_days: formData.tolerance_days ? Number(formData.tolerance_days) : 0,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
       };
@@ -209,6 +223,7 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
       expiry_date: '',
       reminder_days: '7',
       frequency_days: '365',
+      tolerance_days: '0',
       responsible_person: '',
       remarks: '',
     });
@@ -299,15 +314,38 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
   const documentDeptOptions = [...new Set(
     documents.map((item) => item.site_location).filter((d): d is string => Boolean(d))
   )].sort();
-  const isExpired = (dateStr?: string | null) => {
+
+  // Cumulative "due within X days" windows, matching the semantics of the
+  // Dashboard's Documentation tiles (e.g. expiring_documents = 0-30 days) so
+  // counts stay consistent between the two pages. 'notSoon' is the complement
+  // of the widest window (90 days) plus anything with no expiry date at all.
+  const matchesDocExpiryTile = (tile: DocExpiryTile, dateStr?: string | null): boolean => {
     const days = daysUntil(dateStr);
-    return days !== null && days < 0;
+    switch (tile) {
+      case 'all': return true;
+      case 'expired': return days !== null && days < 0;
+      case 'expiring7': return days !== null && days >= 0 && days <= 7;
+      case 'expiring30': return days !== null && days >= 0 && days <= 30;
+      case 'expiring90': return days !== null && days >= 0 && days <= 90;
+      case 'notSoon': return days === null || days > 90;
+      default: return true;
+    }
   };
 
-  const filteredDocuments = (documentDeptFilter === 'all'
+  const documentsInDept = documentDeptFilter === 'all'
     ? documents
-    : documents.filter((item) => item.site_location === documentDeptFilter)
-  ).filter((item) => !expiredOnlyFilter || isExpired(item.expiry_date));
+    : documents.filter((item) => item.site_location === documentDeptFilter);
+
+  const docExpiryTileCounts: Record<DocExpiryTile, number> = {
+    all: documentsInDept.length,
+    expired: documentsInDept.filter((item) => matchesDocExpiryTile('expired', item.expiry_date)).length,
+    expiring7: documentsInDept.filter((item) => matchesDocExpiryTile('expiring7', item.expiry_date)).length,
+    expiring30: documentsInDept.filter((item) => matchesDocExpiryTile('expiring30', item.expiry_date)).length,
+    expiring90: documentsInDept.filter((item) => matchesDocExpiryTile('expiring90', item.expiry_date)).length,
+    notSoon: documentsInDept.filter((item) => matchesDocExpiryTile('notSoon', item.expiry_date)).length,
+  };
+
+  const filteredDocuments = documentsInDept.filter((item) => matchesDocExpiryTile(docExpiryTile, item.expiry_date));
 
   return (
     <div className="space-y-6">
@@ -498,7 +536,24 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Department + expired filter */}
+            {/* Expiry filter tiles */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {DOC_EXPIRY_TILES.map((tile) => (
+                <button
+                  key={tile.id}
+                  type="button"
+                  onClick={() => setDocExpiryTile(tile.id)}
+                  className={`text-left px-4 py-3 rounded-xl border-2 transition-colors ${
+                    docExpiryTile === tile.id ? tile.activeClass : tile.inactiveClass
+                  }`}
+                >
+                  <p className="text-2xl font-bold">{docExpiryTileCounts[tile.id]}</p>
+                  <p className="text-xs font-medium mt-0.5">{tile.label}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* Department filter */}
             <div className="flex flex-wrap items-center gap-3">
               <select
                 value={documentDeptFilter}
@@ -510,17 +565,6 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
                   <option key={dept} value={dept}>{dept}</option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() => setExpiredOnlyFilter((prev) => !prev)}
-                className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  expiredOnlyFilter
-                    ? 'bg-red-600 text-white'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                Expired only
-              </button>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -749,6 +793,17 @@ export default function EquipmentPage({ initialTab, initialExpiredOnly }: Equipm
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 placeholder="365"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Tolerance (days)</label>
+              <input
+                type="number"
+                value={formData.tolerance_days}
+                onChange={(e) => setFormData({ ...formData, tolerance_days: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                placeholder="0"
+              />
+              <p className="text-xs text-slate-400 mt-1">Grace period around the due date that still counts as on-schedule renewal.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Responsible Person</label>

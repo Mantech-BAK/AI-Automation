@@ -7,28 +7,40 @@ interface AppUser {
   name: string;
   email: string;
   role: string;
-  permissions: string[];
+  allowed_departments: string[];
+  allowed_item_types: string[];
+  allowed_categories: string[];
   created_at: string;
 }
+
+interface LookupOption {
+  id: string;
+  name: string;
+}
+
+const ITEM_TYPE_OPTIONS = ['Equipment', 'Document'];
 
 const emptyForm = {
   name: '',
   email: '',
   password: '',
   role: 'user',
-  permissions: [] as string[],
+  allowed_departments: [] as string[],
+  allowed_item_types: [] as string[],
+  allowed_categories: [] as string[],
 };
 
-const PERMISSION_OPTIONS: { id: string; label: string; badgeClass: string }[] = [
-  { id: 'equipment', label: 'Equipment Maintenance', badgeClass: 'bg-cyan-100 text-cyan-700' },
-  { id: 'document', label: 'Documents', badgeClass: 'bg-amber-100 text-amber-700' },
-  { id: 'vehicles', label: 'Vehicles', badgeClass: 'bg-emerald-100 text-emerald-700' },
-];
+function toggleInArray(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [departmentOptions, setDepartmentOptions] = useState<LookupOption[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<LookupOption[]>([]);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -39,11 +51,16 @@ export default function UsersPage() {
   const [updatingRoleId, setUpdatingRoleId] = useState<number | null>(null);
 
   const [permissionsUser, setPermissionsUser] = useState<AppUser | null>(null);
-  const [permissionsDraft, setPermissionsDraft] = useState<string[]>([]);
+  const [permissionsDraft, setPermissionsDraft] = useState<{
+    allowed_departments: string[];
+    allowed_item_types: string[];
+    allowed_categories: string[];
+  }>({ allowed_departments: [], allowed_item_types: [], allowed_categories: [] });
   const [savingPermissions, setSavingPermissions] = useState(false);
 
   useEffect(() => {
     fetchUsers();
+    fetchLookups();
   }, []);
 
   async function fetchUsers() {
@@ -60,6 +77,19 @@ export default function UsersPage() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchLookups() {
+    try {
+      const [departmentsRes, categoriesRes] = await Promise.all([
+        fetch('/api/dashboard/departments'),
+        fetch('/api/dashboard/categories'),
+      ]);
+      if (departmentsRes.ok) setDepartmentOptions(await departmentsRes.json());
+      if (categoriesRes.ok) setCategoryOptions(await categoriesRes.json());
+    } catch (fetchError) {
+      console.error('Error fetching permission lookups:', fetchError);
     }
   }
 
@@ -136,13 +166,11 @@ export default function UsersPage() {
 
   function openPermissionsModal(user: AppUser) {
     setPermissionsUser(user);
-    setPermissionsDraft(user.permissions || []);
-  }
-
-  function togglePermission(permissionId: string) {
-    setPermissionsDraft((prev) =>
-      prev.includes(permissionId) ? prev.filter((p) => p !== permissionId) : [...prev, permissionId]
-    );
+    setPermissionsDraft({
+      allowed_departments: user.allowed_departments || [],
+      allowed_item_types: user.allowed_item_types || [],
+      allowed_categories: user.allowed_categories || [],
+    });
   }
 
   async function handleSavePermissions() {
@@ -152,7 +180,7 @@ export default function UsersPage() {
       const response = await fetch(`/api/users/${permissionsUser.id}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissions: permissionsDraft }),
+        body: JSON.stringify(permissionsDraft),
       });
       const json = await response.json();
       if (!response.ok) {
@@ -165,6 +193,20 @@ export default function UsersPage() {
     } finally {
       setSavingPermissions(false);
     }
+  }
+
+  function accessBadges(user: AppUser) {
+    const badges: { label: string; badgeClass: string }[] = [];
+    for (const dept of user.allowed_departments || []) {
+      badges.push({ label: dept, badgeClass: 'bg-cyan-100 text-cyan-700' });
+    }
+    for (const type of user.allowed_item_types || []) {
+      badges.push({ label: type, badgeClass: 'bg-amber-100 text-amber-700' });
+    }
+    for (const category of user.allowed_categories || []) {
+      badges.push({ label: category, badgeClass: 'bg-emerald-100 text-emerald-700' });
+    }
+    return badges;
   }
 
   if (loading) {
@@ -262,10 +304,10 @@ export default function UsersPage() {
                   <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
                     Full Access
                   </span>
-                ) : user.permissions && user.permissions.length > 0 ? (
-                  PERMISSION_OPTIONS.filter((option) => user.permissions.includes(option.id)).map((option) => (
-                    <span key={option.id} className={`px-2.5 py-1 rounded-full text-xs font-medium ${option.badgeClass}`}>
-                      {option.label}
+                ) : accessBadges(user).length > 0 ? (
+                  accessBadges(user).map((badge, index) => (
+                    <span key={`${badge.label}-${index}`} className={`px-2.5 py-1 rounded-full text-xs font-medium ${badge.badgeClass}`}>
+                      {badge.label}
                     </span>
                   ))
                 ) : (
@@ -347,27 +389,54 @@ export default function UsersPage() {
           </div>
 
           {form.role === 'user' && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Permissions</label>
-              <div className="space-y-2">
-                {PERMISSION_OPTIONS.map((option) => (
-                  <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={form.permissions.includes(option.id)}
-                      onChange={() =>
-                        setForm({
-                          ...form,
-                          permissions: form.permissions.includes(option.id)
-                            ? form.permissions.filter((p) => p !== option.id)
-                            : [...form.permissions, option.id],
-                        })
-                      }
-                      className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                    />
-                    {option.label}
-                  </label>
-                ))}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Departments</label>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                  {departmentOptions.map((option) => (
+                    <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={form.allowed_departments.includes(option.name)}
+                        onChange={() => setForm({ ...form, allowed_departments: toggleInArray(form.allowed_departments, option.name) })}
+                        className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                      />
+                      {option.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Item Types</label>
+                <div className="space-y-1.5">
+                  {ITEM_TYPE_OPTIONS.map((type) => (
+                    <label key={type} className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={form.allowed_item_types.includes(type)}
+                        onChange={() => setForm({ ...form, allowed_item_types: toggleInArray(form.allowed_item_types, type) })}
+                        className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                      />
+                      {type}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Categories</label>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                  {categoryOptions.map((option) => (
+                    <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={form.allowed_categories.includes(option.name)}
+                        onChange={() => setForm({ ...form, allowed_categories: toggleInArray(form.allowed_categories, option.name) })}
+                        className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                      />
+                      {option.name}
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -395,22 +464,78 @@ export default function UsersPage() {
         <div className="space-y-4">
           {permissionsUser && (
             <p className="text-sm text-slate-500">
-              Choose which areas <span className="font-medium text-slate-700">{permissionsUser.name}</span> can access.
+              Choose which departments, item types, and categories <span className="font-medium text-slate-700">{permissionsUser.name}</span> can access.
             </p>
           )}
-          <div className="space-y-2">
-            {PERMISSION_OPTIONS.map((option) => (
-              <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={permissionsDraft.includes(option.id)}
-                  onChange={() => togglePermission(option.id)}
-                  className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                />
-                {option.label}
-              </label>
-            ))}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Departments</label>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+              {departmentOptions.map((option) => (
+                <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={permissionsDraft.allowed_departments.includes(option.name)}
+                    onChange={() =>
+                      setPermissionsDraft({
+                        ...permissionsDraft,
+                        allowed_departments: toggleInArray(permissionsDraft.allowed_departments, option.name),
+                      })
+                    }
+                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  {option.name}
+                </label>
+              ))}
+              {departmentOptions.length === 0 && <p className="text-xs text-slate-400">No departments found.</p>}
+            </div>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Item Types</label>
+            <div className="space-y-1.5">
+              {ITEM_TYPE_OPTIONS.map((type) => (
+                <label key={type} className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={permissionsDraft.allowed_item_types.includes(type)}
+                    onChange={() =>
+                      setPermissionsDraft({
+                        ...permissionsDraft,
+                        allowed_item_types: toggleInArray(permissionsDraft.allowed_item_types, type),
+                      })
+                    }
+                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  {type}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Categories</label>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+              {categoryOptions.map((option) => (
+                <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={permissionsDraft.allowed_categories.includes(option.name)}
+                    onChange={() =>
+                      setPermissionsDraft({
+                        ...permissionsDraft,
+                        allowed_categories: toggleInArray(permissionsDraft.allowed_categories, option.name),
+                      })
+                    }
+                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  {option.name}
+                </label>
+              ))}
+              {categoryOptions.length === 0 && <p className="text-xs text-slate-400">No categories found.</p>}
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setPermissionsUser(null)}

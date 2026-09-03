@@ -292,44 +292,13 @@ async function runMigrations() {
       );
     `);
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS vehicles (
-        id SERIAL PRIMARY KEY,
-        vehicle_no VARCHAR NOT NULL,
-        vehicle_name VARCHAR NOT NULL,
-        vehicle_type VARCHAR,
-        model VARCHAR,
-        cr_no VARCHAR,
-        department VARCHAR,
-        site_location VARCHAR,
-        incharge VARCHAR,
-        remarks TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS vehicle_tasks (
-        id SERIAL PRIMARY KEY,
-        vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
-        task_name VARCHAR NOT NULL,
-        task_type VARCHAR NOT NULL,
-        expiry_date DATE,
-        registration_date DATE,
-        reminder_days INTEGER DEFAULT 30,
-        status VARCHAR DEFAULT 'open',
-        planner_task_id VARCHAR,
-        completed_at TIMESTAMP,
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_vehicle_tasks_vehicle_id ON vehicle_tasks(vehicle_id);
-    `);
-
     // How often each item needs servicing/renewal, in days - drives the next
-    // expiry/due date calculation when a task is marked complete.
+    // expiry/due date calculation when a task is marked complete. (Vehicles
+    // used to be a separate table with their own frequency_days column - see
+    // the "vehicles are no longer a separate table" migration further down,
+    // which folds them into assets instead.)
     await pool.query(`
       ALTER TABLE assets ADD COLUMN IF NOT EXISTS frequency_days INTEGER DEFAULT 365;
-      ALTER TABLE vehicle_tasks ADD COLUMN IF NOT EXISTS frequency_days INTEGER DEFAULT 365;
     `);
 
     // Notification email resolved from the employee master record, so
@@ -362,11 +331,6 @@ async function runMigrations() {
 
       UPDATE asset_departments SET name = INITCAP(LOWER(TRIM(name)))
       WHERE name IS NOT NULL;
-
-      UPDATE vehicles SET
-        department = INITCAP(LOWER(TRIM(department))),
-        site_location = INITCAP(LOWER(TRIM(site_location)))
-      WHERE department IS NOT NULL OR site_location IS NOT NULL;
 
       UPDATE sites SET site_name = INITCAP(LOWER(TRIM(site_name)))
       WHERE site_name IS NOT NULL;
@@ -419,11 +383,130 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_meetings_start_time ON meetings(start_time);
     `);
 
+    // Lets GET /api/meetings/upcoming confirm a saved meeting's Graph event
+    // still exists (and isn't cancelled) before showing it, and clean up the
+    // local row once the event is gone.
+    await pool.query(`
+      ALTER TABLE meetings ADD COLUMN IF NOT EXISTS event_id VARCHAR;
+    `);
+
     // These two settings are no longer used - manager emails are now resolved
     // dynamically from the employees table (see resolveEmailChain() in
     // jobs/dailyCheck.js) instead of a hardcoded settings value.
     await pool.query(`
       DELETE FROM settings WHERE key IN ('maintenance_manager_email', 'senior_manager_email');
+    `);
+
+    // Vehicles are no longer a separate table - a vehicle is just an asset
+    // (type = Equipment, category = one of the vehicle categories below), and
+    // its insurance/registration/etc. are Document-type assets linked back to
+    // it via parent_asset_id. tolerance_days drives the renewal-date grace
+    // period logic in utils/assetCompletion.js.
+    await pool.query(`
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS parent_asset_id INTEGER REFERENCES assets(id) ON DELETE CASCADE;
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS tolerance_days INTEGER DEFAULT 0;
+
+      CREATE INDEX IF NOT EXISTS idx_assets_parent_asset_id ON assets(parent_asset_id);
+    `);
+
+    // One-time swap: historically asset_categories held the coarse
+    // Equipment/Document split and asset_types held the fine-grained tags
+    // (Calibration, Management, ...). That's backwards from how the app now
+    // needs to filter - "type" should be the Equipment/Document workflow
+    // switch, "category" should be the fine-grained tag so vehicle categories
+    // (Light Vehicle, Heavy Vehicle, ...) can sit alongside Calibration,
+    // Electrical, etc. and apply equally to a vehicle asset and its documents.
+    // Gated by a settings marker so this only ever runs once, however many
+    // times migrate.js itself is re-run.
+    const swapMarker = await pool.query(`SELECT 1 FROM settings WHERE key = 'category_type_swap_done'`);
+
+    if (swapMarker.rows.length === 0) {
+      console.log('Running one-time asset category/type swap...');
+
+      const VEHICLE_CATEGORIES = ['Light Vehicle', 'Heavy Vehicle', 'Plant Equipment', 'Marine Vessel'];
+      const OTHER_NEW_CATEGORIES = ['Generator', 'HVAC', 'Fire Safety', 'Electrical', 'Mechanical'];
+
+      // Equipment/Document become the only two asset_types.
+      await pool.query(`
+        INSERT INTO asset_types (name) VALUES ('Equipment'), ('Document')
+        ON CONFLICT (name) DO NOTHING
+      `);
+
+      // Whatever asset_types held before (Calibration, Management, Operation,
+      // Industrial and Manufacturing Products, Waste Transport License, Waste
+      // Tyre Recycling Plant, and any other pre-existing ones) becomes
+      // asset_categories, plus the new vehicle and equipment categories.
+      await pool.query(`
+        INSERT INTO asset_categories (name)
+        SELECT name FROM asset_types WHERE name NOT IN ('Equipment', 'Document')
+        ON CONFLICT (name) DO NOTHING
+      `);
+
+      for (const name of [...VEHICLE_CATEGORIES, ...OTHER_NEW_CATEGORIES]) {
+        await pool.query(`INSERT INTO asset_categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, [name]);
+      }
+
+      // Snapshot each asset's current category_id/type_id before touching
+      // either column, so the swap below reads consistent "before" values
+      // regardless of statement order.
+      await pool.query(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS _swap_old_category_id INTEGER;`);
+      await pool.query(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS _swap_old_type_id INTEGER;`);
+      await pool.query(`UPDATE assets SET _swap_old_category_id = category_id, _swap_old_type_id = type_id;`);
+
+      // New category_id = the asset_categories row with the same name as the
+      // OLD type_id (Calibration/Management/etc.).
+      await pool.query(`
+        UPDATE assets a
+        SET category_id = ac.id
+        FROM asset_types old_type
+        JOIN asset_categories ac ON ac.name = old_type.name
+        WHERE old_type.id = a._swap_old_type_id
+      `);
+
+      // New type_id = the asset_types row with the same name as the OLD
+      // category_id (Equipment/Document).
+      await pool.query(`
+        UPDATE assets a
+        SET type_id = t.id
+        FROM asset_categories old_cat
+        JOIN asset_types t ON t.name = old_cat.name
+        WHERE old_cat.id = a._swap_old_category_id
+      `);
+
+      await pool.query(`ALTER TABLE assets DROP COLUMN IF EXISTS _swap_old_category_id;`);
+      await pool.query(`ALTER TABLE assets DROP COLUMN IF EXISTS _swap_old_type_id;`);
+
+      // Drop the now-obsolete rows from each table - safe now that every
+      // asset has already been repointed to the new rows above (any row a
+      // stray reference still pointed at just gets nulled by ON DELETE SET
+      // NULL rather than erroring).
+      await pool.query(`DELETE FROM asset_categories WHERE name IN ('Equipment', 'Document');`);
+      await pool.query(`DELETE FROM asset_types WHERE name NOT IN ('Equipment', 'Document');`);
+
+      await pool.query(
+        `INSERT INTO settings (key, value) VALUES ('category_type_swap_done', 'true')
+         ON CONFLICT (key) DO UPDATE SET value = 'true'`
+      );
+
+      console.log('Asset category/type swap complete.');
+    }
+
+    // Vehicles/vehicle_tasks held no meaningful data (checked before dropping
+    // - both were empty) and are fully superseded by assets + parent_asset_id.
+    await pool.query(`
+      DROP TABLE IF EXISTS vehicle_tasks;
+      DROP TABLE IF EXISTS vehicles;
+    `);
+
+    // Three-level permission system: which departments, item types
+    // (Equipment/Document), and categories a non-admin user can see. Replaces
+    // the old flat `permissions` array (equipment/document/vehicles), which
+    // couldn't express "only this department" or "only this category".
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_departments JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_item_types JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_categories JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE users DROP COLUMN IF EXISTS permissions;
     `);
 
     const defaultSettings = [

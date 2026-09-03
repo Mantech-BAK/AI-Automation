@@ -12,6 +12,12 @@ const { SERVICE_ACCOUNT_EMAIL, PLANNER_PLAN_ID } = process.env;
 
 const PLACEHOLDER_TEAM_NOTE = 'These are placeholder members - update with real company email addresses when available.';
 
+const AI_AUTOMATION_TEAM_MEMBERS = [
+  { name: 'Shamsher', email: 'shamsher@bakgroup.net' },
+  { name: 'Dhanaraju', email: 'dhanaraju@bakgroup.net' },
+  { name: 'Yasir Ismail', email: 'mcs.sw01@bakgroup.net' },
+];
+
 const PLACEHOLDER_TEAM_MEMBERS = {
   facilities: [
     { name: 'Facilities Lead', email: 'facilities.lead@bakgroup.net' },
@@ -130,6 +136,43 @@ function normalizedDateTimeToUtcIso(normalized) {
   }
 
   return `${raw}Z`;
+}
+
+// Inserts a space after every 3 digits (e.g. "123456789012" -> "123 456 789
+// 012"), matching how Teams displays a conference/meeting ID in a real
+// invite. Falls back to the raw value if it isn't a plain digit string.
+function formatMeetingId(rawId) {
+  if (!rawId) return null;
+  const digitsOnly = String(rawId).replace(/\D/g, '');
+  if (!digitsOnly) return String(rawId);
+  return digitsOnly.replace(/(\d{3})(?=\d)/g, '$1 ');
+}
+
+// App-only mail send (Mail.Send Application permission), same pattern used
+// in jobs/dailyCheck.js - sends from the shared service account mailbox
+// rather than requiring a delegated sign-in. Body mirrors a real Teams
+// meeting invite: title, join link, and (when Graph actually returns them)
+// the dial-in meeting ID and passcode - nothing else.
+async function sendMeetingEmail(to, title, { joinUrl, meetingId, passcode } = {}) {
+  const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  if (!recipients.length) return;
+
+  const lines = [`<b>${title}</b>`];
+  if (joinUrl) lines.push(`Join: <a href="${joinUrl}">${joinUrl}</a>`);
+  const formattedMeetingId = formatMeetingId(meetingId);
+  if (formattedMeetingId) lines.push(`Meeting ID: ${formattedMeetingId}`);
+  if (passcode) lines.push(`Passcode: ${passcode}`);
+
+  const body = {
+    message: {
+      subject: title,
+      body: { contentType: 'HTML', content: lines.join('<br>') },
+      toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
+    },
+    saveToSentItems: 'true',
+  };
+
+  await graphRequest('POST', `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/sendMail`, body, 'app');
 }
 
 function parseJsonResponse(rawText) {
@@ -284,33 +327,125 @@ function formatGraphError(error) {
   return error?.body?.error?.message || error?.message || 'Unknown error';
 }
 
+// Daily-check-generated Planner reminder events land on the shared calendar
+// too (see jobs/dailyCheck.js's createCalendarEvent) - these aren't meetings
+// anyone needs to join/cancel from this page, so they're filtered out by
+// subject prefix rather than shown alongside real scheduled meetings.
+// 'Maintenance Due Soon' and 'Document Expiring Soon' cover the actual
+// titles seen live on the calendar (including ones from older versions of
+// this code) in addition to the current 'Maintenance:'/'Maintenance Task:'/
+// 'Document Renewal Reminder' titles jobs/dailyCheck.js generates today.
+const MAINTENANCE_SUBJECT_PREFIXES = [
+  'Maintenance Task',
+  'Maintenance:',
+  'Maintenance Due Soon',
+  'Document Renewal',
+  'Document Expiring Soon',
+];
+
+function isMaintenanceEventSubject(subject) {
+  if (!subject) return false;
+  return MAINTENANCE_SUBJECT_PREFIXES.some((prefix) => subject.startsWith(prefix));
+}
+
+// Graph returns event start/end as a naive "YYYY-MM-DDTHH:mm:ss.sss" string
+// plus a separate timeZone field. No Prefer: outlook.timezone header is sent
+// on the request below, so Graph defaults that timeZone to UTC - the string
+// just needs a 'Z' suffix to become a real ISO instant.
+function graphDateTimeToIso(value) {
+  const raw = value?.dateTime;
+  if (!raw) return null;
+  return /[Zz]$/.test(raw) ? raw : `${raw}Z`;
+}
+
 router.get('/upcoming', async (req, res) => {
   try {
-    // Reads from the local meetings table instead of Graph's shared calendar
-    // - meetings created through /create are saved there, so this works
-    // regardless of Application Access Policy restrictions on the mailbox.
-    const { rows } = await pool.query(
-      `SELECT id, title, start_time, end_time, join_url, attendees
-       FROM meetings
-       WHERE start_time > NOW()
-       ORDER BY start_time ASC
-       LIMIT 20`
-    );
+    // Reads directly from the organizer calendar (SERVICE_ACCOUNT_EMAIL, the
+    // mailbox every /create meeting and any Outlook-native meeting for this
+    // team lives on) instead of the local meetings table, so anything on the
+    // calendar shows up here whether it was created through this app or
+    // added directly in Outlook. No caching - every call re-fetches from
+    // Graph so the list reflects the calendar in real time.
+    const nowIso = new Date().toISOString();
+    const filter = `start/dateTime ge '${nowIso}' and end/dateTime ge '${nowIso}' and isCancelled eq false`;
+    const endpoint = `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events` +
+      `?$filter=${encodeURIComponent(filter)}` +
+      `&$orderby=${encodeURIComponent('start/dateTime asc')}` +
+      `&$top=20`;
 
-    const meetings = rows.map((row) => ({
-      id: String(row.id),
-      subject: row.title,
-      start: new Date(row.start_time).toISOString(),
-      end: new Date(row.end_time).toISOString(),
-      attendeeCount: Array.isArray(row.attendees) ? row.attendees.length : 0,
-      webLink: null,
-      joinUrl: row.join_url || null,
-    }));
+    const result = await graphRequest('GET', endpoint, null, 'app');
+    const events = Array.isArray(result?.value) ? result.value : [];
+
+    const meetings = events
+      // isCancelled eq false is already in the $filter above - this is a
+      // defense-in-depth re-check in case a cancelled event ever slips
+      // through (e.g. a tenant where that filter isn't fully honored).
+      .filter((event) => event?.isCancelled !== true)
+      .filter((event) => !isMaintenanceEventSubject(event?.subject))
+      .map((event) => ({
+        id: event.id,
+        subject: event.subject || 'Untitled meeting',
+        start: graphDateTimeToIso(event.start),
+        end: graphDateTimeToIso(event.end),
+        attendeeCount: Array.isArray(event.attendees) ? event.attendees.length : 0,
+        webLink: event.webLink || null,
+        joinUrl: event.onlineMeeting?.joinUrl || null,
+        organizer: event.organizer?.emailAddress?.name || null,
+      }));
 
     return res.json({ meetings });
   } catch (error) {
-    console.error('Load upcoming meetings failed:', error.message, error.stack);
+    console.error('Load upcoming meetings failed:', error.status, JSON.stringify(error.body) || error.message, error.stack);
     return res.status(200).json({ meetings: [] });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Accept either a local meetings-table id (a small integer, from a
+    // meeting created through /create) or a raw Graph event id (from an
+    // Outlook-native meeting that only ever existed on the calendar) - since
+    // GET /upcoming now always returns the Graph event id as `id`, the local
+    // lookup below mainly exists for backward compatibility with older
+    // clients or any local row that still needs cleaning up alongside it.
+    let eventId = id;
+    let localRow = null;
+
+    if (/^\d+$/.test(id)) {
+      const { rows } = await pool.query(`SELECT id, event_id FROM meetings WHERE id = $1`, [Number(id)]);
+      localRow = rows[0] || null;
+      if (localRow) {
+        eventId = localRow.event_id;
+      }
+    }
+
+    if (!eventId) {
+      return res.status(404).json({ error: 'Meeting has no linked calendar event to cancel' });
+    }
+
+    try {
+      await graphRequest('DELETE', `/users/${encodeURIComponent(SERVICE_ACCOUNT_EMAIL)}/events/${encodeURIComponent(eventId)}`, null, 'app');
+    } catch (graphError) {
+      if (graphError.status !== 404) {
+        throw graphError;
+      }
+      // Already gone from the calendar - still finish cleaning up below.
+    }
+
+    if (localRow) {
+      await pool.query(`DELETE FROM meetings WHERE id = $1`, [localRow.id]);
+    } else {
+      // Raw event id path - also drop any local row that happens to
+      // reference this same event, so nothing orphaned is left behind.
+      await pool.query(`DELETE FROM meetings WHERE event_id = $1`, [eventId]);
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Cancel meeting failed:', error.status, JSON.stringify(error.body) || error.message, error.stack);
+    return res.status(500).json({ error: `Failed to cancel meeting: ${formatGraphError(error)}` });
   }
 });
 
@@ -351,20 +486,38 @@ router.post('/create', async (req, res) => {
     );
 
     const joinUrl = event?.onlineMeeting?.joinUrl || null;
+    const meetingId = event?.onlineMeeting?.conferenceId || null;
+    const passcode = event?.onlineMeeting?.passcode || null;
+    const startUtcIso = normalizedDateTimeToUtcIso(startDateTime);
+    const endUtcIso = normalizedDateTimeToUtcIso(endDateTime);
 
     // Save locally so GET /upcoming can list this meeting without depending
-    // on Graph calendar access.
+    // on Graph calendar access. event_id lets /upcoming later confirm the
+    // event still exists (and hasn't been cancelled) on the organizer's
+    // calendar before showing it.
     await pool.query(
-      `INSERT INTO meetings (title, start_time, end_time, join_url, attendees)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO meetings (title, start_time, end_time, join_url, attendees, event_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         title,
-        normalizedDateTimeToUtcIso(startDateTime),
-        normalizedDateTimeToUtcIso(endDateTime),
+        startUtcIso,
+        endUtcIso,
         joinUrl,
         JSON.stringify(attendees),
+        event?.id || null,
       ]
     );
+
+    // The calendar invite Graph already sent as part of event creation above
+    // covers the Outlook side - this is a supplementary email formatted like
+    // a real Teams invite (title, join link, meeting ID/passcode when Graph
+    // provides them), in case an attendee's Outlook invite gets buried or
+    // they check email before Outlook.
+    try {
+      await sendMeetingEmail(attendees, title, { joinUrl, meetingId, passcode });
+    } catch (mailError) {
+      console.warn('Meeting invite email skipped:', mailError.message);
+    }
 
     return res.status(201).json({
       title,
@@ -417,6 +570,7 @@ router.post('/teams', async (req, res) => {
     }));
 
     const teams = [
+      { id: 'ai-automation', name: 'AI Automation', members: AI_AUTOMATION_TEAM_MEMBERS },
       { id: 'maintenance', name: 'Maintenance Team', members: maintenanceMembers },
       { id: 'facilities', name: 'Facilities Team', members: PLACEHOLDER_TEAM_MEMBERS.facilities, note: PLACEHOLDER_TEAM_NOTE },
       { id: 'it', name: 'IT Team', members: PLACEHOLDER_TEAM_MEMBERS.it, note: PLACEHOLDER_TEAM_NOTE },

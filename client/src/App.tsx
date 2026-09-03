@@ -21,36 +21,40 @@ interface SessionUser {
   email: string;
   name: string;
   role: string;
-  permissions: string[];
+  allowed_departments: string[];
+  allowed_item_types: string[];
+  allowed_categories: string[];
 }
+
+export type DocExpiryTile = 'all' | 'expired' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
 
 export interface NavFilter {
   tab?: 'equipment' | 'documents' | 'vehicles';
-  expiredOnly?: boolean;
+  docExpiryTile?: DocExpiryTile;
   taskDayTile?: string;
   taskDocTile?: string;
   taskStatus?: string;
   vehicleId?: number;
 }
 
-// Pages gated by permission - any page not listed here is open to every
-// logged-in user regardless of permissions. 'users' is admin-only and has no
-// permission that grants it. Everything else is open to any of the listed
-// permissions since the page mixes content from more than one area (e.g.
-// Asset Information has Equipment, Documents, and Vehicles tabs).
-const PAGE_PERMISSION_REQUIREMENTS: Record<string, string[]> = {
-  equipment: ['equipment', 'document', 'vehicles'],
-  tasks: ['equipment', 'document', 'vehicles'],
-  vehicles: ['vehicles'],
+// Pages gated by item type - any page not listed here is open to every
+// logged-in user regardless of permissions. 'users' is admin-only. Vehicles
+// are Equipment-type assets, so the vehicles page is gated the same way as
+// equipment. An empty allowed_item_types means "no restriction" (matches
+// routes/dashboard.js's buildPermissionConditions).
+const ITEM_TYPE_GATED_PAGES: Record<string, string> = {
+  equipment: 'Equipment',
+  vehicles: 'Equipment',
 };
 
 function hasPageAccess(page: string, user: SessionUser): boolean {
   if (user.role === 'admin') return true;
   if (page === 'users') return false;
-  const required = PAGE_PERMISSION_REQUIREMENTS[page];
-  if (!required) return true;
-  const permissions = user.permissions || [];
-  return required.some((permission) => permissions.includes(permission));
+  const requiredItemType = ITEM_TYPE_GATED_PAGES[page];
+  if (!requiredItemType) return true;
+  const allowedItemTypes = user.allowed_item_types || [];
+  if (allowedItemTypes.length === 0) return true;
+  return allowedItemTypes.includes(requiredItemType);
 }
 
 function App() {
@@ -140,7 +144,7 @@ function App() {
       case 'departments':
         return <DepartmentsPage />;
       case 'equipment':
-        return <EquipmentPage initialTab={navFilter?.tab} initialExpiredOnly={navFilter?.expiredOnly} />;
+        return <EquipmentPage initialTab={navFilter?.tab} initialDocExpiryTile={navFilter?.docExpiryTile} />;
       case 'technicians':
         return <TechniciansPage onViewEmployee={handleViewEmployee} />;
       case 'employees':
@@ -170,7 +174,7 @@ function App() {
       onNavigate={(page) => handleNavigate(page)}
       onSignOut={handleSignOut}
       role={user.role}
-      permissions={user.permissions || []}
+      allowedItemTypes={user.allowed_item_types || []}
     >
       {accessDeniedMessage && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

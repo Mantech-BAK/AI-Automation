@@ -17,6 +17,7 @@ export interface EditableAsset {
   expiry_date?: string | null;
   reminder_days?: number | null;
   frequency_days?: number | null;
+  tolerance_days?: number | null;
   responsible_person?: string | null;
   remarks?: string | null;
 }
@@ -47,6 +48,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
     expiry_date: '',
     reminder_days: '',
     frequency_days: '',
+    tolerance_days: '',
     responsible_person: '',
     remarks: '',
   });
@@ -66,6 +68,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
       expiry_date: asset.expiry_date ? asset.expiry_date.slice(0, 10) : '',
       reminder_days: asset.reminder_days != null ? String(asset.reminder_days) : '',
       frequency_days: asset.frequency_days != null ? String(asset.frequency_days) : '',
+      tolerance_days: asset.tolerance_days != null ? String(asset.tolerance_days) : '0',
       responsible_person: asset.responsible_person || '',
       remarks: asset.remarks || '',
     });
@@ -95,6 +98,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
         expiry_date: formData.expiry_date || null,
         reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
         frequency_days: formData.frequency_days ? Number(formData.frequency_days) : null,
+        tolerance_days: formData.tolerance_days ? Number(formData.tolerance_days) : 0,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
       };
@@ -224,6 +228,16 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
               onChange={(e) => setFormData({ ...formData, frequency_days: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
               placeholder="365"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tolerance (days)</label>
+            <input
+              type="number"
+              value={formData.tolerance_days}
+              onChange={(e) => setFormData({ ...formData, tolerance_days: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              placeholder="0"
             />
           </div>
           <div>

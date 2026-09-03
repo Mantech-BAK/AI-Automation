@@ -12,6 +12,7 @@ import {
   Check,
   Video,
   Copy,
+  Ban,
 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -140,6 +141,7 @@ export default function SchedulesPage() {
   const [upcomingMeetings, setUpcomingMeetings] = useState<UpcomingMeeting[]>([]);
   const [upcomingLoading, setUpcomingLoading] = useState(true);
   const [upcomingError, setUpcomingError] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Schedule Meeting modal state
   const [meetingModalOpen, setMeetingModalOpen] = useState(false);
@@ -188,6 +190,26 @@ export default function SchedulesPage() {
       setUpcomingError(message);
     } finally {
       setUpcomingLoading(false);
+    }
+  }
+
+  async function handleCancelMeeting(meeting: UpcomingMeeting) {
+    if (!window.confirm('Are you sure you want to cancel this meeting? This will remove it from all attendees calendars.')) {
+      return;
+    }
+
+    setCancellingId(meeting.id);
+    try {
+      const response = await fetch(`/api/meetings/${encodeURIComponent(meeting.id)}`, { method: 'DELETE' });
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json?.error || 'Failed to cancel meeting');
+      }
+      await fetchUpcomingMeetings();
+    } catch (cancelError) {
+      window.alert(cancelError instanceof Error ? cancelError.message : 'Failed to cancel meeting');
+    } finally {
+      setCancellingId(null);
     }
   }
 
@@ -483,16 +505,27 @@ export default function SchedulesPage() {
                       </p>
                     </div>
                   </div>
-                  {(meeting.joinUrl || meeting.webLink) && (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {(meeting.joinUrl || meeting.webLink) && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(meeting.joinUrl || meeting.webLink || '', '_blank', 'noopener,noreferrer')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        {meeting.joinUrl && <Video size={14} />}
+                        Join Meeting
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => window.open(meeting.joinUrl || meeting.webLink || '', '_blank', 'noopener,noreferrer')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
+                      onClick={() => handleCancelMeeting(meeting)}
+                      disabled={cancellingId === meeting.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
                     >
-                      {meeting.joinUrl && <Video size={14} />}
-                      Join Meeting
+                      {cancellingId === meeting.id ? <Loader2 size={14} className="animate-spin" /> : <Ban size={14} />}
+                      Cancel Meeting
                     </button>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>

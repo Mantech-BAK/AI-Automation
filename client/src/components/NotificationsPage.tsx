@@ -6,6 +6,9 @@ import {
   PlusCircle,
   Clock,
   MessageSquare,
+  CheckCircle2,
+  Wrench,
+  Car,
 } from 'lucide-react';
 
 interface Notification {
@@ -24,9 +27,22 @@ const TYPE_LABELS: Record<string, string> = {
   equipment_reminder: 'Equipment Reminder',
   equipment_task_created: 'Equipment Task Created',
   task_created: 'Task Created',
+  document_renewed: 'Document Renewed',
+  task_completed: 'Equipment Task Completed',
+  vehicle_task_renewed: 'Vehicle Task Renewed',
 };
 
+// These three are completion events with a readable description already
+// built server-side (routes/dashboard.js's GET /notifications), formatted
+// specifically per type (e.g. "Document Renewed - X - Y - Next expiry: Z") -
+// prefer that over re-deriving a generic "name - department" string from notes.
+const SERVER_FORMATTED_TYPES = new Set(['document_renewed', 'task_completed', 'vehicle_task_renewed']);
+
 function getNotificationDescription(notif: Notification): string {
+  if (SERVER_FORMATTED_TYPES.has(notif.notification_type) && notif.description) {
+    return notif.description;
+  }
+
   if (notif.notes) {
     try {
       const parsed = JSON.parse(notif.notes);
@@ -80,6 +96,9 @@ export default function NotificationsPage() {
       case 'reminder3':
       case 'reminder1': return <Clock size={20} className="text-amber-600" />;
       case 'teams': return <MessageSquare size={20} className="text-purple-600" />;
+      case 'document_renewed': return <CheckCircle2 size={20} className="text-emerald-600" />;
+      case 'task_completed': return <Wrench size={20} className="text-emerald-600" />;
+      case 'vehicle_task_renewed': return <Car size={20} className="text-emerald-600" />;
       default: return <Bell size={20} className="text-slate-600" />;
     }
   };
@@ -92,6 +111,9 @@ export default function NotificationsPage() {
       case 'reminder3':
       case 'reminder1': return 'bg-amber-100';
       case 'teams': return 'bg-purple-100';
+      case 'document_renewed':
+      case 'task_completed':
+      case 'vehicle_task_renewed': return 'bg-emerald-100';
       default: return 'bg-slate-100';
     }
   };

@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const cron = require('node-cron');
 const { pool } = require('../db');
 const { getDelegatedToken, graphRequest } = require('../graph/client');
+const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -109,6 +110,24 @@ async function createPlannerTask(asset, overrides = {}) {
 
   const result = await graphRequest('POST', '/planner/tasks', body, 'app');
   return result.id;
+}
+
+// Looks up a real Microsoft Graph user id by mailbox address (app-only -
+// User.Read.All is required for this to resolve), so a document/vehicle
+// Planner task can be assigned directly to the responsible person's own
+// Graph identity instead of always landing on the shared service account.
+async function resolveGraphUserId(notificationEmail) {
+  if (!notificationEmail) {
+    return null;
+  }
+
+  try {
+    const user = await graphRequest('GET', `/users/${encodeURIComponent(notificationEmail)}`, null, 'app');
+    return user?.id || null;
+  } catch (error) {
+    console.warn(`Could not resolve Graph user id for ${notificationEmail}: ${error.message}`);
+    return null;
+  }
 }
 
 async function assignPlannerTask(taskId, technician) {
@@ -320,13 +339,15 @@ async function assignTaskAndNotify(workOrder, asset, technician, availability = 
 
   await pool.query(
     `UPDATE work_orders SET status = 'open', technician_id = $1, planner_task_id = $2, due_date = $3 WHERE id = $4`,
-    [technician.id, plannerTaskId, workOrderDueDate, workOrder.id]
+    [technician.id || null, plannerTaskId, workOrderDueDate, workOrder.id]
   );
 
-  await pool.query(
-    `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
-    [technician.id]
-  );
+  if (technician.id) {
+    await pool.query(
+      `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
+      [technician.id]
+    );
+  }
 
   const emailChain = await resolveEmailChain(technician.name);
   const ccEmails = await getDepartmentCcEmails(asset.department || asset.site_location);
@@ -393,14 +414,14 @@ async function createTaskForWorkOrder(workOrderId) {
   await assignTaskAndNotify(workOrder, asset, technician, availability);
 }
 
-function getSendMailEndpoint(authType = 'delegated') {
+function getSendMailEndpoint(authType = 'app') {
   if (authType === 'delegated') {
     return '/me/sendMail';
   }
   return `/users/${SERVICE_ACCOUNT_EMAIL}/sendMail`;
 }
 
-async function sendMail(to, subject, content, authType = 'delegated', cc = []) {
+async function sendMail(to, subject, content, authType = 'app', cc = []) {
   const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
   const ccRecipients = (Array.isArray(cc) ? cc : [cc]).filter(Boolean);
 
@@ -443,8 +464,17 @@ async function resolveEmailChain(responsiblePersonName) {
   let managerEmail = null;
 
   if (responsiblePersonName) {
+    // Whitespace-insensitive, case-insensitive match: collapse runs of
+    // whitespace and lowercase both sides before comparing, so a free-text
+    // name like 'Dhanaraju Lanke' still matches an HR record with irregular
+    // spacing like 'DHANARAJU  LANKE'. The second half of the OR lets a
+    // shorter free-text name (e.g. just 'Dhanaraju') match as a substring of
+    // the full HR name.
     const ownResult = await pool.query(
-      `SELECT notification_email FROM employees WHERE name ILIKE $1 LIMIT 1`,
+      `SELECT notification_email FROM employees
+       WHERE regexp_replace(LOWER(TRIM(name)), '\\s+', ' ', 'g') ILIKE regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g')
+          OR regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g') ILIKE '%' || regexp_replace(LOWER(TRIM(name)), '\\s+', ' ', 'g') || '%'
+       LIMIT 1`,
       [responsiblePersonName]
     );
     primaryEmail = ownResult.rows[0]?.notification_email || null;
@@ -453,7 +483,8 @@ async function resolveEmailChain(responsiblePersonName) {
       `SELECT e2.notification_email
        FROM employees e1
        JOIN employees e2 ON e2.name ILIKE e1.reports_to_name
-       WHERE e1.name ILIKE $1
+       WHERE regexp_replace(LOWER(TRIM(e1.name)), '\\s+', ' ', 'g') ILIKE regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g')
+          OR regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g') ILIKE '%' || regexp_replace(LOWER(TRIM(e1.name)), '\\s+', ' ', 'g') || '%'
        LIMIT 1`,
       [responsiblePersonName]
     );
@@ -644,7 +675,6 @@ async function logNotification(workOrderId, notificationType) {
 async function runDailyCheck() {
   let tasksCreated = 0;
   let documentRemindersSent = 0;
-  let vehicleTaskRemindersSent = 0;
   let errors = 0;
 
   // Self-healing schema: notification_log needs somewhere to stash the asset_id
@@ -652,9 +682,10 @@ async function runDailyCheck() {
   await pool.query(`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS notes TEXT;`);
 
   const assetsResult = await pool.query(`
-    SELECT a.* FROM assets a
-    JOIN asset_categories ac ON ac.id = a.category_id
-    WHERE ac.name = 'Equipment'
+    SELECT a.*, ac.name AS category_name FROM assets a
+    JOIN asset_types at ON at.id = a.type_id
+    LEFT JOIN asset_categories ac ON ac.id = a.category_id
+    WHERE at.name = 'Equipment'
       AND a.next_due_date <= CURRENT_DATE + INTERVAL '30 days'
       AND a.next_due_date IS NOT NULL
   `);
@@ -743,40 +774,65 @@ async function runDailyCheck() {
       continue;
     }
 
-    // DUE TODAY OR OVERDUE: create the Planner task and assign a technician.
-    const availability = await findAvailableTechnician(
-      asset.site_location,
-      asset.type_of_service,
-      asset.next_due_date,
-      asset.estimated_duration_hours
-    );
+    // DUE TODAY OR OVERDUE: create the Planner task and assign someone.
+    const isVehicleAsset = VEHICLE_CATEGORIES.includes(asset.category_name);
 
-    if (!availability || !availability.technician) {
-      console.warn(`No matching technician found for asset ${asset.id} at ${asset.site_location}`);
-      errors++;
-      continue;
+    let technician;
+    let availability = {};
+    let plannerAssigneeId = null;
+
+    if (isVehicleAsset) {
+      // Vehicle-category equipment (Light/Heavy Vehicle, Plant Equipment,
+      // Marine Vessel) assigns straight to the asset's responsible person -
+      // no calendar-availability search, no least-loaded-technician lookup.
+      const responsibleEmailChain = await resolveEmailChain(asset.responsible_person);
+      if (!responsibleEmailChain.to) {
+        console.warn(`No responsible person email resolved for vehicle asset ${asset.id} (${asset.equipment_name})`);
+        errors++;
+        continue;
+      }
+      technician = { id: null, name: asset.responsible_person || 'Responsible Person', email: responsibleEmailChain.to };
+      // Assign the Planner task to the responsible person's own Graph
+      // identity when it can be resolved; MY_USER_ID stays the fallback.
+      plannerAssigneeId = await resolveGraphUserId(responsibleEmailChain.to);
+    } else {
+      availability = await findAvailableTechnician(
+        asset.site_location,
+        asset.type_of_service,
+        asset.next_due_date,
+        asset.estimated_duration_hours
+      );
+
+      if (!availability || !availability.technician) {
+        console.warn(`No matching technician found for asset ${asset.id} at ${asset.site_location}`);
+        errors++;
+        continue;
+      }
+
+      technician = availability.technician;
     }
 
-    const technician = availability.technician;
     const workOrderDueDate = asset.next_due_date;
 
-    const plannerTaskId = await createPlannerTask(asset);
+    const plannerTaskId = await createPlannerTask(asset, plannerAssigneeId ? { assigneeId: plannerAssigneeId } : {});
     await assignPlannerTask(plannerTaskId, technician);
 
     const workOrderResult = await pool.query(
       `INSERT INTO work_orders (status, asset_id, technician_id, planner_task_id, due_date, task_type)
        VALUES ('open', $1, $2, $3, $4, 'equipment')
        RETURNING *`,
-      [asset.id, technician.id, plannerTaskId, workOrderDueDate]
+      [asset.id, technician.id || null, plannerTaskId, workOrderDueDate]
     );
 
     const workOrder = workOrderResult.rows[0];
     tasksCreated++;
 
-    await pool.query(
-      `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
-      [technician.id]
-    );
+    if (technician.id) {
+      await pool.query(
+        `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
+        [technician.id]
+      );
+    }
 
     const equipmentEmailChain = await resolveEmailChain(technician.name);
     const equipmentCcEmails = await getDepartmentCcEmails(asset.department || asset.site_location);
@@ -810,9 +866,8 @@ async function runDailyCheck() {
   const documentsResult = await pool.query(`
     SELECT a.*, at.name AS type_name
     FROM assets a
-    JOIN asset_categories ac ON ac.id = a.category_id
-    LEFT JOIN asset_types at ON at.id = a.type_id
-    WHERE ac.name = 'Document'
+    JOIN asset_types at ON at.id = a.type_id
+    WHERE at.name = 'Document'
       AND a.expiry_date IS NOT NULL
       AND a.expiry_date <= CURRENT_DATE + INTERVAL '365 days'
   `);
@@ -856,6 +911,10 @@ async function runDailyCheck() {
       );
 
       if (existingOrder.rows.length === 0) {
+        // Assign the Planner task to the responsible person's own Graph
+        // identity when it can be resolved; MY_USER_ID stays the fallback.
+        const documentAssigneeGraphId = await resolveGraphUserId(documentEmailChain.to);
+
         // Planner task + calendar event MUST run before the work_order insert
         // below so a Graph failure is visible in the logs immediately, rather
         // than being masked by a work order that already "succeeded" - and so
@@ -867,7 +926,7 @@ async function runDailyCheck() {
             title: `Document Renewal Required - ${doc.equipment_name} (${doc.site_location}) - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
             dueDateTime: `${doc.expiry_date}T09:00:00Z`,
             description: documentDescription,
-            assigneeId: MY_USER_ID,
+            assigneeId: documentAssigneeGraphId || MY_USER_ID,
           });
           console.log(`Created Planner task for document: ${doc.equipment_name} expiring ${doc.expiry_date}`);
 
@@ -915,7 +974,7 @@ async function runDailyCheck() {
           console.warn('Teams message skipped (delegated auth not available) and continue running');
         }
 
-        console.log(`Document reminder sent for ${doc.equipment_name} expiring ${doc.expiry_date}`);
+        console.log(`Document reminder sent for ${doc.equipment_name} expiring ${doc.expiry_date} -> ${toEmail || '(no recipient resolved)'}`);
         documentRemindersSent++;
         continue;
       }
@@ -966,148 +1025,6 @@ async function runDailyCheck() {
       documentRemindersSent++;
     } catch (error) {
       console.error(`Document renewal check failed for asset ${doc.id}:`, error.message);
-      errors++;
-    }
-  }
-
-  // --- Vehicle Tasks Check ---
-  console.log('--- Vehicle Tasks Check ---');
-
-  const vehicleTasksResult = await pool.query(`
-    SELECT vt.*, v.vehicle_no, v.vehicle_name, v.department, v.site_location, v.incharge
-    FROM vehicle_tasks vt
-    JOIN vehicles v ON v.id = vt.vehicle_id
-    WHERE vt.status != 'completed'
-      AND vt.expiry_date IS NOT NULL
-      AND vt.expiry_date <= CURRENT_DATE + INTERVAL '365 days'
-  `);
-
-  for (const task of vehicleTasksResult.rows) {
-    try {
-      const expiry = new Date(task.expiry_date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const daysRemaining = Math.round((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      const reminderWindowDays = task.reminder_days || 30;
-
-      if (daysRemaining > reminderWindowDays) {
-        // Outside this task's own reminder window - nothing to do yet.
-        continue;
-      }
-
-      const notes = JSON.stringify({
-        vehicle_id: task.vehicle_id,
-        vehicle_task_id: task.id,
-        vehicle_name: task.vehicle_name,
-        task_type: task.task_type,
-        expiry_date: task.expiry_date,
-      });
-      const taskDescription = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpires: ${task.expiry_date}\nDays remaining: ${daysRemaining} days`;
-      const vehicleAsset = {
-        equipment_name: `${task.vehicle_name} - ${task.task_type}`,
-        site_location: task.department || task.site_location,
-        estimated_duration_hours: 1,
-      };
-      const vehicleEmailChain = await resolveEmailChain(task.incharge);
-      const ccEmails = await getDepartmentCcEmails(task.department);
-      // Vehicle escalation: once actually overdue, address the incharge
-      // person's manager instead of (or in addition to) the person themself.
-      const toEmail = daysRemaining <= 0
-        ? (vehicleEmailChain.manager_email || vehicleEmailChain.to)
-        : vehicleEmailChain.to;
-
-      // FIRST REMINDER for this cycle: no Planner task yet - create it right
-      // away instead of waiting for the due date. Vehicle tasks don't have a
-      // work_orders row like equipment/documents do, so dedup is against the
-      // task's own planner_task_id, which /complete clears on renewal so the
-      // next cycle can create a fresh one.
-      if (!task.planner_task_id) {
-        let plannerTaskId = null;
-        try {
-          plannerTaskId = await createPlannerTask(vehicleAsset, {
-            title: `Vehicle Renewal Required - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
-            dueDateTime: `${task.expiry_date}T09:00:00Z`,
-            description: taskDescription,
-            assigneeId: MY_USER_ID,
-          });
-          console.log(`Created Planner task for vehicle task: ${task.vehicle_name} - ${task.task_type} expiring ${task.expiry_date}`);
-
-          await createCalendarEvent(vehicleAsset, null, null, null, null, {
-            title: `Vehicle Renewal Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type} - Expires ${formatDateDDMMYYYY(task.expiry_date)}`,
-            description: taskDescription,
-            singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
-            timeZone: 'Arab Standard Time',
-            startDateTime: `${task.expiry_date}T09:00:00`,
-            endDateTime: `${task.expiry_date}T10:00:00`,
-            isOnlineMeeting: false,
-          });
-        } catch (graphError) {
-          console.error(`Planner task / calendar event creation failed for vehicle task ${task.vehicle_name} - ${task.task_type}:`, graphError.message);
-          errors++;
-        }
-
-        if (plannerTaskId) {
-          await pool.query(`UPDATE vehicle_tasks SET planner_task_id = $1 WHERE id = $2`, [plannerTaskId, task.id]);
-
-          await pool.query(
-            `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
-            ['vehicle_task_created', null, notes]
-          );
-        }
-
-        const subject = `Vehicle Task Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`;
-        const emailBody = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpiry date: ${task.expiry_date}\n${daysRemaining} day(s) remaining`;
-
-        try {
-          await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
-        } catch (error) {
-          console.warn('Email sending skipped and continue running');
-        }
-
-        console.log(`Vehicle task reminder: ${task.vehicle_name} - ${task.task_type} expires ${task.expiry_date}`);
-        vehicleTaskRemindersSent++;
-        continue;
-      }
-
-      // SUBSEQUENT DAYS: Planner task already exists for this cycle - just
-      // send a throttled (once per 24h) follow-up, escalating the wording
-      // once the task is actually due/overdue.
-      const alreadySentToday = await pool.query(
-        `SELECT 1 FROM notification_log
-         WHERE notification_type = 'vehicle_task_reminder'
-           AND notes = $1
-           AND sent_at >= NOW() - INTERVAL '24 hours'
-         LIMIT 1`,
-        [notes]
-      );
-
-      if (alreadySentToday.rows.length > 0) {
-        continue;
-      }
-
-      const daysLabel = daysRemaining > 0
-        ? `${daysRemaining} day(s) remaining`
-        : daysRemaining === 0
-          ? 'due today'
-          : `${Math.abs(daysRemaining)} day(s) overdue`;
-      const subject = `Vehicle Task Reminder - ${task.vehicle_name} (${task.vehicle_no}) - ${task.task_type}`;
-      const emailBody = `Vehicle: ${task.vehicle_name} (${task.vehicle_no})\nTask: ${task.task_type}\nDepartment: ${task.department || 'N/A'}\nIncharge: ${task.incharge || 'N/A'}\nExpiry date: ${task.expiry_date}\n${daysLabel}`;
-
-      try {
-        await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
-      } catch (error) {
-        console.warn('Email sending skipped and continue running');
-      }
-
-      await pool.query(
-        `INSERT INTO notification_log (notification_type, work_order_id, notes) VALUES ($1, $2, $3)`,
-        ['vehicle_task_reminder', null, notes]
-      );
-
-      console.log(`Vehicle task reminder: ${task.vehicle_name} - ${task.task_type} expires ${task.expiry_date}`);
-      vehicleTaskRemindersSent++;
-    } catch (error) {
-      console.error(`Vehicle task check failed for task ${task.id}:`, error.message);
       errors++;
     }
   }
@@ -1193,9 +1110,9 @@ async function runDailyCheck() {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`
   );
 
-  console.log(`Daily check summary — Equipment tasks created: ${tasksCreated}, Document reminders sent: ${documentRemindersSent}, Vehicle task reminders sent: ${vehicleTaskRemindersSent}, Errors: ${errors}`);
+  console.log(`Daily check summary — Equipment tasks created: ${tasksCreated}, Document reminders sent: ${documentRemindersSent}, Errors: ${errors}`);
 
-  return { tasksCreated, documentRemindersSent, vehicleTaskRemindersSent, errors };
+  return { tasksCreated, documentRemindersSent, errors };
 }
 
 cron.schedule('0 6 * * *', async () => {

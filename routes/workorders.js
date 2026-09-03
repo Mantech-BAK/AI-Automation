@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
 const { createTaskForWorkOrder, resolveEmailChain } = require('../jobs/dailyCheck');
+const { completeDocumentAsset } = require('../utils/assetCompletion');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -156,25 +157,14 @@ router.post('/:id/complete', async (req, res) => {
     );
 
     if (existing.task_type === 'document') {
-      // Renewing a document: the next expiry is calculated from the OLD
-      // expiry date plus the renewal frequency - not from today - so the
-      // renewal cycle stays anchored to the document's actual expiry
-      // schedule even if it's renewed early or late. registration_date is
-      // left untouched (it records when the document was first registered,
-      // not each renewal).
-      const frequencyDays = existing.frequency_days || 365;
+      // Renewing a document/vehicle-document asset: if completed within
+      // tolerance_days of the original due date, the new expiry is anchored
+      // to that due date + frequency_days rather than today, so an
+      // early/on-time renewal doesn't lose its schedule. See
+      // utils/assetCompletion.js for the exact tolerance rule.
       const oldExpiryDate = existing.expiry_date;
-      const { rows: renewedRows } = await pool.query(
-        `UPDATE assets
-         SET last_completed_date = CURRENT_DATE,
-             next_due_date = COALESCE(expiry_date, CURRENT_DATE) + ($1 || ' days')::interval,
-             expiry_date = COALESCE(expiry_date, CURRENT_DATE) + ($1 || ' days')::interval
-         WHERE id = $2
-         RETURNING expiry_date`,
-        [frequencyDays, existing.asset_id]
-      );
-      const newExpiryDate = renewedRows[0]?.expiry_date;
-      console.log(`Document renewed. Old expiry: ${oldExpiryDate}. New expiry: ${newExpiryDate}. Frequency: ${frequencyDays} days.`);
+      const renewedAsset = await completeDocumentAsset(existing.asset_id, existing.due_date);
+      console.log(`Document renewed. Old expiry: ${oldExpiryDate}. New expiry: ${renewedAsset?.expiry_date}.`);
     } else {
       await pool.query(
         `UPDATE assets

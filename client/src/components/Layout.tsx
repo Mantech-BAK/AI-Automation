@@ -26,16 +26,20 @@ interface LayoutProps {
   onNavigate: (page: string) => void;
   onSignOut?: () => void;
   role?: string;
-  permissions?: string[];
+  allowedItemTypes?: string[];
 }
 
-// Pages that need at least one of the listed permissions when the user isn't
-// an admin. Any nav item not listed here is shown to every logged-in user.
-const NAV_PERMISSION_REQUIREMENTS: Record<string, string[]> = {
-  equipment: ['equipment', 'document', 'vehicles'],
-  tasks: ['equipment', 'document', 'vehicles'],
-  vehicles: ['vehicles'],
-};
+// Nav items that only make sense for users with Equipment access - vehicles
+// are Equipment-type assets, so they're gated the same way. An empty
+// allowedItemTypes means "no restriction" (matches routes/dashboard.js's
+// buildPermissionConditions), so these stay visible unless the user has been
+// scoped down to Document only.
+const EQUIPMENT_GATED_NAV_ITEMS = new Set(['equipment', 'vehicles']);
+
+function hasEquipmentAccess(allowedItemTypes: string[]): boolean {
+  if (allowedItemTypes.length === 0) return true;
+  return allowedItemTypes.includes('Equipment');
+}
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -54,15 +58,14 @@ const navItems = [
   { id: 'users', label: 'Users', icon: UserCog },
 ];
 
-export default function Layout({ children, currentPage, onNavigate, onSignOut, role, permissions = [] }: LayoutProps) {
+export default function Layout({ children, currentPage, onNavigate, onSignOut, role, allowedItemTypes = [] }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const visibleNavItems = navItems.filter((item) => {
     if (role === 'admin') return true;
     if (item.id === 'users') return false;
-    const required = NAV_PERMISSION_REQUIREMENTS[item.id];
-    if (!required) return true;
-    return required.some((permission) => permissions.includes(permission));
+    if (EQUIPMENT_GATED_NAV_ITEMS.has(item.id)) return hasEquipmentAccess(allowedItemTypes);
+    return true;
   });
 
   return (

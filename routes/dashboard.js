@@ -4,6 +4,44 @@ const dotenv = require('dotenv');
 const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
 const { toTitleCase } = require('../utils/text');
+const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
+
+// Non-admin users are scoped to their allowed departments/item types/
+// categories (see users.allowed_departments/allowed_item_types/
+// allowed_categories). Admins see everything, unrestricted.
+function buildPermissionConditions(req, params, options = {}) {
+  const user = req.session?.user;
+  const conditions = [];
+
+  if (!user || user.role === 'admin') {
+    return conditions;
+  }
+
+  const departmentColumn = options.departmentColumn || 'assets.department';
+  const typeColumn = options.typeColumn || 'at.name';
+  const categoryColumn = options.categoryColumn || 'ac.name';
+
+  const allowedDepartments = Array.isArray(user.allowed_departments) ? user.allowed_departments : [];
+  const allowedItemTypes = Array.isArray(user.allowed_item_types) ? user.allowed_item_types : [];
+  const allowedCategories = Array.isArray(user.allowed_categories) ? user.allowed_categories : [];
+
+  if (allowedDepartments.length > 0) {
+    params.push(allowedDepartments);
+    conditions.push(`${departmentColumn} = ANY($${params.length}::text[])`);
+  }
+
+  if (allowedItemTypes.length > 0) {
+    params.push(allowedItemTypes);
+    conditions.push(`${typeColumn} = ANY($${params.length}::text[])`);
+  }
+
+  if (allowedCategories.length > 0) {
+    params.push(allowedCategories);
+    conditions.push(`${categoryColumn} = ANY($${params.length}::text[])`);
+  }
+
+  return conditions;
+}
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -54,20 +92,20 @@ router.get('/overview/maintenance', async (req, res) => {
       SELECT
         (SELECT COUNT(*) FROM work_orders wo
            JOIN assets a ON a.id = wo.asset_id
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Equipment') AS "totalTasks",
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Equipment') AS "totalTasks",
         (SELECT COUNT(*) FROM work_orders wo
            JOIN assets a ON a.id = wo.asset_id
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Equipment' AND wo.status = 'open' AND (wo.due_date IS NULL OR wo.due_date >= CURRENT_DATE)) AS "open",
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Equipment' AND wo.status = 'open' AND (wo.due_date IS NULL OR wo.due_date >= CURRENT_DATE)) AS "open",
         (SELECT COUNT(*) FROM work_orders wo
            JOIN assets a ON a.id = wo.asset_id
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Equipment' AND wo.status = 'open' AND wo.due_date < CURRENT_DATE) AS "overdue",
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Equipment' AND wo.status = 'open' AND wo.due_date < CURRENT_DATE) AS "overdue",
         (SELECT COUNT(*) FROM work_orders wo
            JOIN assets a ON a.id = wo.asset_id
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Equipment' AND wo.status = 'completed') AS "completed"
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Equipment' AND wo.status = 'completed') AS "completed"
     `;
 
     const { rows } = await pool.query(query);
@@ -83,19 +121,19 @@ router.get('/overview/documentation', async (req, res) => {
     const query = `
       SELECT
         (SELECT COUNT(*) FROM assets a
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Document') AS "totalDocuments",
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Document') AS "totalDocuments",
         (SELECT COUNT(*) FROM assets a
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL
              AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS "expiringWithin30",
         (SELECT COUNT(*) FROM assets a
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL
              AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '90 days') AS "expiringWithin90",
         (SELECT COUNT(*) FROM assets a
-           JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS "expired"
+           JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS "expired"
     `;
 
     const { rows } = await pool.query(query);
@@ -110,15 +148,16 @@ router.get('/overview/documentation', async (req, res) => {
 // with one round trip instead of stitching together several overview calls.
 router.get('/summary', async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    const { rows } = await pool.query(
+      `
       SELECT
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status NOT IN ('completed', 'rejected') AND due_date < CURRENT_DATE) AS overdue_tasks,
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status NOT IN ('completed', 'rejected')) AS open_tasks,
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status = 'completed') AS completed_tasks,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Equipment') AS total_equipment,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS expired_documents,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS expiring_documents,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = 'Document') AS total_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Equipment') AS total_equipment,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS expired_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS expiring_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document') AS total_documents,
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'document' AND status NOT IN ('completed', 'rejected')) AS pending_renewals,
         (SELECT COUNT(*) FROM technicians) AS total_technicians,
         (SELECT COUNT(*) FROM employees) AS total_employees,
@@ -130,11 +169,16 @@ router.get('/summary', async (req, res) => {
         (SELECT COUNT(DISTINCT site_location) FROM assets) AS total_sites,
         (SELECT COUNT(*) FROM email_summaries WHERE date_received::date = CURRENT_DATE) AS emails_today,
         (SELECT COUNT(*) FROM notification_log WHERE sent_at::date = CURRENT_DATE) AS notifications_today,
-        (SELECT COUNT(*) FROM vehicles) AS total_vehicles,
-        (SELECT COUNT(*) FROM vehicle_tasks WHERE status != 'completed' AND expiry_date IS NOT NULL AND expiry_date < CURRENT_DATE) AS vehicle_tasks_overdue,
-        (SELECT COUNT(*) FROM vehicle_tasks WHERE status != 'completed' AND expiry_date IS NOT NULL AND expiry_date >= CURRENT_DATE AND expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS vehicle_tasks_expiring_30,
-        (SELECT COUNT(*) FROM vehicle_tasks WHERE status != 'completed') AS vehicle_pending_renewals
-    `);
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = ANY($1::text[])) AS total_vehicles,
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = ANY($1::text[]) AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS vehicle_tasks_overdue,
+        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = ANY($1::text[]) AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS vehicle_tasks_expiring_30,
+        (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id JOIN asset_categories ac ON ac.id = a.category_id
+           WHERE ac.name = ANY($1::text[]) AND wo.status NOT IN ('completed', 'rejected')) AS vehicle_pending_renewals
+    `,
+      [VEHICLE_CATEGORIES]
+    );
 
     return res.json(rows[0] || {});
   } catch (error) {
@@ -197,7 +241,7 @@ router.get('/tasks', async (req, res) => {
 
     if (category === 'Document' || category === 'Equipment') {
       params.push(category);
-      conditions.push(`ac.name = $${params.length}`);
+      conditions.push(`at.name = $${params.length}`);
     }
 
     if (taskType === 'equipment' || taskType === 'document') {
@@ -235,7 +279,7 @@ router.get('/tasks', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN technicians t ON wo.technician_id = t.id
-      LEFT JOIN asset_categories ac ON ac.id = a.category_id
+      LEFT JOIN asset_types at ON at.id = a.type_id
       ${whereClause}
       ORDER BY wo.due_date NULLS LAST, wo.id
     `,
@@ -289,19 +333,44 @@ router.get('/tasks/completed', async (req, res) => {
 
 router.get('/assets', async (req, res) => {
   try {
-    const { category, department } = req.query;
+    // `type` is the coarse Equipment/Document split (asset_types).
+    // `category`/`categories` is the fine-grained tag (asset_categories) -
+    // e.g. VehiclesPage.tsx passes categories=Light Vehicle,Heavy Vehicle,...
+    const { type, category, categories, department, parent_asset_id } = req.query;
     const conditions = [];
     const params = [];
 
-    if (category === 'Document' || category === 'Equipment') {
+    if (type === 'Document' || type === 'Equipment') {
+      params.push(type);
+      conditions.push(`at.name = $${params.length}`);
+    } else if (category === 'Document' || category === 'Equipment') {
+      // Back-compat: old callers used `category` for the coarse split.
       params.push(category);
-      conditions.push(`ac.name = $${params.length}`);
+      conditions.push(`at.name = $${params.length}`);
+    }
+
+    const categoryList = categories
+      ? String(categories).split(',').map((c) => c.trim()).filter(Boolean)
+      : category && category !== 'Document' && category !== 'Equipment'
+      ? [category]
+      : [];
+
+    if (categoryList.length > 0) {
+      params.push(categoryList);
+      conditions.push(`ac.name = ANY($${params.length}::text[])`);
     }
 
     if (department) {
       params.push(department);
       conditions.push(`assets.site_location ILIKE $${params.length}`);
     }
+
+    if (parent_asset_id) {
+      params.push(Number(parent_asset_id));
+      conditions.push(`assets.parent_asset_id = $${params.length}`);
+    }
+
+    conditions.push(...buildPermissionConditions(req, params));
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -337,7 +406,7 @@ router.get('/documents/responsible-persons', async (req, res) => {
         COUNT(CASE WHEN expiry_date <= CURRENT_DATE + 30 THEN 1 END) AS expiring_soon,
         COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) AS overdue
       FROM assets
-      WHERE category_id = (SELECT id FROM asset_categories WHERE name = 'Document')
+      WHERE type_id = (SELECT id FROM asset_types WHERE name = 'Document')
         AND responsible_person IS NOT NULL
       GROUP BY responsible_person
       ORDER BY overdue DESC, expiring_soon DESC
@@ -428,14 +497,14 @@ router.get('/departments/list', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT
         d.name,
-        COUNT(DISTINCT CASE WHEN ac.name = 'Document' THEN a.id END) AS document_count
+        COUNT(DISTINCT CASE WHEN at.name = 'Document' THEN a.id END) AS document_count
       FROM (
         SELECT DISTINCT department AS name FROM assets WHERE department IS NOT NULL
         UNION
         SELECT DISTINCT department_text AS name FROM employees WHERE department_text IS NOT NULL
       ) d
       LEFT JOIN assets a ON a.department = d.name
-      LEFT JOIN asset_categories ac ON ac.id = a.category_id
+      LEFT JOIN asset_types at ON at.id = a.type_id
       GROUP BY d.name
       ORDER BY d.name
     `);
@@ -532,7 +601,20 @@ router.get('/notifications', async (req, res) => {
         wo.due_date AS work_order_due_date,
         COALESCE(a.equipment_name, a_notes.equipment_name) AS equipment_name,
         COALESCE(a.site_location, a_notes.site_location) AS site_location,
-        COALESCE(a.equipment_name, a_notes.equipment_name) AS description
+        CASE nl.notification_type
+          WHEN 'document_renewed' THEN
+            'Document Renewed - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown document')
+              || ' - ' || COALESCE(nl.notes::json->>'department', a_notes.site_location, 'Unknown department')
+              || ' - Next expiry: ' || COALESCE(nl.notes::json->>'new_expiry', 'N/A')
+          WHEN 'task_completed' THEN
+            'Equipment Task Completed - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown equipment')
+              || ' - ' || COALESCE(nl.notes::json->>'department', a_notes.site_location, 'Unknown site')
+          WHEN 'vehicle_task_renewed' THEN
+            'Vehicle Task Renewed - ' || COALESCE(nl.notes::json->>'vehicle_name', 'Unknown vehicle')
+              || ' - ' || COALESCE(nl.notes::json->>'task_type', nl.notes::json->>'document_name', 'Task')
+              || ' - Next expiry: ' || COALESCE(nl.notes::json->>'new_expiry', 'N/A')
+          ELSE COALESCE(a.equipment_name, a_notes.equipment_name)
+        END AS description
       FROM notification_log nl
       LEFT JOIN work_orders wo ON nl.work_order_id = wo.id
       LEFT JOIN assets a ON wo.asset_id = a.id
@@ -549,19 +631,23 @@ router.get('/notifications', async (req, res) => {
 
 router.get('/sites', async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    const { rows } = await pool.query(
+      `
       SELECT
         a.site_location,
-        COUNT(DISTINCT CASE WHEN ac.name = 'Equipment' THEN a.id END) AS equipment_count,
-        COUNT(DISTINCT CASE WHEN ac.name = 'Document' THEN a.id END) AS document_count,
-        COUNT(DISTINCT CASE WHEN ac.name = 'Vehicle' THEN a.id END) AS vehicle_count,
+        COUNT(DISTINCT CASE WHEN at.name = 'Equipment' THEN a.id END) AS equipment_count,
+        COUNT(DISTINCT CASE WHEN at.name = 'Document' THEN a.id END) AS document_count,
+        COUNT(DISTINCT CASE WHEN ac.name = ANY($1::text[]) THEN a.id END) AS vehicle_count,
         COUNT(DISTINCT CASE WHEN wo.status = 'open' THEN wo.id END) AS open_work_orders
       FROM assets a
+      LEFT JOIN asset_types at ON at.id = a.type_id
       LEFT JOIN asset_categories ac ON ac.id = a.category_id
       LEFT JOIN work_orders wo ON wo.asset_id = a.id
       GROUP BY a.site_location
       ORDER BY a.site_location
-    `);
+    `,
+      [VEHICLE_CATEGORIES]
+    );
     return res.json(rows);
   } catch (error) {
     console.error('Sites query failed:', error);
@@ -734,8 +820,10 @@ router.post('/assets/add', async (req, res) => {
       expiry_date,
       reminder_days,
       frequency_days,
+      tolerance_days,
       responsible_person,
       remarks,
+      parent_asset_id,
     } = req.body;
 
     const next_due_date = last_completed_date
@@ -763,9 +851,11 @@ router.post('/assets/add', async (req, res) => {
          expiry_date,
          reminder_days,
          frequency_days,
+         tolerance_days,
          responsible_person,
-         remarks
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         remarks,
+         parent_asset_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [
         equipment_name,
@@ -782,8 +872,10 @@ router.post('/assets/add', async (req, res) => {
         expiry_date || null,
         reminder_days || null,
         frequency_days || 365,
+        tolerance_days || 0,
         responsible_person || null,
         remarks || null,
+        parent_asset_id || null,
       ]
     );
 
@@ -811,8 +903,10 @@ router.put('/assets/:id', async (req, res) => {
       expiry_date,
       reminder_days,
       frequency_days,
+      tolerance_days,
       responsible_person,
       remarks,
+      parent_asset_id,
     } = req.body;
 
     const { rows } = await pool.query(
@@ -830,9 +924,11 @@ router.put('/assets/:id', async (req, res) => {
          expiry_date = $11,
          reminder_days = $12,
          frequency_days = $13,
-         responsible_person = $14,
-         remarks = $15
-       WHERE id = $16
+         tolerance_days = $14,
+         responsible_person = $15,
+         remarks = $16,
+         parent_asset_id = $17
+       WHERE id = $18
        RETURNING *`,
       [
         equipment_name,
@@ -848,8 +944,10 @@ router.put('/assets/:id', async (req, res) => {
         expiry_date || null,
         reminder_days || null,
         frequency_days || 365,
+        tolerance_days || 0,
         responsible_person || null,
         remarks || null,
+        parent_asset_id || null,
         id,
       ]
     );

@@ -5,7 +5,9 @@ interface SessionUser {
   email: string;
   name: string;
   role: string;
-  permissions: string[];
+  allowed_departments: string[];
+  allowed_item_types: string[];
+  allowed_categories: string[];
 }
 
 interface LoginPageProps {

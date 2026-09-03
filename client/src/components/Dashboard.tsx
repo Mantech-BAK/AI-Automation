@@ -227,7 +227,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       value: summary.expired_documents,
       icon: FileX,
       color: 'red',
-      onClick: () => onNavigate('equipment', { tab: 'documents', expiredOnly: true }),
+      onClick: () => onNavigate('equipment', { tab: 'documents', docExpiryTile: 'expired' }),
     },
     {
       key: 'expiring-documents',
@@ -235,7 +235,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       value: summary.expiring_documents,
       icon: Clock,
       color: 'orange',
-      onClick: () => onNavigate('equipment', { tab: 'documents' }),
+      onClick: () => onNavigate('equipment', { tab: 'documents', docExpiryTile: 'expiring30' }),
     },
     {
       key: 'total-documents',
