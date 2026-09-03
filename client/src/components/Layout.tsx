@@ -4,7 +4,6 @@ import {
   Wrench,
   Calendar,
   Cog,
-  Car,
   MapPin,
   Building2,
   Users,
@@ -30,11 +29,11 @@ interface LayoutProps {
 }
 
 // Nav items that only make sense for users with Equipment access - vehicles
-// are Equipment-type assets, so they're gated the same way. An empty
-// allowedItemTypes means "no restriction" (matches routes/dashboard.js's
-// buildPermissionConditions), so these stay visible unless the user has been
-// scoped down to Document only.
-const EQUIPMENT_GATED_NAV_ITEMS = new Set(['equipment', 'vehicles']);
+// live inside this page's own Vehicles tab (there's no standalone vehicles
+// nav item any more). An empty allowedItemTypes means "no restriction"
+// (matches routes/dashboard.js's buildPermissionConditions), so this stays
+// visible unless the user has been scoped down to Document only.
+const EQUIPMENT_GATED_NAV_ITEMS = new Set(['equipment']);
 
 function hasEquipmentAccess(allowedItemTypes: string[]): boolean {
   if (allowedItemTypes.length === 0) return true;
@@ -44,7 +43,6 @@ function hasEquipmentAccess(allowedItemTypes: string[]): boolean {
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'equipment', label: 'Asset Information', icon: Cog },
-  { id: 'vehicles', label: 'Vehicles', icon: Car },
   { id: 'departments', label: 'Departments', icon: Building2 },
   { id: 'employees', label: 'Employee Master', icon: Contact },
   { id: 'technicians', label: 'Technicians', icon: Users },

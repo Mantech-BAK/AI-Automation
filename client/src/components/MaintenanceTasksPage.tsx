@@ -832,7 +832,7 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
                     <button
                       key={vehicle.id}
                       type="button"
-                      onClick={() => onNavigate && onNavigate('vehicles', { vehicleId: vehicle.id })}
+                      onClick={() => onNavigate && onNavigate('equipment', { tab: 'vehicles', vehicleId: vehicle.id })}
                       className={`text-left rounded-xl p-4 border-2 shadow-sm hover:shadow-md transition-all cursor-pointer ${
                         vehicle.expired_tasks > 0 ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'
                       }`}
@@ -886,7 +886,7 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
                           upcomingVehicleTasks.map((task) => (
                             <tr
                               key={task.id}
-                              onClick={() => onNavigate && onNavigate('vehicles', { vehicleId: task.vehicle_id })}
+                              onClick={() => onNavigate && onNavigate('equipment', { tab: 'vehicles', vehicleId: task.vehicle_id })}
                               className="hover:bg-slate-50 transition-colors cursor-pointer"
                             >
                               <td className="px-6 py-4">

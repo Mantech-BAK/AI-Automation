@@ -13,7 +13,6 @@ import NotificationsPage from './components/NotificationsPage';
 import CalendarPage from './components/CalendarPage';
 import SettingsPage from './components/SettingsPage';
 import UsersPage from './components/UsersPage';
-import VehiclesPage from './components/VehiclesPage';
 import LoginPage from './pages/LoginPage';
 
 interface SessionUser {
@@ -39,12 +38,12 @@ export interface NavFilter {
 
 // Pages gated by item type - any page not listed here is open to every
 // logged-in user regardless of permissions. 'users' is admin-only. Vehicles
-// are Equipment-type assets, so the vehicles page is gated the same way as
-// equipment. An empty allowed_item_types means "no restriction" (matches
+// live inside the 'equipment' page's own Vehicles tab (there's no standalone
+// vehicles page/route any more), so no separate entry is needed for them.
+// An empty allowed_item_types means "no restriction" (matches
 // routes/dashboard.js's buildPermissionConditions).
 const ITEM_TYPE_GATED_PAGES: Record<string, string> = {
   equipment: 'Equipment',
-  vehicles: 'Equipment',
 };
 
 function hasPageAccess(page: string, user: SessionUser): boolean {
@@ -144,7 +143,13 @@ function App() {
       case 'departments':
         return <DepartmentsPage />;
       case 'equipment':
-        return <EquipmentPage initialTab={navFilter?.tab} initialDocExpiryTile={navFilter?.docExpiryTile} />;
+        return (
+          <EquipmentPage
+            initialTab={navFilter?.tab}
+            initialDocExpiryTile={navFilter?.docExpiryTile}
+            initialVehicleId={navFilter?.vehicleId ?? null}
+          />
+        );
       case 'technicians':
         return <TechniciansPage onViewEmployee={handleViewEmployee} />;
       case 'employees':
@@ -161,8 +166,6 @@ function App() {
         return <SettingsPage />;
       case 'users':
         return <UsersPage />;
-      case 'vehicles':
-        return <VehiclesPage initialSelectedVehicleId={navFilter?.vehicleId ?? null} />;
       default:
         return <Dashboard onNavigate={handleNavigate} />;
     }

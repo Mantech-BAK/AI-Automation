@@ -187,12 +187,12 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   const maintenanceTiles: TileDef[] = [
     {
-      key: 'overdue-tasks',
-      label: 'Overdue Tasks',
-      value: summary.overdue_tasks,
-      icon: AlertTriangle,
-      color: 'red',
-      onClick: () => onNavigate('tasks', { tab: 'equipment', taskDayTile: 'overdue' }),
+      key: 'total-equipment',
+      label: 'Total Equipment',
+      value: summary.total_equipment,
+      icon: Cog,
+      color: 'blue',
+      onClick: () => onNavigate('equipment', { tab: 'equipment' }),
     },
     {
       key: 'open-tasks',
@@ -211,23 +211,23 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       onClick: () => onNavigate('tasks', { tab: 'equipment', taskStatus: 'completed' }),
     },
     {
-      key: 'total-equipment',
-      label: 'Total Equipment',
-      value: summary.total_equipment,
-      icon: Cog,
-      color: 'blue',
-      onClick: () => onNavigate('equipment', { tab: 'equipment' }),
+      key: 'overdue-tasks',
+      label: 'Overdue Tasks',
+      value: summary.overdue_tasks,
+      icon: AlertTriangle,
+      color: 'red',
+      onClick: () => onNavigate('tasks', { tab: 'equipment', taskDayTile: 'overdue' }),
     },
   ];
 
   const documentationTiles: TileDef[] = [
     {
-      key: 'expired-documents',
-      label: 'Expired Documents',
-      value: summary.expired_documents,
-      icon: FileX,
-      color: 'red',
-      onClick: () => onNavigate('equipment', { tab: 'documents', docExpiryTile: 'expired' }),
+      key: 'total-documents',
+      label: 'Total Documents',
+      value: summary.total_documents,
+      icon: FileText,
+      color: 'blue',
+      onClick: () => onNavigate('equipment', { tab: 'documents' }),
     },
     {
       key: 'expiring-documents',
@@ -238,14 +238,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       onClick: () => onNavigate('equipment', { tab: 'documents', docExpiryTile: 'expiring30' }),
     },
     {
-      key: 'total-documents',
-      label: 'Total Documents',
-      value: summary.total_documents,
-      icon: FileText,
-      color: 'blue',
-      onClick: () => onNavigate('equipment', { tab: 'documents' }),
-    },
-    {
       key: 'pending-renewals',
       label: 'Pending Renewals',
       value: summary.pending_renewals,
@@ -253,16 +245,24 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       color: 'purple',
       onClick: () => onNavigate('tasks', { tab: 'documents' }),
     },
+    {
+      key: 'expired-documents',
+      label: 'Expired Documents',
+      value: summary.expired_documents,
+      icon: FileX,
+      color: 'red',
+      onClick: () => onNavigate('equipment', { tab: 'documents', docExpiryTile: 'expired' }),
+    },
   ];
 
   const vehicleTiles: TileDef[] = [
     {
-      key: 'overdue-vehicle-tasks',
-      label: 'Overdue Vehicle Tasks',
-      value: summary.vehicle_tasks_overdue,
-      icon: AlertTriangle,
-      color: 'red',
-      onClick: () => onNavigate('vehicles'),
+      key: 'total-vehicles',
+      label: 'Total Vehicles',
+      value: summary.total_vehicles,
+      icon: Car,
+      color: 'blue',
+      onClick: () => onNavigate('equipment', { tab: 'vehicles' }),
     },
     {
       key: 'expiring-vehicle-tasks',
@@ -270,15 +270,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       value: summary.vehicle_tasks_expiring_30,
       icon: Clock,
       color: 'orange',
-      onClick: () => onNavigate('vehicles'),
-    },
-    {
-      key: 'total-vehicles',
-      label: 'Total Vehicles',
-      value: summary.total_vehicles,
-      icon: Car,
-      color: 'blue',
-      onClick: () => onNavigate('vehicles'),
+      onClick: () => onNavigate('equipment', { tab: 'vehicles', docExpiryTile: 'expiring30' }),
     },
     {
       key: 'vehicle-pending-renewals',
@@ -286,7 +278,15 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       value: summary.vehicle_pending_renewals,
       icon: RefreshCw,
       color: 'purple',
-      onClick: () => onNavigate('vehicles'),
+      onClick: () => onNavigate('tasks', { tab: 'vehicles' }),
+    },
+    {
+      key: 'overdue-vehicle-tasks',
+      label: 'Overdue Vehicle Tasks',
+      value: summary.vehicle_tasks_overdue,
+      icon: AlertTriangle,
+      color: 'red',
+      onClick: () => onNavigate('tasks', { tab: 'vehicles', taskDayTile: 'overdue' }),
     },
   ];
 

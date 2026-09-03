@@ -376,22 +376,36 @@ router.get('/upcoming', async (req, res) => {
     const result = await graphRequest('GET', endpoint, null, 'app');
     const events = Array.isArray(result?.value) ? result.value : [];
 
-    const meetings = events
+    const filteredEvents = events
       // isCancelled eq false is already in the $filter above - this is a
       // defense-in-depth re-check in case a cancelled event ever slips
       // through (e.g. a tenant where that filter isn't fully honored).
       .filter((event) => event?.isCancelled !== true)
-      .filter((event) => !isMaintenanceEventSubject(event?.subject))
-      .map((event) => ({
-        id: event.id,
-        subject: event.subject || 'Untitled meeting',
-        start: graphDateTimeToIso(event.start),
-        end: graphDateTimeToIso(event.end),
-        attendeeCount: Array.isArray(event.attendees) ? event.attendees.length : 0,
-        webLink: event.webLink || null,
-        joinUrl: event.onlineMeeting?.joinUrl || null,
-        organizer: event.organizer?.emailAddress?.name || null,
-      }));
+      .filter((event) => !isMaintenanceEventSubject(event?.subject));
+
+    // Tag each event with where it came from: 'app' if this same event id was
+    // saved by POST /create, 'calendar' if it was only ever added directly in
+    // Outlook (or by anything else writing to this mailbox).
+    let appEventIds = new Set();
+    if (filteredEvents.length > 0) {
+      const { rows: localMatches } = await pool.query(
+        `SELECT event_id FROM meetings WHERE event_id = ANY($1::text[])`,
+        [filteredEvents.map((event) => event.id)]
+      );
+      appEventIds = new Set(localMatches.map((row) => row.event_id));
+    }
+
+    const meetings = filteredEvents.map((event) => ({
+      id: event.id,
+      subject: event.subject || 'Untitled meeting',
+      start: graphDateTimeToIso(event.start),
+      end: graphDateTimeToIso(event.end),
+      attendeeCount: Array.isArray(event.attendees) ? event.attendees.length : 0,
+      webLink: event.webLink || null,
+      joinUrl: event.onlineMeeting?.joinUrl || null,
+      organizer: event.organizer?.emailAddress?.name || null,
+      source: appEventIds.has(event.id) ? 'app' : 'calendar',
+    }));
 
     return res.json({ meetings });
   } catch (error) {

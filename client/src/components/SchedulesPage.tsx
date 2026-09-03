@@ -36,6 +36,7 @@ interface UpcomingMeeting {
   attendeeCount?: number;
   webLink?: string | null;
   joinUrl?: string | null;
+  source?: 'app' | 'calendar';
 }
 
 interface AvailabilityResult {
@@ -491,14 +492,36 @@ export default function SchedulesPage() {
             </p>
           ) : (
             <div className="space-y-3">
-              {upcomingMeetings.map((meeting) => (
-                <div key={meeting.id} className="flex items-center justify-between gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+              {upcomingMeetings.map((meeting) => {
+                const isAppCreated = meeting.source === 'app';
+                return (
+                <div
+                  key={meeting.id}
+                  className={`flex items-center justify-between gap-4 p-3 rounded-lg border transition-colors ${
+                    isAppCreated
+                      ? 'bg-teal-50 border-teal-200 hover:bg-teal-100'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
-                      <Calendar size={16} className="text-purple-600" />
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isAppCreated ? 'bg-teal-500/10' : 'bg-purple-500/10'}`}>
+                      <Calendar size={16} className={isAppCreated ? 'text-teal-600' : 'text-purple-600'} />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-800 text-sm truncate">{meeting.subject || 'Untitled meeting'}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-slate-800 text-sm truncate">{meeting.subject || 'Untitled meeting'}</p>
+                        {meeting.source && (
+                          isAppCreated ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-100 text-teal-700 flex-shrink-0">
+                              Created in App
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200 text-slate-600 flex-shrink-0">
+                              From Calendar
+                            </span>
+                          )
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 mt-1">{formatMeetingDateRange(meeting.start, meeting.end)}</p>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {meeting.attendeeCount ?? 0} attendee{(meeting.attendeeCount ?? 0) === 1 ? '' : 's'}
@@ -527,7 +550,8 @@ export default function SchedulesPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

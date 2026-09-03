@@ -79,9 +79,10 @@ function getExpiryColorClass(dateStr?: string | null): string {
 interface EquipmentPageProps {
   initialTab?: PageTab;
   initialDocExpiryTile?: DocExpiryTile;
+  initialVehicleId?: number | null;
 }
 
-export default function EquipmentPage({ initialTab, initialDocExpiryTile }: EquipmentPageProps = {}) {
+export default function EquipmentPage({ initialTab, initialDocExpiryTile, initialVehicleId }: EquipmentPageProps = {}) {
   const [activeTab, setActiveTab] = useState<PageTab>(initialTab || 'equipment');
   const [docExpiryTile, setDocExpiryTile] = useState<DocExpiryTile>(initialDocExpiryTile || 'all');
 
@@ -635,7 +636,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile }: Equi
         )
       )}
 
-      {activeTab === 'vehicles' && <VehiclesPage readOnly />}
+      {activeTab === 'vehicles' && <VehiclesPage initialSelectedVehicleId={initialVehicleId ?? null} />}
 
       {/* Add Modal */}
       <Modal
