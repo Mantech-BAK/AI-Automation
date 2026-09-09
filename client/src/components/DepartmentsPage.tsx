@@ -7,7 +7,13 @@ import {
   Cog,
   FileText,
   Loader2,
+  ExternalLink,
 } from 'lucide-react';
+import type { NavFilter } from '../App';
+
+interface DepartmentsPageProps {
+  onNavigate?: (page: string, filter?: NavFilter) => void;
+}
 
 interface DepartmentSummary {
   name: string;
@@ -42,7 +48,7 @@ function getStatusLabel(task: DepartmentTask) {
   return 'Open';
 }
 
-export default function DepartmentsPage() {
+export default function DepartmentsPage({ onNavigate }: DepartmentsPageProps = {}) {
   const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,26 +174,38 @@ export default function DepartmentsPage() {
 
             return (
               <div key={dept.name} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleExpanded(dept.name)}
-                  className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
+                <div className="w-full flex items-center justify-between gap-3 px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(dept.name)}
+                    className="flex-1 flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
+                  >
                     <div className="w-9 h-9 rounded-lg bg-teal-500/10 flex items-center justify-center flex-shrink-0">
                       <Building2 size={18} className="text-teal-600" />
                     </div>
-                    <span className="font-semibold text-slate-800">{dept.name}</span>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-700">
+                    <span className="font-semibold text-slate-800 truncate">{dept.name}</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-700 flex-shrink-0">
                       {dept.document_count} document{dept.document_count === 1 ? '' : 's'}
                     </span>
+                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onNavigate?.('equipment', { tab: 'equipment', site: dept.name })}
+                      title={`View Asset Information for ${dept.name}`}
+                      className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                    >
+                      <ExternalLink size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(dept.name)}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      {isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
                   </div>
-                  {isOpen ? (
-                    <ChevronDown size={18} className="text-slate-400 flex-shrink-0" />
-                  ) : (
-                    <ChevronRight size={18} className="text-slate-400 flex-shrink-0" />
-                  )}
-                </button>
+                </div>
 
                 {isOpen && (
                   <div className="border-t border-slate-100 p-5 space-y-6">

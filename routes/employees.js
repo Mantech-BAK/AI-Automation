@@ -1,6 +1,5 @@
 const express = require('express');
 const { pool } = require('../db');
-const { toTitleCase } = require('../utils/text');
 
 const router = express.Router();
 
@@ -12,7 +11,7 @@ router.get('/', async (req, res) => {
 
     if (department) {
       params.push(department);
-      conditions.push(`e.department_text ILIKE $${params.length}`);
+      conditions.push(`ad.name ILIKE $${params.length}`);
     }
 
     if (is_technician === 'true') {
@@ -30,17 +29,20 @@ router.get('/', async (req, res) => {
         e.email,
         e.contact_number,
         e.is_technician,
-        e.department_text,
-        e.designation_text,
-        e.religion_text,
         e.nationality,
         e.gender,
         e.cost_center,
-        d.name AS designation_name,
-        ad.name AS department_name,
-        et.name AS employee_type_name,
-        r.name AS religion_name,
-        o.name AS origin_name,
+        e.designation_id,
+        e.department_id,
+        e.employee_type_id,
+        e.religion_id,
+        e.origin_id,
+        d.name AS designation,
+        ad.name AS department,
+        et.name AS employee_type,
+        r.name AS religion,
+        o.name AS origin,
+        manager.id AS reports_to_id,
         manager.name AS reports_to_name,
         manager.emp_id AS reports_to_emp_id
       FROM employees e
@@ -114,23 +116,22 @@ router.post('/add', async (req, res) => {
       origin_id,
       reports_to,
       is_technician,
-      notification_email,
     } = req.body;
 
     if (!emp_id || !name) {
       return res.status(400).json({ error: 'emp_id and name are required' });
     }
 
-    let reportsToId = null;
-    if (reports_to) {
-      const managerResult = await pool.query(`SELECT id FROM employees WHERE emp_id = $1`, [reports_to]);
-      reportsToId = managerResult.rows[0]?.id || null;
-    }
+    // reports_to arrives as the manager's employees.id (integer) directly now.
+    const reportsToId = reports_to ? Number(reports_to) : null;
 
+    // technicians is retired - a technician is just an employee row with
+    // is_technician = true, so type_of_service now lives on employees
+    // directly. 'general' matches the old technicians-row default.
     const { rows } = await pool.query(
       `INSERT INTO employees (
          emp_id, name, email, contact_number, designation_id, department_id,
-         employee_type_id, religion_id, origin_id, reports_to, is_technician, notification_email
+         employee_type_id, religion_id, origin_id, reports_to, is_technician, type_of_service
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
@@ -145,33 +146,11 @@ router.post('/add', async (req, res) => {
         origin_id || null,
         reportsToId,
         Boolean(is_technician),
-        notification_email || null,
+        is_technician ? 'general' : null,
       ]
     );
 
-    const employee = rows[0];
-
-    if (is_technician) {
-      await pool.query(
-        `INSERT INTO technicians (
-           name, email, type_of_service, emp_id, type_id, designation_id,
-           contact_number, employee_id, reports_to_emp_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          name,
-          email || null,
-          'general',
-          emp_id,
-          employee_type_id || null,
-          designation_id || null,
-          contact_number || null,
-          employee.id,
-          reports_to || null,
-        ]
-      );
-    }
-
-    return res.status(201).json(employee);
+    return res.status(201).json(rows[0]);
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ error: 'An employee with this emp_id or email already exists' });
@@ -186,15 +165,16 @@ router.put('/:id/update', async (req, res) => {
     const { id } = req.params;
     const {
       name,
-      designation_text,
-      department_text,
-      religion_text,
+      designation_id,
+      department_id,
+      employee_type_id,
+      religion_id,
+      origin_id,
+      reports_to,
       nationality,
       gender,
       cost_center,
-      reports_to_name,
       is_technician,
-      notification_email,
     } = req.body;
 
     const { rows: existingRows } = await pool.query(`SELECT * FROM employees WHERE id = $1`, [id]);
@@ -206,50 +186,51 @@ router.put('/:id/update', async (req, res) => {
 
     const nextIsTechnician = typeof is_technician === 'boolean' ? is_technician : existing.is_technician;
 
+    // technicians is retired - a technician is just an employee row with
+    // is_technician = true. Default type_of_service to 'general' on
+    // conversion (matches the old technicians-row default) if not already set.
+    const nextTypeOfService = nextIsTechnician ? (existing.type_of_service || 'general') : existing.type_of_service;
+
+    // reports_to arrives as the manager's employees.id (integer) directly now.
+    let reportsToId = existing.reports_to;
+    if (reports_to !== undefined) {
+      reportsToId = reports_to ? Number(reports_to) : null;
+    }
+
     const { rows } = await pool.query(
       `UPDATE employees SET
          name = $1,
-         designation_text = $2,
-         department_text = $3,
-         religion_text = $4,
-         nationality = $5,
-         gender = $6,
-         cost_center = $7,
-         reports_to_name = $8,
-         is_technician = $9,
-         notification_email = $10
-       WHERE id = $11
+         designation_id = $2,
+         department_id = $3,
+         employee_type_id = $4,
+         religion_id = $5,
+         origin_id = $6,
+         reports_to = $7,
+         nationality = $8,
+         gender = $9,
+         cost_center = $10,
+         is_technician = $11,
+         type_of_service = $12
+       WHERE id = $13
        RETURNING *`,
       [
         name !== undefined ? name : existing.name,
-        designation_text !== undefined ? designation_text : existing.designation_text,
-        department_text !== undefined ? toTitleCase(department_text) : existing.department_text,
-        religion_text !== undefined ? religion_text : existing.religion_text,
+        designation_id !== undefined ? designation_id : existing.designation_id,
+        department_id !== undefined ? department_id : existing.department_id,
+        employee_type_id !== undefined ? employee_type_id : existing.employee_type_id,
+        religion_id !== undefined ? religion_id : existing.religion_id,
+        origin_id !== undefined ? origin_id : existing.origin_id,
+        reportsToId,
         nationality !== undefined ? nationality : existing.nationality,
         gender !== undefined ? gender : existing.gender,
         cost_center !== undefined ? cost_center : existing.cost_center,
-        reports_to_name !== undefined ? reports_to_name : existing.reports_to_name,
         nextIsTechnician,
-        notification_email !== undefined ? notification_email : existing.notification_email,
+        nextTypeOfService,
         id,
       ]
     );
 
-    const updated = rows[0];
-
-    if (nextIsTechnician) {
-      const { rows: techRows } = await pool.query(`SELECT id FROM technicians WHERE employee_id = $1`, [id]);
-      if (!techRows.length) {
-        await pool.query(
-          `INSERT INTO technicians (name, email, type_of_service, emp_id, employee_id, reports_to_emp_id, notification_email)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (emp_id) DO NOTHING`,
-          [updated.name, null, 'general', updated.emp_id, updated.id, null, null]
-        );
-      }
-    }
-
-    return res.json(updated);
+    return res.json(rows[0]);
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ error: 'An employee with this emp_id or email already exists' });
@@ -262,8 +243,6 @@ router.put('/:id/update', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
-    await pool.query(`DELETE FROM technicians WHERE employee_id = $1`, [id]);
 
     const { rows } = await pool.query(`DELETE FROM employees WHERE id = $1 RETURNING id`, [id]);
 

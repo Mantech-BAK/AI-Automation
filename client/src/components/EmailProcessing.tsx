@@ -14,6 +14,11 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import Modal from './Modal';
+import type { NavFilter } from '../App';
+
+interface EmailProcessingProps {
+  onNavigate?: (page: string, filter?: NavFilter) => void;
+}
 
 interface ActionItem {
   id: string;
@@ -58,7 +63,7 @@ const categoryConfig: Record<Exclude<EmailCategory, 'all'>, { color: string }> =
   'Other': { color: 'bg-slate-100 text-slate-700' },
 };
 
-export default function EmailProcessing() {
+export default function EmailProcessing({ onNavigate }: EmailProcessingProps = {}) {
   const [emails, setEmails] = useState<ProcessedEmail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +151,7 @@ export default function EmailProcessing() {
       }
 
       setCreatedTaskIds((prev) => new Set(prev).add(item.id));
+      onNavigate?.('tasks');
     } catch (fetchError) {
       console.error('Error creating task:', fetchError);
     } finally {

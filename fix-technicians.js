@@ -1,3 +1,8 @@
+// DEPRECATED - technicians table removed, use employees table with
+// is_technician = true instead. Every fix in this file also targets columns
+// dropped in later schema changes (employees.department_text,
+// designation_text, notification_email), so it can no longer run as written
+// and is kept only for historical reference.
 const { pool } = require('./db');
 
 const DEMO_NOTIFICATION_EMAIL = 'mcs.sw01@bakgroup.net';

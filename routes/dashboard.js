@@ -75,7 +75,7 @@ router.get('/overview', async (req, res) => {
         (SELECT COUNT(*) FROM work_orders WHERE status = 'open' AND due_date < CURRENT_DATE) AS "overdue",
         (SELECT COUNT(DISTINCT site_location) FROM assets) AS "sites",
         (SELECT COUNT(*) FROM assets) AS "equipment",
-        (SELECT COUNT(*) FROM technicians) AS "technicians"
+        (SELECT COUNT(*) FROM employees WHERE is_technician = true) AS "technicians"
     `;
 
     const { rows } = await pool.query(query);
@@ -150,34 +150,75 @@ router.get('/summary', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
+      WITH vehicle_categories AS (
+        -- Broader than utils/vehicleCategories.js's fixed list on purpose:
+        -- any category whose name mentions "vehicle" or "transport" counts,
+        -- and assets of either type (the vehicle's own Equipment record and
+        -- its Document-type insurance/registration children) are included
+        -- since both can carry a vehicle category.
+        SELECT id FROM asset_categories WHERE name ILIKE '%vehicle%' OR name ILIKE '%transport%'
+      )
       SELECT
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status NOT IN ('completed', 'rejected') AND due_date < CURRENT_DATE) AS overdue_tasks,
-        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status NOT IN ('completed', 'rejected')) AS open_tasks,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status = 'open' AND (due_date IS NULL OR due_date >= CURRENT_DATE)) AS open_tasks,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status = 'pending' AND (due_date IS NULL OR due_date >= CURRENT_DATE)) AS pending_tasks,
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND status = 'completed') AS completed_tasks,
         (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Equipment') AS total_equipment,
         (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS expired_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date = CURRENT_DATE) AS document_expiring_today,
         (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS expiring_documents,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE
+             AND a.expiry_date <= CURRENT_DATE + (COALESCE(a.reminder_days, 30) || ' days')::interval) AS documents_expiring_within_reminder,
         (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id WHERE at.name = 'Document') AS total_documents,
         (SELECT COUNT(*) FROM work_orders WHERE task_type = 'document' AND status NOT IN ('completed', 'rejected')) AS pending_renewals,
-        (SELECT COUNT(*) FROM technicians) AS total_technicians,
+        (SELECT COUNT(*) FROM employees WHERE is_technician = true) AS total_technicians,
         (SELECT COUNT(*) FROM employees) AS total_employees,
         (SELECT COUNT(*) FROM (
           SELECT DISTINCT department AS name FROM assets WHERE department IS NOT NULL
           UNION
-          SELECT DISTINCT department_text AS name FROM employees WHERE department_text IS NOT NULL
+          SELECT DISTINCT ad.name AS name FROM employees e JOIN asset_departments ad ON ad.id = e.department_id WHERE ad.name IS NOT NULL
         ) d) AS total_departments,
         (SELECT COUNT(DISTINCT site_location) FROM assets) AS total_sites,
         (SELECT COUNT(*) FROM email_summaries WHERE date_received::date = CURRENT_DATE) AS emails_today,
         (SELECT COUNT(*) FROM notification_log WHERE sent_at::date = CURRENT_DATE) AS notifications_today,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id WHERE ac.name = ANY($1::text[])) AS total_vehicles,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = ANY($1::text[]) AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS vehicle_tasks_overdue,
-        (SELECT COUNT(*) FROM assets a JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = ANY($1::text[]) AND a.expiry_date IS NOT NULL AND a.expiry_date >= CURRENT_DATE AND a.expiry_date <= CURRENT_DATE + INTERVAL '30 days') AS vehicle_tasks_expiring_30,
-        (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id JOIN asset_categories ac ON ac.id = a.category_id
-           WHERE ac.name = ANY($1::text[]) AND wo.status NOT IN ('completed', 'rejected')) AS vehicle_pending_renewals
-    `,
-      [VEHICLE_CATEGORIES]
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND due_date = CURRENT_DATE AND status = 'open') AS equipment_due_today,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'equipment' AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days' AND status = 'open') AS equipment_due_7days,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'document' AND due_date = CURRENT_DATE AND status = 'open') AS document_due_today,
+        (SELECT COUNT(*) FROM work_orders WHERE task_type = 'document' AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days' AND status = 'open') AS document_due_7days,
+        (SELECT COUNT(*) FROM assets a JOIN asset_types at ON at.id = a.type_id
+           WHERE at.name = 'Document' AND a.expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days') AS document_expiring_7days,
+        (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories)) AS total_vehicles,
+        (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
+           WHERE a.category_id IN (SELECT id FROM vehicle_categories) AND wo.due_date = CURRENT_DATE AND wo.status = 'open') AS vehicle_due_today,
+        (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories) AND expiry_date = CURRENT_DATE) AS vehicle_expiring_today,
+        (
+          (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
+             WHERE a.category_id IN (SELECT id FROM vehicle_categories) AND wo.due_date = CURRENT_DATE AND wo.status = 'open')
+          +
+          (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories) AND expiry_date = CURRENT_DATE)
+        ) AS vehicle_due_or_expiring_today,
+        (
+          (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
+             WHERE a.category_id IN (SELECT id FROM vehicle_categories) AND wo.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days' AND wo.status = 'open')
+          +
+          (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories) AND expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days')
+        ) AS vehicle_due_or_expiring_7days,
+        (
+          (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
+             WHERE a.category_id IN (SELECT id FROM vehicle_categories) AND wo.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' AND wo.status = 'open')
+          +
+          (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories) AND expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days')
+        ) AS vehicle_due_or_expiring_30days,
+        (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
+           WHERE a.category_id IN (SELECT id FROM vehicle_categories) AND wo.status = 'open') AS vehicle_pending,
+        (
+          (SELECT COUNT(*) FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
+             WHERE a.category_id IN (SELECT id FROM vehicle_categories) AND wo.due_date < CURRENT_DATE AND wo.status = 'open')
+          +
+          (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories) AND expiry_date < CURRENT_DATE)
+        ) AS vehicle_overdue
+      `
     );
 
     return res.json(rows[0] || {});
@@ -202,7 +243,7 @@ router.get('/tasks/history/:asset_id', async (req, res) => {
         wo.planner_task_id,
         t.name AS technician_name
       FROM work_orders wo
-      LEFT JOIN technicians t ON wo.technician_id = t.id
+      LEFT JOIN employees t ON wo.technician_id = t.id
       WHERE wo.asset_id = $1
       ORDER BY wo.created_at DESC
     `,
@@ -278,7 +319,7 @@ router.get('/tasks', async (req, res) => {
         END AS days_overdue
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
-      LEFT JOIN technicians t ON wo.technician_id = t.id
+      LEFT JOIN employees t ON wo.technician_id = t.id
       LEFT JOIN asset_types at ON at.id = a.type_id
       ${whereClause}
       ORDER BY wo.due_date NULLS LAST, wo.id
@@ -305,7 +346,7 @@ router.get('/tasks/completed', async (req, res) => {
         wo.completed_at
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
-      LEFT JOIN technicians t ON wo.technician_id = t.id
+      LEFT JOIN employees t ON wo.technician_id = t.id
       WHERE wo.status = 'completed'
       ORDER BY wo.completed_at DESC
       LIMIT 20
@@ -430,7 +471,7 @@ router.get('/technicians', async (req, res) => {
         t.contact_number,
         t.task_assigned_count,
         t.task_complete_count,
-        t.reports_to_emp_id,
+        manager.emp_id AS reports_to_emp_id,
         et.name AS type_name,
         d.name AS designation_name,
         manager.name AS reports_to_name,
@@ -438,15 +479,15 @@ router.get('/technicians', async (req, res) => {
         COUNT(CASE WHEN w.status = 'completed' THEN 1 END)::int as completed_task_count,
         MAX(CASE WHEN w.status = 'open' THEN a.site_location END) as current_site,
         MAX(CASE WHEN w.status = 'open' THEN a.equipment_name END) as current_task
-      FROM technicians t
-      LEFT JOIN employees emp ON emp.id = t.employee_id
-      LEFT JOIN employee_types et ON et.id = t.type_id
+      FROM employees t
+      LEFT JOIN employee_types et ON et.id = t.employee_type_id
       LEFT JOIN designations d ON d.id = t.designation_id
-      LEFT JOIN employees manager ON manager.emp_id = t.reports_to_emp_id
+      LEFT JOIN employees manager ON manager.id = t.reports_to
       LEFT JOIN work_orders w ON w.technician_id = t.id
       LEFT JOIN assets a ON a.id = w.asset_id
+      WHERE t.is_technician = true
       GROUP BY t.id, t.name, t.email, t.type_of_service, t.emp_id, t.contact_number,
-               t.task_assigned_count, t.task_complete_count, t.reports_to_emp_id,
+               t.task_assigned_count, t.task_complete_count, manager.emp_id,
                et.name, d.name, manager.name
       ORDER BY t.name
     `);
@@ -501,7 +542,7 @@ router.get('/departments/list', async (req, res) => {
       FROM (
         SELECT DISTINCT department AS name FROM assets WHERE department IS NOT NULL
         UNION
-        SELECT DISTINCT department_text AS name FROM employees WHERE department_text IS NOT NULL
+        SELECT DISTINCT ad.name AS name FROM employees e JOIN asset_departments ad ON ad.id = e.department_id WHERE ad.name IS NOT NULL
       ) d
       LEFT JOIN assets a ON a.department = d.name
       LEFT JOIN asset_types at ON at.id = a.type_id
@@ -793,7 +834,7 @@ router.get('/schedules', async (req, res) => {
         t.name AS technician_name
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
-      LEFT JOIN technicians t ON wo.technician_id = t.id
+      LEFT JOIN employees t ON wo.technician_id = t.id
       WHERE wo.status NOT IN ('completed', 'rejected')
       ORDER BY wo.due_date ASC
     `);
@@ -967,15 +1008,25 @@ router.post('/technicians/add', async (req, res) => {
   try {
     const { name, email, type_of_service, emp_id, type_id, designation_id, contact_number } = req.body;
 
+    // technicians is retired - a technician is now just an employee row with
+    // is_technician = true, so this needs the same required fields as
+    // POST /api/employees/add (employees.emp_id is NOT NULL and UNIQUE).
+    if (!emp_id || !name) {
+      return res.status(400).json({ error: 'emp_id and name are required' });
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO technicians (name, email, type_of_service, emp_id, type_id, designation_id, contact_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO employees (name, email, type_of_service, emp_id, employee_type_id, designation_id, contact_number, is_technician)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
        RETURNING *`,
-      [name, email, type_of_service, emp_id || null, type_id || null, designation_id || null, contact_number || null]
+      [name, email || null, type_of_service || null, emp_id, type_id || null, designation_id || null, contact_number || null]
     );
 
     return res.status(201).json(rows[0]);
   } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'An employee with this emp_id or email already exists' });
+    }
     console.error('Add technician failed:', error);
     return res.status(500).json({ error: 'Failed to add technician' });
   }
@@ -992,7 +1043,7 @@ router.post('/tasks/create', async (req, res) => {
     let technicianId = null;
     if (assigned_to) {
       const techResult = await pool.query(
-        `SELECT id FROM technicians WHERE email = $1 OR name = $1 LIMIT 1`,
+        `SELECT id FROM employees WHERE is_technician = true AND (email = $1 OR name = $1) LIMIT 1`,
         [assigned_to]
       );
       technicianId = techResult.rows[0]?.id || null;

@@ -576,7 +576,7 @@ router.post('/process-notes', async (req, res) => {
 router.post('/teams', async (req, res) => {
   try {
     const technicianResult = await pool.query(
-      `SELECT name, email FROM technicians WHERE email IS NOT NULL ORDER BY name`
+      `SELECT name, email FROM employees WHERE is_technician = true AND email IS NOT NULL ORDER BY name`
     );
     const maintenanceMembers = technicianResult.rows.map((row) => ({
       name: row.name,

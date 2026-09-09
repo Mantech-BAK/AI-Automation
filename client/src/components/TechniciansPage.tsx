@@ -232,7 +232,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
   }
 
   async function handleSave() {
-    if (!formData.name.trim() || !formData.email.trim() || !formData.type_of_service.trim()) return;
+    if (!formData.name.trim() || !formData.email.trim() || !formData.type_of_service.trim() || !formData.emp_id.trim()) return;
 
     setSaving(true);
     try {
@@ -240,7 +240,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
         name: formData.name,
         email: formData.email,
         type_of_service: formData.type_of_service,
-        emp_id: formData.emp_id || null,
+        emp_id: formData.emp_id,
         type_id: formData.type_id ? Number(formData.type_id) : null,
         designation_id: formData.designation_id ? Number(formData.designation_id) : null,
         contact_number: formData.contact_number || null,
@@ -652,7 +652,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Employee ID</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Employee ID *</label>
             <input
               type="text"
               value={formData.emp_id}
@@ -708,7 +708,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
             </button>
             <button
               onClick={handleSave}
-              disabled={!formData.name.trim() || !formData.email.trim() || !formData.type_of_service.trim() || saving}
+              disabled={!formData.name.trim() || !formData.email.trim() || !formData.type_of_service.trim() || !formData.emp_id.trim() || saving}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-shadow disabled:opacity-50"
             >
               {saving ? (

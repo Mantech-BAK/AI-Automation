@@ -326,9 +326,6 @@ async function runMigrations() {
         department = INITCAP(LOWER(TRIM(department)))
       WHERE site_location IS NOT NULL OR department IS NOT NULL;
 
-      UPDATE employees SET department_text = INITCAP(LOWER(TRIM(department_text)))
-      WHERE department_text IS NOT NULL;
-
       UPDATE asset_departments SET name = INITCAP(LOWER(TRIM(name)))
       WHERE name IS NOT NULL;
 
@@ -507,6 +504,118 @@ async function runMigrations() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_item_types JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_categories JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE users DROP COLUMN IF EXISTS permissions;
+    `);
+
+    // Dropped in favor of employees.email directly - resolveEmailChain() in
+    // jobs/dailyCheck.js now reads that column instead. Only ever populated
+    // for one employee, and that value was identical to their email anyway.
+    await pool.query(`
+      ALTER TABLE employees DROP COLUMN IF EXISTS notification_email;
+    `);
+
+    // Redundant free-text columns superseded by the designation_id/department_id/
+    // religion_id foreign keys - routes/employees.js now joins designations,
+    // asset_departments, employee_types, religions, and origins directly.
+    await pool.query(`
+      ALTER TABLE employees DROP COLUMN IF EXISTS designation_text;
+      ALTER TABLE employees DROP COLUMN IF EXISTS department_text;
+      ALTER TABLE employees DROP COLUMN IF EXISTS religion_text;
+    `);
+
+    // Dropped unconditionally here (rather than CREATE OR REPLACE) because an
+    // even earlier run of this view definition included e.reports_to_name,
+    // which is now gone - Postgres won't let CREATE OR REPLACE remove a
+    // column from an existing view. The corrected definition further below
+    // recreates it fresh.
+    await pool.query(`
+      DROP VIEW IF EXISTS employee_details_view;
+    `);
+
+    // Dropped in favor of technicians.email directly - jobs/dailyCheck.js and
+    // routes/dashboard.js now read that column instead of the separate
+    // notification override (same rationale as employees.notification_email above).
+    await pool.query(`
+      ALTER TABLE technicians DROP COLUMN IF EXISTS notification_email;
+    `);
+
+    // Re-declared to source reports_to_name from the employees.reports_to
+    // self-join, ahead of the DROP COLUMN below - employee_details_view
+    // otherwise still depends on the free-text column and blocks the drop.
+    await pool.query(`
+      CREATE OR REPLACE VIEW employee_details_view AS
+      SELECT
+        e.id,
+        e.emp_id,
+        e.name,
+        e.email,
+        e.contact_number,
+        e.gender,
+        e.joining_date,
+        e.company,
+        e.cost_center,
+        m.name as reports_to_name,
+        e.is_technician,
+        e.nationality,
+        d.name as designation,
+        ad.name as department,
+        et.name as employee_type,
+        r.name as religion,
+        o.name as origin
+      FROM employees e
+      LEFT JOIN designations d ON e.designation_id = d.id
+      LEFT JOIN asset_departments ad ON e.department_id = ad.id
+      LEFT JOIN employee_types et ON e.employee_type_id = et.id
+      LEFT JOIN religions r ON e.religion_id = r.id
+      LEFT JOIN origins o ON e.origin_id = o.id
+      LEFT JOIN employees m ON m.id = e.reports_to;
+    `);
+
+    // Dropped in favor of the employees.reports_to self-referencing foreign key -
+    // routes/employees.js and jobs/dailyCheck.js now join employees back onto
+    // itself (as manager) to derive the name instead of storing it as free text
+    // that could drift out of sync with the actual reports_to relationship.
+    await pool.query(`
+      ALTER TABLE employees DROP COLUMN IF EXISTS reports_to_name;
+    `);
+
+    // technicians is being retired in favor of employees.is_technician -
+    // routes/dashboard.js, routes/employees.js and jobs/dailyCheck.js now
+    // query employees directly instead of a separate mirror table.
+    await pool.query(`
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS type_of_service VARCHAR;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS open_task_count INTEGER DEFAULT 0;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS task_assigned_count INTEGER DEFAULT 0;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS task_complete_count INTEGER DEFAULT 0;
+    `);
+
+    await pool.query(`
+      UPDATE employees e SET type_of_service = t.type_of_service
+      FROM technicians t
+      WHERE t.emp_id = e.emp_id AND e.is_technician = true;
+    `);
+
+    // Repoint work_orders.technician_id at employees before technicians is
+    // dropped: drop the old FK, remap any existing values from a
+    // technicians.id to the matching employees.id (via emp_id), then add the
+    // new FK.
+    await pool.query(`
+      ALTER TABLE work_orders DROP CONSTRAINT IF EXISTS work_orders_technician_id_fkey;
+    `);
+
+    await pool.query(`
+      UPDATE work_orders w SET technician_id = e.id
+      FROM employees e
+      JOIN technicians t ON t.emp_id = e.emp_id
+      WHERE w.technician_id = t.id;
+    `);
+
+    await pool.query(`
+      ALTER TABLE work_orders ADD CONSTRAINT work_orders_technician_id_fkey
+        FOREIGN KEY (technician_id) REFERENCES employees(id) ON DELETE SET NULL;
+    `);
+
+    await pool.query(`
+      DROP TABLE IF EXISTS technicians CASCADE;
     `);
 
     const defaultSettings = [

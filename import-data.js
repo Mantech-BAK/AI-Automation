@@ -1,3 +1,9 @@
+// DEPRECATED - technicians table removed, use employees table with
+// is_technician = true instead. This script is also broken independently of
+// that: it writes to employees.department_text, designation_text,
+// religion_text and reports_to_name, all of which were dropped in earlier
+// schema changes. Fixing only the technicians references would not make it
+// runnable again - kept for historical reference only.
 const fs = require('fs');
 const path = require('path');
 const XLSX = require('xlsx');

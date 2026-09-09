@@ -48,11 +48,12 @@ interface LookupOption {
 
 type PageTab = 'equipment' | 'documents' | 'vehicles';
 
-type DocExpiryTile = 'all' | 'expired' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
+type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
 
 const DOC_EXPIRY_TILES: { id: DocExpiryTile; label: string; activeClass: string; inactiveClass: string }[] = [
   { id: 'all', label: 'All Documents', activeClass: 'bg-slate-200 border-slate-600 text-slate-800', inactiveClass: 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100' },
   { id: 'expired', label: 'Expired', activeClass: 'bg-red-100 border-red-600 text-red-800', inactiveClass: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100' },
+  { id: 'expiring0', label: 'Expiring Today', activeClass: 'bg-red-100 border-red-700 text-red-900', inactiveClass: 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100' },
   { id: 'expiring7', label: 'Expiring Within 7 Days', activeClass: 'bg-orange-100 border-orange-600 text-orange-800', inactiveClass: 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100' },
   { id: 'expiring30', label: 'Expiring Within 30 Days', activeClass: 'bg-amber-100 border-amber-500 text-amber-800', inactiveClass: 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' },
   { id: 'expiring90', label: 'Expiring Within 90 Days', activeClass: 'bg-yellow-100 border-yellow-500 text-yellow-800', inactiveClass: 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100' },
@@ -80,9 +81,10 @@ interface EquipmentPageProps {
   initialTab?: PageTab;
   initialDocExpiryTile?: DocExpiryTile;
   initialVehicleId?: number | null;
+  initialSite?: string;
 }
 
-export default function EquipmentPage({ initialTab, initialDocExpiryTile, initialVehicleId }: EquipmentPageProps = {}) {
+export default function EquipmentPage({ initialTab, initialDocExpiryTile, initialVehicleId, initialSite }: EquipmentPageProps = {}) {
   const [activeTab, setActiveTab] = useState<PageTab>(initialTab || 'equipment');
   const [docExpiryTile, setDocExpiryTile] = useState<DocExpiryTile>(initialDocExpiryTile || 'all');
 
@@ -94,8 +96,8 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [documentsError, setDocumentsError] = useState<string | null>(null);
 
-  const [equipmentDeptFilter, setEquipmentDeptFilter] = useState('all');
-  const [documentDeptFilter, setDocumentDeptFilter] = useState('all');
+  const [equipmentDeptFilter, setEquipmentDeptFilter] = useState(initialSite || 'all');
+  const [documentDeptFilter, setDocumentDeptFilter] = useState(initialSite || 'all');
 
   const [editingAsset, setEditingAsset] = useState<EditableAsset | null>(null);
 
@@ -325,6 +327,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
     switch (tile) {
       case 'all': return true;
       case 'expired': return days !== null && days < 0;
+      case 'expiring0': return days === 0;
       case 'expiring7': return days !== null && days >= 0 && days <= 7;
       case 'expiring30': return days !== null && days >= 0 && days <= 30;
       case 'expiring90': return days !== null && days >= 0 && days <= 90;
@@ -340,6 +343,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
   const docExpiryTileCounts: Record<DocExpiryTile, number> = {
     all: documentsInDept.length,
     expired: documentsInDept.filter((item) => matchesDocExpiryTile('expired', item.expiry_date)).length,
+    expiring0: documentsInDept.filter((item) => matchesDocExpiryTile('expiring0', item.expiry_date)).length,
     expiring7: documentsInDept.filter((item) => matchesDocExpiryTile('expiring7', item.expiry_date)).length,
     expiring30: documentsInDept.filter((item) => matchesDocExpiryTile('expiring30', item.expiry_date)).length,
     expiring90: documentsInDept.filter((item) => matchesDocExpiryTile('expiring90', item.expiry_date)).length,
@@ -538,7 +542,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
         ) : (
           <div className="space-y-4">
             {/* Expiry filter tiles */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
               {DOC_EXPIRY_TILES.map((tile) => (
                 <button
                   key={tile.id}

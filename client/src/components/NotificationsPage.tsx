@@ -10,6 +10,11 @@ import {
   Wrench,
   Car,
 } from 'lucide-react';
+import type { NavFilter } from '../App';
+
+interface NotificationsPageProps {
+  onNavigate?: (page: string, filter?: NavFilter) => void;
+}
 
 interface Notification {
   id: string;
@@ -62,7 +67,43 @@ function getNotificationDescription(notif: Notification): string {
   );
 }
 
-export default function NotificationsPage() {
+// Where clicking a notification card should take you, based on what kind of
+// event it is - document-related notifications go to the Documents tab,
+// vehicle ones to the Vehicles tab, everything else (equipment tasks,
+// escalations, Teams posts) to Maintenance Tasks.
+function getNotificationTarget(type: string): { page: string; filter?: NavFilter } {
+  switch (type) {
+    case 'document_renewed':
+    case 'document_reminder':
+    case 'document_task_created':
+      return { page: 'equipment', filter: { tab: 'documents' } };
+    case 'vehicle_task_renewed':
+      return { page: 'equipment', filter: { tab: 'vehicles' } };
+    case 'task_completed':
+    case 'equipment_reminder':
+    case 'equipment_task_created':
+      return { page: 'tasks', filter: { tab: 'equipment' } };
+    default:
+      return { page: 'tasks' };
+  }
+}
+
+function getTypeBorderClass(type: string): string {
+  switch (type) {
+    case 'escalation': return 'border-l-4 border-red-400';
+    case 'creation': return 'border-l-4 border-blue-400';
+    case 'reminder7':
+    case 'reminder3':
+    case 'reminder1': return 'border-l-4 border-amber-400';
+    case 'teams': return 'border-l-4 border-purple-400';
+    case 'document_renewed':
+    case 'task_completed':
+    case 'vehicle_task_renewed': return 'border-l-4 border-emerald-400';
+    default: return 'border-l-4 border-slate-300';
+  }
+}
+
+export default function NotificationsPage({ onNavigate }: NotificationsPageProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -166,28 +207,33 @@ export default function NotificationsPage() {
             <p className="text-slate-500">No notifications found</p>
           </div>
         ) : (
-          notifications.map((notif) => (
-            <div
-              key={notif.id}
-              className="bg-white rounded-xl p-5 border border-slate-200 transition-all"
-            >
-              <div className="flex items-start gap-4">
-                <div className={`w-10 h-10 rounded-full ${getTypeBg(notif.notification_type)} flex items-center justify-center flex-shrink-0`}>
-                  {getTypeIcon(notif.notification_type)}
+          notifications.map((notif) => {
+            const target = getNotificationTarget(notif.notification_type);
+            return (
+              <button
+                type="button"
+                key={notif.id}
+                onClick={() => onNavigate?.(target.page, target.filter)}
+                className={`w-full text-left bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ${getTypeBorderClass(notif.notification_type)}`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className={`w-10 h-10 rounded-full ${getTypeBg(notif.notification_type)} flex items-center justify-center flex-shrink-0`}>
+                    {getTypeIcon(notif.notification_type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-slate-800 capitalize">{formatTypeLabel(notif.notification_type)}</h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {getNotificationDescription(notif)}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-3">
+                      {new Date(notif.sent_at).toLocaleDateString()} at{' '}
+                      {new Date(notif.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-slate-800 capitalize">{formatTypeLabel(notif.notification_type)}</h3>
-                  <p className="text-sm text-slate-500 mt-1">
-                    {getNotificationDescription(notif)}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-3">
-                    {new Date(notif.sent_at).toLocaleDateString()} at{' '}
-                    {new Date(notif.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
     </div>

@@ -1,3 +1,7 @@
+/* Inter itself is loaded via <link> tags in index.html (preconnect + a
+   single stylesheet request) rather than an @import here, so the font
+   request starts as early as possible instead of waiting on this file. */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -19,7 +23,53 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Smooth transitions everywhere, scoped to the four properties that actually
+   change on hover/state changes (not a blanket `transition: all`, which
+   would also animate layout-affecting properties like width/height/padding
+   and make those changes look laggy instead of instant). Spinners, pulsing
+   skeletons and SVG icon internals are excluded so their own keyframe
+   animations aren't fought over by this transition. */
+*:not(.animate-spin):not(.animate-pulse):not(.animate-spin *):not(.animate-pulse *) {
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+/* Consistent card look: the app's cards are consistently `bg-white` plus a
+   rounded-lg/xl/2xl utility, so this catches them globally without having to
+   touch every component that renders one. */
+.bg-white.rounded-lg,
+.bg-white.rounded-xl,
+.bg-white.rounded-2xl {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Alternating table row backgrounds for readability - specificity of the
+   hover utility classes used throughout the app is still higher than this,
+   so row hover states keep working normally on top of the stripe. */
+table tbody tr:nth-child(even) {
+  background-color: #f8fafc;
+}
+
+/* Modal open animation (Modal.tsx) - backdrop fades in, panel fades and
+   scales in slightly for a softer entrance than an instant snap-in. */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-backdrop-animate {
+  animation: modal-backdrop-in 0.2s ease-out;
+}
+
+.modal-panel-animate {
+  animation: modal-panel-in 0.2s ease-out;
 }

@@ -16,21 +16,23 @@ interface Employee {
   name: string;
   email?: string | null;
   contact_number?: string | null;
-  designation_name?: string | null;
-  department_name?: string | null;
-  department_text?: string | null;
-  designation_text?: string | null;
-  religion_text?: string | null;
+  designation?: string | null;
+  department?: string | null;
+  employee_type?: string | null;
+  religion?: string | null;
+  origin?: string | null;
+  designation_id?: number | string | null;
+  department_id?: number | string | null;
+  employee_type_id?: number | string | null;
+  religion_id?: number | string | null;
+  origin_id?: number | string | null;
   nationality?: string | null;
   gender?: string | null;
   cost_center?: string | null;
-  employee_type_name?: string | null;
-  religion_name?: string | null;
-  origin_name?: string | null;
+  reports_to_id?: number | string | null;
   reports_to_name?: string | null;
   reports_to_emp_id?: string | null;
   is_technician: boolean;
-  notification_email?: string | null;
 }
 
 type TechnicianFilter = 'all' | 'technicians';
@@ -60,15 +62,14 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
   const [editSaving, setEditSaving] = useState(false);
   const [editFormData, setEditFormData] = useState({
     name: '',
-    designation_text: '',
-    department_text: '',
-    religion_text: '',
+    designation_id: '',
+    department_id: '',
+    religion_id: '',
     nationality: '',
     gender: '',
     cost_center: '',
-    reports_to_name: '',
+    reports_to: '',
     is_technician: false,
-    notification_email: '',
   });
 
   const [designationOptions, setDesignationOptions] = useState<LookupOption[]>([]);
@@ -90,7 +91,6 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     reports_to: '',
     is_technician: false,
     type_of_service: 'General',
-    notification_email: '',
   });
 
   useEffect(() => {
@@ -159,9 +159,8 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
         department_id: formData.department_id ? Number(formData.department_id) : null,
         employee_type_id: formData.employee_type_id ? Number(formData.employee_type_id) : null,
         religion_id: formData.religion_id ? Number(formData.religion_id) : null,
-        reports_to: formData.reports_to || null,
+        reports_to: formData.reports_to ? Number(formData.reports_to) : null,
         is_technician: formData.is_technician,
-        notification_email: formData.notification_email || null,
         ...(formData.is_technician ? { type_of_service: formData.type_of_service.toLowerCase() } : {}),
       };
 
@@ -197,7 +196,6 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
       reports_to: '',
       is_technician: false,
       type_of_service: 'General',
-      notification_email: '',
     });
   }
 
@@ -205,16 +203,16 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     setEditingEmployee(emp);
     setEditFormData({
       name: emp.name || '',
-      designation_text: emp.designation_text || '',
-      department_text: emp.department_text || '',
-      religion_text: emp.religion_text || '',
+      designation_id: emp.designation_id != null ? String(emp.designation_id) : '',
+      department_id: emp.department_id != null ? String(emp.department_id) : '',
+      religion_id: emp.religion_id != null ? String(emp.religion_id) : '',
       nationality: emp.nationality || '',
       gender: emp.gender || '',
       cost_center: emp.cost_center || '',
-      reports_to_name: emp.reports_to_name || '',
+      reports_to: emp.reports_to_id != null ? String(emp.reports_to_id) : '',
       is_technician: emp.is_technician,
-      notification_email: emp.notification_email || '',
     });
+    fetchLookupOptions();
   }
 
   async function handleEditSave() {
@@ -222,10 +220,22 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
 
     setEditSaving(true);
     try {
+      const payload = {
+        name: editFormData.name,
+        designation_id: editFormData.designation_id ? Number(editFormData.designation_id) : null,
+        department_id: editFormData.department_id ? Number(editFormData.department_id) : null,
+        religion_id: editFormData.religion_id ? Number(editFormData.religion_id) : null,
+        reports_to: editFormData.reports_to ? Number(editFormData.reports_to) : null,
+        nationality: editFormData.nationality,
+        gender: editFormData.gender,
+        cost_center: editFormData.cost_center,
+        is_technician: editFormData.is_technician,
+      };
+
       const response = await fetch(`/api/employees/${editingEmployee.id}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editFormData),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         throw new Error(`Failed to update employee: ${response.statusText}`);
@@ -275,8 +285,8 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     );
   }
 
-  const departmentTextOptions = [...new Set(
-    employees.map((emp) => emp.department_text).filter((d): d is string => Boolean(d))
+  const departmentNameOptions = [...new Set(
+    employees.map((emp) => emp.department).filter((d): d is string => Boolean(d))
   )].sort();
 
   const filteredEmployees = employees.filter((emp) => {
@@ -285,7 +295,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
       return false;
     }
 
-    if (departmentFilter !== 'all' && emp.department_text !== departmentFilter) {
+    if (departmentFilter !== 'all' && emp.department !== departmentFilter) {
       return false;
     }
 
@@ -337,7 +347,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
           className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
         >
           <option value="all">All Departments</option>
-          {departmentTextOptions.map((dept) => (
+          {departmentNameOptions.map((dept) => (
             <option key={dept} value={dept}>{dept}</option>
           ))}
         </select>
@@ -399,8 +409,8 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{emp.designation_text || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{emp.department_text || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{emp.designation || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{emp.department || '-'}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{emp.cost_center || '-'}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
@@ -543,19 +553,9 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
               >
                 <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select manager'}</option>
                 {managerOptions.map((option) => (
-                  <option key={option.id} value={option.emp_id}>{option.emp_id} - {option.name}</option>
+                  <option key={option.id} value={option.id}>{option.emp_id} - {option.name}</option>
                 ))}
               </select>
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Notification Email</label>
-              <input
-                type="email"
-                value={formData.notification_email}
-                onChange={(e) => setFormData({ ...formData, notification_email: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                placeholder="Used to email this person document/vehicle renewal reminders"
-              />
             </div>
             <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5">
               <label className="text-sm font-medium text-slate-700">Is Technician</label>
@@ -646,30 +646,45 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
-              <input
-                type="text"
-                value={editFormData.designation_text}
-                onChange={(e) => setEditFormData({ ...editFormData, designation_text: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              />
+              <select
+                value={editFormData.designation_id}
+                onChange={(e) => setEditFormData({ ...editFormData, designation_id: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select designation'}</option>
+                {designationOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-              <input
-                type="text"
-                value={editFormData.department_text}
-                onChange={(e) => setEditFormData({ ...editFormData, department_text: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              />
+              <select
+                value={editFormData.department_id}
+                onChange={(e) => setEditFormData({ ...editFormData, department_id: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select department'}</option>
+                {departmentOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Religion</label>
-              <input
-                type="text"
-                value={editFormData.religion_text}
-                onChange={(e) => setEditFormData({ ...editFormData, religion_text: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              />
+              <select
+                value={editFormData.religion_id}
+                onChange={(e) => setEditFormData({ ...editFormData, religion_id: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select religion'}</option>
+                {religionOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Nationality</label>
@@ -700,22 +715,17 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Reports To</label>
-              <input
-                type="text"
-                value={editFormData.reports_to_name}
-                onChange={(e) => setEditFormData({ ...editFormData, reports_to_name: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Notification Email</label>
-              <input
-                type="email"
-                value={editFormData.notification_email}
-                onChange={(e) => setEditFormData({ ...editFormData, notification_email: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                placeholder="Used to email this person document/vehicle renewal reminders"
-              />
+              <select
+                value={editFormData.reports_to}
+                onChange={(e) => setEditFormData({ ...editFormData, reports_to: e.target.value })}
+                disabled={lookupOptionsLoading}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select manager'}</option>
+                {managerOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.emp_id} - {option.name}</option>
+                ))}
+              </select>
             </div>
             <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5">
               <label className="text-sm font-medium text-slate-700">Is Technician</label>

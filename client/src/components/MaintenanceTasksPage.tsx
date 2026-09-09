@@ -85,7 +85,7 @@ type PageTab = 'equipment' | 'documents' | 'vehicles';
 type StatusFilter = 'all' | 'pending' | 'open' | 'approved' | 'completed';
 
 type DayTile = 'overdue' | 'today' | '7' | '15' | '30' | 'all';
-type DocTile = 'expired' | '7' | '15' | '30' | 'all';
+type DocTile = 'expired' | 'today' | '7' | '15' | '30' | 'all';
 
 type SortKey =
   | 'due_asc'
@@ -110,7 +110,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 const VALID_STATUS_FILTERS: StatusFilter[] = ['all', 'pending', 'open', 'approved', 'completed'];
 const VALID_DAY_TILES: DayTile[] = ['overdue', 'today', '7', '15', '30', 'all'];
-const VALID_DOC_TILES: DocTile[] = ['expired', '7', '15', '30', 'all'];
+const VALID_DOC_TILES: DocTile[] = ['expired', 'today', '7', '15', '30', 'all'];
 
 const DAY_TILES: { id: DayTile; label: string; color: string; activeColor: string; icon: typeof AlertTriangle }[] = [
   { id: 'overdue', label: 'Overdue', color: 'text-red-600 bg-red-50 border-red-200', activeColor: 'border-red-600 bg-red-100', icon: AlertTriangle },
@@ -123,7 +123,8 @@ const DAY_TILES: { id: DayTile; label: string; color: string; activeColor: strin
 
 const DOC_TILES: { id: DocTile; label: string; color: string; activeColor: string; icon: typeof AlertTriangle }[] = [
   { id: 'expired', label: 'Expired', color: 'text-red-600 bg-red-50 border-red-200', activeColor: 'border-red-600 bg-red-100', icon: FileX },
-  { id: '7', label: 'Expiring Within 7 Days', color: 'text-orange-600 bg-orange-50 border-orange-200', activeColor: 'border-orange-600 bg-orange-100', icon: CalendarClock },
+  { id: 'today', label: 'Due Today', color: 'text-orange-700 bg-orange-50 border-orange-300', activeColor: 'border-orange-700 bg-orange-100', icon: Clock },
+  { id: '7', label: 'Expiring Within 7 Days', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', activeColor: 'border-yellow-600 bg-yellow-100', icon: CalendarClock },
   { id: '15', label: 'Expiring Within 15 Days', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', activeColor: 'border-yellow-600 bg-yellow-100', icon: CalendarDays },
   { id: '30', label: 'Expiring Within 30 Days', color: 'text-blue-600 bg-blue-50 border-blue-200', activeColor: 'border-blue-600 bg-blue-100', icon: CalendarDays },
   { id: 'all', label: 'All Documents', color: 'text-slate-600 bg-slate-50 border-slate-200', activeColor: 'border-slate-500 bg-slate-200', icon: LayoutGrid },
@@ -198,15 +199,20 @@ function matchesDayTile(task: MaintenanceTask, tile: DayTile): boolean {
   return true;
 }
 
-function matchesDocTile(task: MaintenanceTask, tile: DocTile): boolean {
+function matchesDateTile(dateStr: string | null | undefined, tile: DocTile): boolean {
   if (tile === 'all') return true;
-  const days = daysUntil(task.expiry_date);
+  const days = daysUntil(dateStr);
   if (days === null) return false;
   if (tile === 'expired') return days < 0;
+  if (tile === 'today') return days === 0;
   if (tile === '7') return days >= 0 && days <= 7;
   if (tile === '15') return days >= 0 && days <= 15;
   if (tile === '30') return days >= 0 && days <= 30;
   return true;
+}
+
+function matchesDocTile(task: MaintenanceTask, tile: DocTile): boolean {
+  return matchesDateTile(task.expiry_date, tile);
 }
 
 export default function MaintenanceTasksPage({ initialFilter, onNavigate }: MaintenanceTasksPageProps) {
@@ -221,6 +227,9 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
     : 'all';
   const initialDocTile: DocTile = VALID_DOC_TILES.includes(initialFilter?.taskDocTile as DocTile)
     ? (initialFilter!.taskDocTile as DocTile)
+    : 'all';
+  const initialVehicleTile: DocTile = VALID_DOC_TILES.includes(initialFilter?.vehicleFilter as DocTile)
+    ? (initialFilter!.vehicleFilter as DocTile)
     : 'all';
 
   const [activeTab, setActiveTab] = useState<PageTab>(initialTab);
@@ -251,6 +260,7 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
   const [vehiclesError, setVehiclesError] = useState<string | null>(null);
   const [upcomingVehicleTasks, setUpcomingVehicleTasks] = useState<VehicleUpcomingTask[]>([]);
   const [upcomingVehicleTasksLoading, setUpcomingVehicleTasksLoading] = useState(true);
+  const [vehicleTileFilter, setVehicleTileFilter] = useState<DocTile>(initialVehicleTile);
 
   useEffect(() => {
     fetchData();
@@ -448,6 +458,7 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
 
   const docTileCounts: Record<DocTile, number> = {
     expired: documentTasks.filter((t) => matchesDocTile(t, 'expired')).length,
+    today: documentTasks.filter((t) => matchesDocTile(t, 'today')).length,
     '7': documentTasks.filter((t) => matchesDocTile(t, '7')).length,
     '15': documentTasks.filter((t) => matchesDocTile(t, '15')).length,
     '30': documentTasks.filter((t) => matchesDocTile(t, '30')).length,
@@ -481,6 +492,16 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
 
   const filteredDocumentTasks = documentTasks.filter((task) => matchesDocTile(task, docTileFilter));
   const sortedDocumentTasks = [...filteredDocumentTasks].sort((a, b) => compareByDueDate(a.expiry_date, b.expiry_date, 1));
+
+  const vehicleTileCounts: Record<DocTile, number> = {
+    expired: upcomingVehicleTasks.filter((t) => matchesDateTile(t.expiry_date, 'expired')).length,
+    today: upcomingVehicleTasks.filter((t) => matchesDateTile(t.expiry_date, 'today')).length,
+    '7': upcomingVehicleTasks.filter((t) => matchesDateTile(t.expiry_date, '7')).length,
+    '15': upcomingVehicleTasks.filter((t) => matchesDateTile(t.expiry_date, '15')).length,
+    '30': upcomingVehicleTasks.filter((t) => matchesDateTile(t.expiry_date, '30')).length,
+    all: upcomingVehicleTasks.length,
+  };
+  const filteredVehicleTasks = upcomingVehicleTasks.filter((t) => matchesDateTile(t.expiry_date, vehicleTileFilter));
 
   return (
     <div className="space-y-6">
@@ -713,7 +734,7 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
         ) : (
           <div className="space-y-6">
             {/* Expiry filter tiles */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {DOC_TILES.map((tile) => {
                 const Icon = tile.icon;
                 const isActive = docTileFilter === tile.id;
@@ -858,6 +879,29 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
 
             <div>
               <h3 className="text-sm font-semibold text-slate-800 mb-3">Vehicle Tasks Due Within 30 Days</h3>
+
+              {/* Due-date filter tiles */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                {DOC_TILES.map((tile) => {
+                  const Icon = tile.icon;
+                  const isActive = vehicleTileFilter === tile.id;
+                  return (
+                    <button
+                      key={tile.id}
+                      type="button"
+                      onClick={() => setVehicleTileFilter(tile.id)}
+                      className={`text-left rounded-xl p-3 border-2 transition-all cursor-pointer ${
+                        isActive ? tile.activeColor : `${tile.color} hover:shadow-sm`
+                      }`}
+                    >
+                      <Icon size={16} />
+                      <p className="text-xl font-bold text-slate-800 mt-1">{vehicleTileCounts[tile.id]}</p>
+                      <p className="text-xs text-slate-600 mt-0.5">{tile.label}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
               {upcomingVehicleTasksLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
@@ -875,15 +919,15 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
-                        {upcomingVehicleTasks.length === 0 ? (
+                        {filteredVehicleTasks.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
                               <Car size={40} className="mx-auto text-slate-300 mb-2" />
-                              <p>No vehicle tasks due within 30 days.</p>
+                              <p>No vehicle tasks match this filter.</p>
                             </td>
                           </tr>
                         ) : (
-                          upcomingVehicleTasks.map((task) => (
+                          filteredVehicleTasks.map((task) => (
                             <tr
                               key={task.id}
                               onClick={() => onNavigate && onNavigate('equipment', { tab: 'vehicles', vehicleId: task.vehicle_id })}

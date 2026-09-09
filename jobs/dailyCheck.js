@@ -250,7 +250,7 @@ function buildFallbackSlot(isoDate, estimatedDurationHours) {
 
 async function findAvailableTechnician(siteLocation, typeOfService, dueDate, estimatedDurationHours) {
   const eligibleResult = await pool.query(
-    `SELECT * FROM technicians WHERE LOWER(type_of_service) = LOWER($1) ORDER BY open_task_count ASC`,
+    `SELECT * FROM employees WHERE is_technician = true AND LOWER(type_of_service) = LOWER($1) ORDER BY open_task_count ASC`,
     [typeOfService]
   );
 
@@ -344,7 +344,7 @@ async function assignTaskAndNotify(workOrder, asset, technician, availability = 
 
   if (technician.id) {
     await pool.query(
-      `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
+      `UPDATE employees SET open_task_count = open_task_count + 1 WHERE id = $1`,
       [technician.id]
     );
   }
@@ -454,10 +454,10 @@ async function getAdminFallbackEmail() {
 
 // Resolves a responsible person (a document's responsible_person, a vehicle's
 // incharge, or a technician's name) to real mailboxes via the employee master
-// record: their own notification_email first, then their manager's, then the
-// first admin user. manager_email is always looked up independently (even
-// when the person's own email was found) so escalation call sites can address
-// the manager directly once something goes overdue, without a second query.
+// record: their own email first, then their manager's, then the first admin
+// user. manager_email is always looked up independently (even when the
+// person's own email was found) so escalation call sites can address the
+// manager directly once something goes overdue, without a second query.
 // Never exposed to the frontend - this lookup only happens here, server-side.
 async function resolveEmailChain(responsiblePersonName) {
   let primaryEmail = null;
@@ -471,24 +471,24 @@ async function resolveEmailChain(responsiblePersonName) {
     // shorter free-text name (e.g. just 'Dhanaraju') match as a substring of
     // the full HR name.
     const ownResult = await pool.query(
-      `SELECT notification_email FROM employees
+      `SELECT email FROM employees
        WHERE regexp_replace(LOWER(TRIM(name)), '\\s+', ' ', 'g') ILIKE regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g')
           OR regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g') ILIKE '%' || regexp_replace(LOWER(TRIM(name)), '\\s+', ' ', 'g') || '%'
        LIMIT 1`,
       [responsiblePersonName]
     );
-    primaryEmail = ownResult.rows[0]?.notification_email || null;
+    primaryEmail = ownResult.rows[0]?.email || null;
 
     const managerResult = await pool.query(
-      `SELECT e2.notification_email
+      `SELECT e2.email
        FROM employees e1
-       JOIN employees e2 ON e2.name ILIKE e1.reports_to_name
+       JOIN employees e2 ON e2.id = e1.reports_to
        WHERE regexp_replace(LOWER(TRIM(e1.name)), '\\s+', ' ', 'g') ILIKE regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g')
           OR regexp_replace(LOWER(TRIM($1)), '\\s+', ' ', 'g') ILIKE '%' || regexp_replace(LOWER(TRIM(e1.name)), '\\s+', ' ', 'g') || '%'
        LIMIT 1`,
       [responsiblePersonName]
     );
-    managerEmail = managerResult.rows[0]?.notification_email || null;
+    managerEmail = managerResult.rows[0]?.email || null;
   }
 
   if (!primaryEmail) {
@@ -829,7 +829,7 @@ async function runDailyCheck() {
 
     if (technician.id) {
       await pool.query(
-        `UPDATE technicians SET open_task_count = open_task_count + 1 WHERE id = $1`,
+        `UPDATE employees SET open_task_count = open_task_count + 1 WHERE id = $1`,
         [technician.id]
       );
     }
@@ -1037,10 +1037,10 @@ async function runDailyCheck() {
 
   for (const reminder of reminders) {
     const dueResult = await pool.query(
-      `SELECT wo.*, a.equipment_name, a.site_location, a.estimated_duration_hours, t.name AS technician_name, t.email AS technician_email, t.notification_email AS technician_notification_email
+      `SELECT wo.*, a.equipment_name, a.site_location, a.estimated_duration_hours, t.name AS technician_name, t.email AS technician_email
        FROM work_orders wo
        JOIN assets a ON wo.asset_id = a.id
-       JOIN technicians t ON wo.technician_id = t.id
+       JOIN employees t ON wo.technician_id = t.id AND t.is_technician = true
        WHERE wo.status = 'open'
          AND wo.due_date = CURRENT_DATE + INTERVAL '${reminder.days} days'`,
     );
@@ -1053,7 +1053,7 @@ async function runDailyCheck() {
 
       if (existingReminder.rows.length > 0) continue;
 
-      const recipientEmail = workOrder.technician_notification_email || workOrder.technician_email;
+      const recipientEmail = workOrder.technician_email;
       const emailBody = `Reminder: maintenance task for ${workOrder.equipment_name} at ${workOrder.site_location} is due in ${reminder.days} days. Technician: ${workOrder.technician_name}. Duration: ${workOrder.estimated_duration_hours} hours.`;
       try {
         await sendMail(recipientEmail, `Maintenance Reminder (${reminder.days} days)`, emailBody, 'app');
@@ -1068,7 +1068,7 @@ async function runDailyCheck() {
     SELECT wo.*, a.equipment_name, a.site_location, a.estimated_duration_hours, t.name AS technician_name, t.email AS technician_email
     FROM work_orders wo
     JOIN assets a ON wo.asset_id = a.id
-    JOIN technicians t ON wo.technician_id = t.id
+    JOIN employees t ON wo.technician_id = t.id AND t.is_technician = true
     WHERE wo.status = 'open' AND wo.due_date < CURRENT_DATE
   `);
 

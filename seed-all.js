@@ -138,12 +138,10 @@ async function deleteAllData(client) {
   await client.query('DELETE FROM escalation_log');
   await client.query('DELETE FROM notification_log');
   await client.query('DELETE FROM work_orders');
-  await client.query('DELETE FROM technicians');
   await client.query('DELETE FROM employees');
   await client.query('DELETE FROM assets');
 
   await client.query('ALTER SEQUENCE assets_id_seq RESTART WITH 1');
-  await client.query('ALTER SEQUENCE technicians_id_seq RESTART WITH 1');
   await client.query('ALTER SEQUENCE employees_id_seq RESTART WITH 1');
   await client.query('ALTER SEQUENCE work_orders_id_seq RESTART WITH 1');
 
@@ -173,14 +171,14 @@ async function insertEmployeesAndTechnicians(client, lookups) {
     );
   }
 
-  // Technicians: inserted into both employees (is_technician = true) and technicians.
+  // Technicians: retired mirror table - a technician is just an employees
+  // row with is_technician = true and type_of_service set.
   for (const tech of TECHNICIANS) {
-    const employeeResult = await client.query(
-      `INSERT INTO employees (emp_id, name, email, contact_number, designation_id, department_id, employee_type_id, religion_id, origin_id, reports_to, is_technician)
+    await client.query(
+      `INSERT INTO employees (emp_id, name, email, contact_number, designation_id, department_id, employee_type_id, religion_id, origin_id, reports_to, is_technician, type_of_service)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
          (SELECT id FROM employees WHERE emp_id = $10),
-         TRUE)
-       RETURNING id`,
+         TRUE, $11)`,
       [
         tech.emp_id,
         tech.name,
@@ -192,33 +190,12 @@ async function insertEmployeesAndTechnicians(client, lookups) {
         lookups.religions[tech.religion],
         lookups.origins[tech.origin],
         tech.reportsTo,
-      ]
-    );
-    const employeeId = employeeResult.rows[0].id;
-
-    await client.query(
-      `INSERT INTO technicians (
-         name, email, type_of_service, emp_id, type_id, designation_id, religion_id, origin_id,
-         contact_number, employee_id, reports_to_emp_id, notification_email
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        tech.name,
-        tech.email,
         tech.typeOfService,
-        tech.emp_id,
-        lookups.employeeTypes[tech.employeeType],
-        lookups.designations[tech.designation],
-        lookups.religions[tech.religion],
-        lookups.origins[tech.origin],
-        tech.contact_number,
-        employeeId,
-        tech.reportsTo,
-        tech.notificationEmail || tech.email,
       ]
     );
   }
 
-  console.log(`Step 2 complete: ${SUPERVISORS.length} supervisors + ${TECHNICIANS.length} technicians inserted into employees and technicians.`);
+  console.log(`Step 2 complete: ${SUPERVISORS.length} supervisors + ${TECHNICIANS.length} technicians inserted into employees.`);
 }
 
 async function insertAssets(client, lookups) {
@@ -271,7 +248,7 @@ async function insertAssets(client, lookups) {
 
 async function printVerificationSummary() {
   const employeeCount = await pool.query('SELECT COUNT(*) FROM employees');
-  const technicianCount = await pool.query('SELECT COUNT(*) FROM technicians');
+  const technicianCount = await pool.query('SELECT COUNT(*) FROM employees WHERE is_technician = TRUE');
   const supervisorCount = await pool.query('SELECT COUNT(*) FROM employees WHERE is_technician = FALSE');
   const assetCount = await pool.query('SELECT COUNT(*) FROM assets');
 
@@ -296,10 +273,11 @@ async function printVerificationSummary() {
        OR (emp_id != 'EMP011' AND reports_to IS NULL)
   `);
   const nullTechnicians = await pool.query(`
-    SELECT id, emp_id FROM technicians
-    WHERE name IS NULL OR email IS NULL OR type_of_service IS NULL OR emp_id IS NULL
-       OR type_id IS NULL OR designation_id IS NULL OR contact_number IS NULL
-       OR employee_id IS NULL OR reports_to_emp_id IS NULL OR notification_email IS NULL
+    SELECT id, emp_id FROM employees
+    WHERE is_technician = TRUE AND (
+      name IS NULL OR email IS NULL OR type_of_service IS NULL OR emp_id IS NULL
+      OR employee_type_id IS NULL OR designation_id IS NULL OR contact_number IS NULL
+    )
   `);
 
   console.log('\n===== Verification Summary =====');
@@ -323,10 +301,6 @@ async function run() {
     await client.query('BEGIN');
 
     await deleteAllData(client);
-
-    // Runs early (ahead of Step 2's inserts) so the column exists before technicians rows
-    // reference it; this is the schema change requested as Step 4.
-    await client.query('ALTER TABLE technicians ADD COLUMN IF NOT EXISTS notification_email VARCHAR');
 
     const lookups = {
       designations: await getLookupMap('designations'),

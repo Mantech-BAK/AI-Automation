@@ -25,15 +25,35 @@ interface SessionUser {
   allowed_categories: string[];
 }
 
-export type DocExpiryTile = 'all' | 'expired' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
+export type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
+
+// Used by MaintenanceTasksPage.tsx's Equipment tab (its work orders' due
+// dates).
+export type DayTileFilter = 'overdue' | 'today' | '7' | '15' | '30' | 'all';
+// Used by MaintenanceTasksPage.tsx's Documents tab (its work orders' due
+// dates, not the underlying document asset's own expiry_date - that's
+// docExpiryTile above, used by EquipmentPage.tsx's Documents tab instead).
+export type DocTileFilter = 'expired' | 'today' | '7' | '15' | '30' | 'all';
+// Used by MaintenanceTasksPage.tsx's Vehicles tab - a vehicle "task" is
+// really its own or its documents' due/expiry date, so this reuses the same
+// expired/today/7/15/30/all shape as DocTileFilter under its own name for
+// clarity at Dashboard.tsx call sites.
+export type VehicleTileFilter = DocTileFilter;
 
 export interface NavFilter {
   tab?: 'equipment' | 'documents' | 'vehicles';
   docExpiryTile?: DocExpiryTile;
-  taskDayTile?: string;
-  taskDocTile?: string;
+  taskDayTile?: DayTileFilter;
+  taskDocTile?: DocTileFilter;
+  vehicleFilter?: VehicleTileFilter;
   taskStatus?: string;
   vehicleId?: number;
+  // Pre-seeds EquipmentPage.tsx's site/department filter dropdown (its
+  // Equipment and Documents tabs both filter by assets.site_location) - used
+  // by SitesPage.tsx and DepartmentsPage.tsx card clicks. Department names
+  // are matched against site_location too, same as the existing
+  // GET /api/dashboard/departments/:name/tasks endpoint already does.
+  site?: string;
 }
 
 // Pages gated by item type - any page not listed here is open to every
@@ -137,17 +157,18 @@ function App() {
       case 'dashboard':
         return <Dashboard onNavigate={handleNavigate} />;
       case 'email':
-        return <EmailProcessing />;
+        return <EmailProcessing onNavigate={handleNavigate} />;
       case 'sites':
-        return <SitesPage />;
+        return <SitesPage onNavigate={handleNavigate} />;
       case 'departments':
-        return <DepartmentsPage />;
+        return <DepartmentsPage onNavigate={handleNavigate} />;
       case 'equipment':
         return (
           <EquipmentPage
             initialTab={navFilter?.tab}
             initialDocExpiryTile={navFilter?.docExpiryTile}
             initialVehicleId={navFilter?.vehicleId ?? null}
+            initialSite={navFilter?.site}
           />
         );
       case 'technicians':
@@ -159,7 +180,7 @@ function App() {
       case 'schedules':
         return <SchedulesPage />;
       case 'notifications':
-        return <NotificationsPage />;
+        return <NotificationsPage onNavigate={handleNavigate} />;
       case 'calendar':
         return <CalendarPage />;
       case 'settings':

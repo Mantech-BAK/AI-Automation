@@ -11,6 +11,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import Modal from './Modal';
+import type { NavFilter } from '../App';
+
+interface SitesPageProps {
+  onNavigate?: (page: string, filter?: NavFilter) => void;
+}
 
 interface SiteRecord {
   id: string;
@@ -39,7 +44,7 @@ function todayIsoDate() {
   return new Date().toISOString().split('T')[0];
 }
 
-export default function SitesPage() {
+export default function SitesPage({ onNavigate }: SitesPageProps = {}) {
   const [siteRecords, setSiteRecords] = useState<SiteRecord[]>([]);
   const [siteStats, setSiteStats] = useState<SiteStat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -296,7 +301,17 @@ export default function SitesPage() {
           </div>
         ) : (
           sites.map((site) => (
-            <div key={site.id} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
+            <div
+              key={site.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigate?.('equipment', { tab: 'equipment', site: site.site_name })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onNavigate?.('equipment', { tab: 'equipment', site: site.site_name });
+              }}
+              title={`View Asset Information for ${site.site_name}`}
+              className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+            >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center flex-shrink-0">
@@ -308,7 +323,10 @@ export default function SitesPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleDelete(site)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(site);
+                  }}
                   disabled={deletingId === site.id}
                   title="Delete site"
                   className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
