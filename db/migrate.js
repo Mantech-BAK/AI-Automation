@@ -618,6 +618,28 @@ async function runMigrations() {
       DROP TABLE IF EXISTS technicians CASCADE;
     `);
 
+    // assets: fields populated by the document email processor
+    // (jobs/documentEmailProcessor.js) from incoming PDF attachments.
+    await pool.query(`
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS document_number VARCHAR;
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS issuing_authority VARCHAR;
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS onedrive_url VARCHAR;
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS last_received_at TIMESTAMP;
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS company_name VARCHAR;
+
+      CREATE TABLE IF NOT EXISTS document_versions (
+        id SERIAL PRIMARY KEY,
+        asset_id INTEGER REFERENCES assets(id) ON DELETE CASCADE,
+        onedrive_url VARCHAR NOT NULL,
+        expiry_date DATE,
+        issue_date DATE,
+        uploaded_at TIMESTAMP DEFAULT NOW(),
+        file_name VARCHAR
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_document_versions_asset_id ON document_versions(asset_id);
+    `);
+
     const defaultSettings = [
       ['daily_check_time', '6'],
       ['working_hours_start', '07:30'],

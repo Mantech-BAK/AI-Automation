@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Play,
   Mail,
+  FileText,
   Plus,
   Trash2,
   ShieldAlert,
@@ -119,6 +120,8 @@ export default function SettingsPage() {
   const [runningEmails, setRunningEmails] = useState(false);
   const [dailyCheckMessage, setDailyCheckMessage] = useState<{ error: boolean; text: string } | null>(null);
   const [emailsMessage, setEmailsMessage] = useState<{ error: boolean; text: string } | null>(null);
+  const [runningDocEmails, setRunningDocEmails] = useState(false);
+  const [docEmailsMessage, setDocEmailsMessage] = useState<{ error: boolean; text: string } | null>(null);
 
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -309,6 +312,35 @@ export default function SettingsPage() {
       setEmailsMessage({ error: true, text: message });
     } finally {
       setRunningEmails(false);
+    }
+  }
+
+  async function handleProcessDocumentEmails() {
+    setRunningDocEmails(true);
+    setDocEmailsMessage(null);
+    try {
+      const response = await fetch('/api/system/process-document-emails', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const txt = await response.text().catch(() => response.statusText);
+        throw new Error(`Failed to process document emails: ${response.status} ${response.statusText} - ${txt}`);
+      }
+      const json = await response.json();
+      const summary = json.summary || {};
+      const updated = summary.documentsUpdated ?? 0;
+      const created = summary.documentsCreated ?? 0;
+      const failed = summary.failed ?? 0;
+      setDocEmailsMessage({
+        error: failed > 0,
+        text: `Document email processing complete. ${updated} document${updated === 1 ? '' : 's'} updated, ${created} created${failed > 0 ? `, ${failed} failed` : ''}.`,
+      });
+    } catch (runError) {
+      const message = runError instanceof Error ? runError.message : 'Unknown error';
+      setDocEmailsMessage({ error: true, text: message });
+    } finally {
+      setRunningDocEmails(false);
     }
   }
 
@@ -701,6 +733,31 @@ export default function SettingsPage() {
                   }`}>
                     {emailsMessage.error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
                     {emailsMessage.text}
+                  </p>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="flex-1">
+                    <p className="font-medium text-slate-800">Process Document Emails</p>
+                    <p className="text-sm text-slate-500">
+                      Reads PDF attachments from unread emails and creates or renews documents. Runs automatically every 30 minutes.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleProcessDocumentEmails}
+                    disabled={runningDocEmails}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {runningDocEmails ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
+                    {runningDocEmails ? 'Running...' : 'Process Document Emails'}
+                  </button>
+                </div>
+                {docEmailsMessage && (
+                  <p className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                    docEmailsMessage.error ? 'text-red-600 bg-red-50 border border-red-200' : 'text-emerald-600 bg-emerald-50 border border-emerald-200'
+                  }`}>
+                    {docEmailsMessage.error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                    {docEmailsMessage.text}
                   </p>
                 )}
               </div>

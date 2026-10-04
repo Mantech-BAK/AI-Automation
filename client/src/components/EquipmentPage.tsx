@@ -12,6 +12,13 @@ import Modal from './Modal';
 import AssetEditModal, { EditableAsset } from './AssetEditModal';
 import VehiclesPage from './VehiclesPage';
 
+interface DocumentVersion {
+  id: number;
+  onedrive_url: string;
+  expiry_date?: string | null;
+  uploaded_at: string;
+}
+
 interface Equipment {
   id: string;
   equipment_name: string;
@@ -34,6 +41,12 @@ interface Equipment {
   tolerance_days?: number | null;
   responsible_person?: string | null;
   remarks?: string | null;
+  company_name?: string | null;
+  document_number?: string | null;
+  issuing_authority?: string | null;
+  onedrive_url?: string | null;
+  last_received_at?: string | null;
+  versions?: DocumentVersion[];
 }
 
 interface SiteOption {
@@ -579,20 +592,25 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Item Name</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Owner</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Document Number</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Issuing Authority</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reminder Days</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frequency (Days)</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">In Charge</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Received</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Document</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Documents</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={15} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
@@ -609,6 +627,9 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.type_name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.company_name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.document_number || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.issuing_authority || '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.site_location || '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">
                             {item.registration_date ? new Date(item.registration_date).toLocaleDateString() : '-'}
@@ -617,9 +638,49 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                             {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.reminder_days ?? '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.frequency_days ?? '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{item.remarks || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{item.last_received_at ? new Date(item.last_received_at).toLocaleDateString() : '-'}</td>
+                          <td className="px-6 py-4 text-sm">
+                            {item.onedrive_url ? (
+                              <a
+                                href={item.onedrive_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-block px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                              >
+                                View
+                              </a>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-sm">
+                            {(() => {
+                              // document_versions holds every received PDF including the
+                              // current one, so drop it and show up to 3 older ones.
+                              const previous = (item.versions || [])
+                                .filter((version) => version.onedrive_url !== item.onedrive_url)
+                                .slice(0, 3);
+                              if (previous.length === 0) return <span className="text-slate-600">-</span>;
+                              return (
+                                <div className="flex flex-wrap gap-2">
+                                  {previous.map((version, index) => (
+                                    <a
+                                      key={version.id}
+                                      href={version.onedrive_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Uploaded ${new Date(version.uploaded_at).toLocaleDateString()}`}
+                                      className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
+                                    >
+                                      Previous {index + 1}
+                                    </a>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className="px-6 py-4">
                             <button
                               onClick={() => setEditingAsset(item)}

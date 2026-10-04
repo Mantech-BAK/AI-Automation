@@ -20,6 +20,7 @@ export interface EditableAsset {
   tolerance_days?: number | null;
   responsible_person?: string | null;
   remarks?: string | null;
+  type_name?: string | null;
 }
 
 interface CategoryOption {
@@ -35,6 +36,7 @@ interface AssetEditModalProps {
 
 export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditModalProps) {
   const [saving, setSaving] = useState(false);
+  const isDocument = asset?.type_name === 'Document';
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [formData, setFormData] = useState({
     equipment_name: '',
@@ -97,7 +99,9 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
         registration_date: formData.registration_date || null,
         expiry_date: formData.expiry_date || null,
         reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
-        frequency_days: formData.frequency_days ? Number(formData.frequency_days) : null,
+        // Documents have no frequency - expiry comes from the PDF. Omitting the
+        // field leaves the stored value untouched on the server.
+        ...(isDocument ? {} : { frequency_days: formData.frequency_days ? Number(formData.frequency_days) : null }),
         tolerance_days: formData.tolerance_days ? Number(formData.tolerance_days) : 0,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
@@ -220,6 +224,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
           </div>
+          {!isDocument && (
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Frequency (days)</label>
             <input
@@ -230,6 +235,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
               placeholder="365"
             />
           </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Tolerance (days)</label>
             <input

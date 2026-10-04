@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const session = require('express-session');
+const cron = require('node-cron');
 const path = require('path');
 
 const { pool } = require('./db');
@@ -21,6 +22,7 @@ const usersRouter = require('./routes/users');
 const vehiclesRouter = require('./routes/vehicles');
 const { startStatusTracker } = require('./jobs/statusTracker');
 const { startEmailProcessor } = require('./jobs/emailProcessor');
+const { processDocumentEmails } = require('./jobs/documentEmailProcessor');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -93,6 +95,17 @@ app.use((req, res) => {
 
 startStatusTracker();
 startEmailProcessor();
+
+async function runDocumentEmailProcessor() {
+  try {
+    await processDocumentEmails();
+  } catch (error) {
+    console.error('Document email processor job failed:', error.message, error.stack);
+  }
+}
+
+cron.schedule('0,30 * * * *', runDocumentEmailProcessor);
+setTimeout(runDocumentEmailProcessor, 10000);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

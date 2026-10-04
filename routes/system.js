@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { runDailyCheck } = require('../jobs/dailyCheck');
 const { processEmails } = require('../jobs/emailProcessor');
+const { processDocumentEmails } = require('../jobs/documentEmailProcessor');
 
 const router = express.Router();
 
@@ -50,6 +51,16 @@ router.post('/process-emails', async (req, res) => {
   } catch (error) {
     console.error('Process emails failed:', error);
     return res.status(500).json({ error: 'Failed to process emails' });
+  }
+});
+
+router.post('/process-document-emails', async (req, res) => {
+  try {
+    const result = await processDocumentEmails();
+    return res.json({ success: true, summary: result });
+  } catch (error) {
+    console.error('Process document emails failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to process document emails' });
   }
 });
 

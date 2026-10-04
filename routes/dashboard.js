@@ -421,7 +421,19 @@ router.get('/assets', async (req, res) => {
         assets.*,
         ac.name AS category_name,
         at.name AS type_name,
-        ad.name AS department_name
+        ad.name AS department_name,
+        COALESCE((
+          SELECT json_agg(
+            json_build_object(
+              'id', v.id,
+              'uploaded_at', v.uploaded_at,
+              'expiry_date', v.expiry_date,
+              'onedrive_url', v.onedrive_url
+            ) ORDER BY v.uploaded_at DESC, v.id DESC
+          )
+          FROM document_versions v
+          WHERE v.asset_id = assets.id
+        ), '[]'::json) AS versions
       FROM assets
       LEFT JOIN asset_categories ac ON ac.id = assets.category_id
       LEFT JOIN asset_types at ON at.id = assets.type_id
@@ -435,6 +447,20 @@ router.get('/assets', async (req, res) => {
   } catch (error) {
     console.error('Assets query failed:', error);
     return res.status(500).json({ error: 'Failed to load assets' });
+  }
+});
+
+router.get('/documents/:id/versions', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, onedrive_url, expiry_date, issue_date, uploaded_at, file_name
+       FROM document_versions WHERE asset_id = $1 ORDER BY uploaded_at DESC, id DESC`,
+      [req.params.id]
+    );
+    return res.json(rows);
+  } catch (error) {
+    console.error('Document versions query failed:', error);
+    return res.status(500).json({ error: 'Failed to load document versions' });
   }
 });
 
@@ -647,6 +673,9 @@ router.get('/notifications', async (req, res) => {
             'Document Renewed - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown document')
               || ' - ' || COALESCE(nl.notes::json->>'department', a_notes.site_location, 'Unknown department')
               || ' - Next expiry: ' || COALESCE(nl.notes::json->>'new_expiry', 'N/A')
+          WHEN 'document_renewed_via_email' THEN
+            'Document Auto-Renewed via Email - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown document')
+              || ' - New expiry: ' || COALESCE(nl.notes::json->>'new_expiry_date', 'N/A')
           WHEN 'task_completed' THEN
             'Equipment Task Completed - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown equipment')
               || ' - ' || COALESCE(nl.notes::json->>'department', a_notes.site_location, 'Unknown site')
@@ -964,7 +993,7 @@ router.put('/assets/:id', async (req, res) => {
          registration_date = $10,
          expiry_date = $11,
          reminder_days = $12,
-         frequency_days = $13,
+         frequency_days = CASE WHEN $19::boolean THEN $13 ELSE frequency_days END,
          tolerance_days = $14,
          responsible_person = $15,
          remarks = $16,
@@ -990,6 +1019,7 @@ router.put('/assets/:id', async (req, res) => {
         remarks || null,
         parent_asset_id || null,
         id,
+        frequency_days !== undefined,
       ]
     );
 

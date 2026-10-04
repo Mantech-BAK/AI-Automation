@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Wrench,
   Car,
+  RefreshCw,
 } from 'lucide-react';
 import type { NavFilter } from '../App';
 
@@ -33,6 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
   equipment_task_created: 'Equipment Task Created',
   task_created: 'Task Created',
   document_renewed: 'Document Renewed',
+  document_renewed_via_email: 'Document Auto-Renewed via Email',
   task_completed: 'Equipment Task Completed',
   vehicle_task_renewed: 'Vehicle Task Renewed',
 };
@@ -41,7 +43,7 @@ const TYPE_LABELS: Record<string, string> = {
 // built server-side (routes/dashboard.js's GET /notifications), formatted
 // specifically per type (e.g. "Document Renewed - X - Y - Next expiry: Z") -
 // prefer that over re-deriving a generic "name - department" string from notes.
-const SERVER_FORMATTED_TYPES = new Set(['document_renewed', 'task_completed', 'vehicle_task_renewed']);
+const SERVER_FORMATTED_TYPES = new Set(['document_renewed', 'document_renewed_via_email', 'task_completed', 'vehicle_task_renewed']);
 
 function getNotificationDescription(notif: Notification): string {
   if (SERVER_FORMATTED_TYPES.has(notif.notification_type) && notif.description) {
@@ -74,6 +76,7 @@ function getNotificationDescription(notif: Notification): string {
 function getNotificationTarget(type: string): { page: string; filter?: NavFilter } {
   switch (type) {
     case 'document_renewed':
+    case 'document_renewed_via_email':
     case 'document_reminder':
     case 'document_task_created':
       return { page: 'equipment', filter: { tab: 'documents' } };
@@ -97,6 +100,7 @@ function getTypeBorderClass(type: string): string {
     case 'reminder1': return 'border-l-4 border-amber-400';
     case 'teams': return 'border-l-4 border-purple-400';
     case 'document_renewed':
+    case 'document_renewed_via_email':
     case 'task_completed':
     case 'vehicle_task_renewed': return 'border-l-4 border-emerald-400';
     default: return 'border-l-4 border-slate-300';
@@ -138,6 +142,7 @@ export default function NotificationsPage({ onNavigate }: NotificationsPageProps
       case 'reminder1': return <Clock size={20} className="text-amber-600" />;
       case 'teams': return <MessageSquare size={20} className="text-purple-600" />;
       case 'document_renewed': return <CheckCircle2 size={20} className="text-emerald-600" />;
+      case 'document_renewed_via_email': return <RefreshCw size={20} className="text-emerald-600" />;
       case 'task_completed': return <Wrench size={20} className="text-emerald-600" />;
       case 'vehicle_task_renewed': return <Car size={20} className="text-emerald-600" />;
       default: return <Bell size={20} className="text-slate-600" />;
@@ -153,6 +158,7 @@ export default function NotificationsPage({ onNavigate }: NotificationsPageProps
       case 'reminder1': return 'bg-amber-100';
       case 'teams': return 'bg-purple-100';
       case 'document_renewed':
+      case 'document_renewed_via_email':
       case 'task_completed':
       case 'vehicle_task_renewed': return 'bg-emerald-100';
       default: return 'bg-slate-100';
