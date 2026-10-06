@@ -11,15 +11,76 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const DOCUMENT_TYPES = ['License', 'Certificate', 'Permit', 'Approval', 'Registration', 'Other'];
 const MAX_TEXT_CHARS = 20000;
 const ONEDRIVE_FOLDER = 'Maintenance Documents';
 
 const SYSTEM_PROMPT =
-  'You are a document data extraction assistant. Extract the following fields from the document text and return ONLY valid JSON with no other text: ' +
-  'document_name (string), company_name (string), document_type (string — one of: License, Certificate, Permit, Approval, Registration, Other), ' +
-  'issue_date (string in YYYY-MM-DD format or null), expiry_date (string in YYYY-MM-DD format or null), document_number (string or null), ' +
-  'issuing_authority (string or null). If a field cannot be found return null for that field. Return only the JSON object with no markdown or extra text.';
+  'You are a document data extraction assistant. Extract every piece of information you can find in this document and return it as a JSON object. ' +
+  'Include all fields you find such as document name, owner name, company name, document type, document number, issuing authority, registration number, ' +
+  'address, contact details, validity period, conditions, fees, reference numbers, stamp details, signatures, categories, and any other field present in the document. ' +
+  'Also always include these specific fields if found: document_name (string), registration_date (string in YYYY-MM-DD format or null), expiry_date (string in YYYY-MM-DD format or null). ' +
+  'Return ONLY a valid JSON object with no markdown or extra text. Every field name should be snake_case.';
+
+// Fields that describe dates change between renewals, so they are ignored when
+// deciding whether a new PDF is the same document as an existing one. Rather
+// than hardcoding names, a field is excluded when its KEY looks date-related or
+// its VALUE looks like a date, whatever the AI called it.
+//
+// Key words are matched against the snake_case parts of the key (not as raw
+// substrings) so e.g. "vendor" is not caught by "end" and "format" by "at".
+const DATE_KEY_WORDS = new Set([
+  'expiry', 'expire', 'expires', 'expired', 'expiration',
+  'issued', 'issue', 'issuance',
+  'start', 'end', 'from', 'until', 'since', 'renewal', 'effective',
+]);
+
+const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+const DATE_VALUE_PATTERNS = [
+  /\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:[t ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:z|[+-]\d{2}:?\d{2})?)?/gi, // YYYY-MM-DD, ISO datetime
+  /\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/g, // DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
+  new RegExp(String.raw`\d{1,2}(?:st|nd|rd|th)?[\s-]+${MONTH}\.?[\s,-]+\d{2,4}`, 'gi'), // 15 January 2025
+  new RegExp(String.raw`${MONTH}\.?[\s-]+\d{1,2}(?:st|nd|rd|th)?,?[\s-]+\d{2,4}`, 'gi'), // January 15, 2025
+];
+// Words allowed between dates in a range such as "01/01/2024 to 31/12/2025".
+const DATE_RANGE_CONNECTORS = /\b(?:to|until|till|from|and|through|thru)\b|[-–—,]/gi;
+
+function isDateKey(key) {
+  const lower = String(key).toLowerCase().trim();
+  if (lower.endsWith('_date') || lower.startsWith('date')) return true;
+
+  const words = lower.split(/[^a-z0-9]+/).filter(Boolean);
+  // "ends with at" -> a trailing "at" word (issued_at, created_at), not any key ending in the letters "at".
+  if (words.length > 1 && words[words.length - 1] === 'at') return true;
+  return words.some((word) => DATE_KEY_WORDS.has(word) || word.startsWith('valid'));
+}
+
+function looksLikeDate(value) {
+  if (Array.isArray(value)) return value.length > 0 && value.every(looksLikeDate);
+  if (typeof value !== 'string') return false;
+
+  let remaining = value.trim();
+  if (!remaining) return false;
+
+  let found = false;
+  for (const pattern of DATE_VALUE_PATTERNS) {
+    remaining = remaining.replace(pattern, () => {
+      found = true;
+      return ' ';
+    });
+  }
+
+  // Only a date (or a range of dates) counts - free text that merely mentions
+  // one, e.g. "Valid for 2 years from 01/01/2024 subject to inspection", does not.
+  return found && remaining.replace(DATE_RANGE_CONNECTORS, ' ').trim() === '';
+}
+
+function isExcludedField(key, newValue, existingValue) {
+  return isDateKey(key) || looksLikeDate(newValue) || looksLikeDate(existingValue);
+}
+
+// A match needs at least this many comparable (non-date, non-empty) fields in
+// common, otherwise two sparse extractions could look identical by accident.
+const MIN_COMMON_FIELDS = 3;
 
 let running = false;
 
@@ -132,19 +193,17 @@ async function updateExistingDocument(assetId, doc, oneDriveUrl) {
          expiry_date = $1,
          next_due_date = $1,
          registration_date = $2,
-         company_name = $3,
-         document_number = $4,
-         issuing_authority = $5,
+         extracted_data = $3::jsonb,
          last_received_at = NOW(),
-         onedrive_url = COALESCE($6, onedrive_url)
-       WHERE id = $7`,
-      [doc.expiry_date, doc.issue_date, doc.company_name, doc.document_number, doc.issuing_authority, oneDriveUrl, assetId]
+         onedrive_url = COALESCE($4, onedrive_url)
+       WHERE id = $5`,
+      [doc.expiry_date, doc.registration_date, JSON.stringify(doc.extracted_data), oneDriveUrl, assetId]
     );
 
     if (oneDriveUrl) {
       await client.query(
         `INSERT INTO document_versions (asset_id, onedrive_url, expiry_date, issue_date, file_name) VALUES ($1, $2, $3, $4, $5)`,
-        [assetId, oneDriveUrl, doc.expiry_date, doc.issue_date, buildFileName(doc.company_name, doc.document_name, doc.expiry_date)]
+        [assetId, oneDriveUrl, doc.expiry_date, doc.registration_date, buildFileName(doc.owner_name, doc.document_name, doc.expiry_date)]
       );
     }
 
@@ -184,39 +243,71 @@ async function createNewDocument(doc, oneDriveUrl) {
        equipment_name, company_name, type_of_service, document_number, issuing_authority,
        expiry_date, next_due_date, registration_date, last_received_at,
        reminder_days, maintenance_interval_days, frequency_days, onedrive_url,
-       type_id, responsible_person, site_location, estimated_duration_hours
+       type_id, responsible_person, site_location, estimated_duration_hours, extracted_data
      ) VALUES (
        $1, $2, $3, $4, $5,
        $6, $6, $7, NOW(),
        30, 365, NULL, $8,
-       (SELECT id FROM asset_types WHERE name = 'Document' LIMIT 1), $9, 'Unassigned', 0
+       (SELECT id FROM asset_types WHERE name = 'Document' LIMIT 1), $9, 'Unassigned', 0, $10::jsonb
      ) RETURNING id`,
     [
-      doc.document_name, doc.company_name, doc.document_type, doc.document_number, doc.issuing_authority,
-      doc.expiry_date, doc.issue_date, oneDriveUrl, process.env.SERVICE_ACCOUNT_EMAIL,
+      doc.document_name, doc.owner_name, doc.document_type, doc.document_number, doc.issuing_authority,
+      doc.expiry_date, doc.registration_date, oneDriveUrl, process.env.SERVICE_ACCOUNT_EMAIL,
+      JSON.stringify(doc.extracted_data),
     ]
   );
 
   if (oneDriveUrl) {
     await pool.query(
       `INSERT INTO document_versions (asset_id, onedrive_url, expiry_date, issue_date, file_name) VALUES ($1, $2, $3, $4, $5)`,
-      [rows[0].id, oneDriveUrl, doc.expiry_date, doc.issue_date, buildFileName(doc.company_name, doc.document_name, doc.expiry_date)]
+      [rows[0].id, oneDriveUrl, doc.expiry_date, doc.registration_date, buildFileName(doc.owner_name, doc.document_name, doc.expiry_date)]
     );
   }
 }
 
-async function findExistingDocument(doc) {
+function normalizeValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    const ordered = Array.isArray(value)
+      ? value.map(normalizeValue)
+      : Object.keys(value).sort().map((k) => `${k}:${normalizeValue(value[k])}`);
+    return JSON.stringify(ordered);
+  }
+  return String(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+// Compares the non-date fields two extractions have in common. Returns null
+// when they disagree on any shared field (or share too few), otherwise the
+// number of shared fields that matched (used to rank candidates).
+function compareExtractedData(newData, existingData) {
+  if (!existingData || typeof existingData !== 'object') return null;
+
+  let common = 0;
+  for (const key of Object.keys(newData)) {
+    if (isExcludedField(key, newData[key], existingData[key])) continue;
+    const a = normalizeValue(newData[key]);
+    const b = normalizeValue(existingData[key]);
+    if (!a || !b) continue;
+    if (a !== b) return null;
+    common++;
+  }
+
+  return common >= MIN_COMMON_FIELDS ? common : null;
+}
+
+async function findExistingDocument(extractedData) {
   const { rows } = await pool.query(
-    `SELECT id FROM assets
-     WHERE LOWER(TRIM(equipment_name)) = LOWER(TRIM($1))
-       AND LOWER(TRIM(COALESCE(company_name,''))) = LOWER(TRIM(COALESCE($2,'')))
-       AND LOWER(TRIM(COALESCE(type_of_service,''))) = LOWER(TRIM(COALESCE($3,'')))
-       AND LOWER(TRIM(COALESCE(document_number,''))) = LOWER(TRIM(COALESCE($4,'')))
-       AND LOWER(TRIM(COALESCE(issuing_authority,''))) = LOWER(TRIM(COALESCE($5,'')))
-     LIMIT 1`,
-    [doc.document_name, doc.company_name, doc.document_type, doc.document_number, doc.issuing_authority]
+    `SELECT id, extracted_data, onedrive_url FROM assets WHERE extracted_data IS NOT NULL`
   );
-  return rows[0]?.id || null;
+
+  let best = null;
+  for (const row of rows) {
+    const score = compareExtractedData(extractedData, row.extracted_data);
+    if (score !== null && (!best || score > best.score)) {
+      best = { id: row.id, score };
+    }
+  }
+  return best ? best.id : null;
 }
 
 // Returns 'updated' | 'created' | 'skipped'. Throws on unexpected failures.
@@ -237,15 +328,25 @@ async function processPdf(messageId, attachment) {
   }
 
   const raw = await extractDocumentData(text);
-  const documentType = DOCUMENT_TYPES.find((t) => t.toLowerCase() === String(raw.document_type || '').toLowerCase()) || 'Other';
+  const firstString = (...keys) => {
+    for (const key of keys) {
+      const value = cleanString(typeof raw[key] === 'object' ? null : raw[key]);
+      if (value) return value;
+    }
+    return null;
+  };
+
+  // The whole AI response is kept as extracted_data; a few well-known keys are
+  // also copied into dedicated columns.
   const doc = {
-    document_name: cleanString(raw.document_name) || attachment.name.replace(/\.pdf$/i, ''),
-    company_name: cleanString(raw.company_name),
-    document_type: documentType,
-    issue_date: cleanDate(raw.issue_date),
+    extracted_data: raw,
+    document_name: firstString('document_name') || attachment.name.replace(/\.pdf$/i, ''),
+    registration_date: cleanDate(raw.registration_date) || cleanDate(raw.issue_date) || cleanDate(raw.date_of_issue),
     expiry_date: cleanDate(raw.expiry_date),
-    document_number: cleanString(raw.document_number),
-    issuing_authority: cleanString(raw.issuing_authority),
+    owner_name: firstString('company_name', 'owner_name', 'owner', 'company'),
+    document_type: firstString('document_type') || 'general',
+    document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number'),
+    issuing_authority: firstString('issuing_authority'),
   };
 
   if (!doc.expiry_date) {
@@ -253,8 +354,8 @@ async function processPdf(messageId, attachment) {
     return 'skipped';
   }
 
-  const oneDriveUrl = await uploadToOneDrive(pdfBuffer, doc.company_name, doc.document_name, doc.expiry_date);
-  const existingId = await findExistingDocument(doc);
+  const oneDriveUrl = await uploadToOneDrive(pdfBuffer, doc.owner_name, doc.document_name, doc.expiry_date);
+  const existingId = await findExistingDocument(doc.extracted_data);
 
   if (existingId) {
     await updateExistingDocument(existingId, doc, oneDriveUrl);
@@ -264,7 +365,7 @@ async function processPdf(messageId, attachment) {
 
   const action = existingId ? 'updated' : 'created';
   console.log(
-    `Processed PDF: ${doc.document_name} from ${doc.company_name || 'Unknown company'} — Action: ${action} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
+    `Processed PDF: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${action} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
   );
   return action;
 }
@@ -344,4 +445,4 @@ async function processDocumentEmails() {
   return summary;
 }
 
-module.exports = { processDocumentEmails };
+module.exports = { processDocumentEmails, compareExtractedData, isDateKey, looksLikeDate };

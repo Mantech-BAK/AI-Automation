@@ -47,6 +47,7 @@ interface Equipment {
   onedrive_url?: string | null;
   last_received_at?: string | null;
   versions?: DocumentVersion[];
+  extracted_data?: Record<string, unknown> | null;
 }
 
 interface SiteOption {
@@ -90,6 +91,38 @@ function getExpiryColorClass(dateStr?: string | null): string {
   return 'text-emerald-600 font-medium';
 }
 
+function formatDateDMY(value?: string | null): string {
+  if (!value) return '-';
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+// Documents: red once expired, orange within 30 days, green beyond that.
+function getDocumentExpiryColorClass(dateStr?: string | null): string {
+  const days = daysUntil(dateStr);
+  if (days === null) return 'text-slate-400';
+  if (days < 0) return 'text-red-600 font-medium';
+  if (days <= 30) return 'text-orange-600 font-medium';
+  return 'text-emerald-600 font-medium';
+}
+
+function formatFieldName(key: string): string {
+  const text = key.replace(/_/g, ' ').trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatFieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (Array.isArray(value)) {
+    return value.map((entry) => (typeof entry === 'object' && entry !== null ? JSON.stringify(entry) : String(entry))).join(', ');
+  }
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 interface EquipmentPageProps {
   initialTab?: PageTab;
   initialDocExpiryTile?: DocExpiryTile;
@@ -113,6 +146,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
   const [documentDeptFilter, setDocumentDeptFilter] = useState(initialSite || 'all');
 
   const [editingAsset, setEditingAsset] = useState<EditableAsset | null>(null);
+  const [detailsDoc, setDetailsDoc] = useState<Equipment | null>(null);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -590,80 +624,61 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                 <table className="w-full">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Item Name</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Owner</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Document Number</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Issuing Authority</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Details</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reminder Days</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">In Charge</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Received</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Document</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Documents</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Doc</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Docs</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={15} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
                       </tr>
                     ) : (
-                      filteredDocuments.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                                <FileText size={16} className="text-cyan-600" />
-                              </div>
-                              <p className="font-medium text-slate-800">{item.equipment_name}</p>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.type_name || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.company_name || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.document_number || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.issuing_authority || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.site_location || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">
-                            {item.registration_date ? new Date(item.registration_date).toLocaleDateString() : '-'}
-                          </td>
-                          <td className={`px-6 py-4 text-sm ${getExpiryColorClass(item.expiry_date)}`}>
-                            {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.reminder_days ?? '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.responsible_person || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.remarks || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{item.last_received_at ? new Date(item.last_received_at).toLocaleDateString() : '-'}</td>
-                          <td className="px-6 py-4 text-sm">
-                            {item.onedrive_url ? (
-                              <a
-                                href={item.onedrive_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-block px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                      filteredDocuments.map((item) => {
+                        // document_versions holds every received PDF including the
+                        // current one, so drop it and show up to 3 older ones.
+                        const previous = (item.versions || [])
+                          .filter((version) => version.onedrive_url !== item.onedrive_url)
+                          .slice(0, 3);
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <button
+                                onClick={() => setDetailsDoc(item)}
+                                className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
                               >
-                                View
-                              </a>
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-sm">
-                            {(() => {
-                              // document_versions holds every received PDF including the
-                              // current one, so drop it and show up to 3 older ones.
-                              const previous = (item.versions || [])
-                                .filter((version) => version.onedrive_url !== item.onedrive_url)
-                                .slice(0, 3);
-                              if (previous.length === 0) return <span className="text-slate-600">-</span>;
-                              return (
+                                Details
+                              </button>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-600">{formatDateDMY(item.registration_date)}</td>
+                            <td className={`px-6 py-4 text-sm ${getDocumentExpiryColorClass(item.expiry_date)}`}>
+                              {formatDateDMY(item.expiry_date)}
+                            </td>
+                            <td className="px-6 py-4 text-sm">
+                              {item.onedrive_url ? (
+                                <a
+                                  href={item.onedrive_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-block px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                                >
+                                  View
+                                </a>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-sm">
+                              {previous.length === 0 ? (
+                                <span className="text-slate-600">-</span>
+                              ) : (
                                 <div className="flex flex-wrap gap-2">
                                   {previous.map((version, index) => (
                                     <a
@@ -671,27 +686,18 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                                       href={version.onedrive_url}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      title={`Uploaded ${new Date(version.uploaded_at).toLocaleDateString()}`}
+                                      title={`Uploaded ${formatDateDMY(version.uploaded_at)}`}
                                       className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
                                     >
                                       Previous {index + 1}
                                     </a>
                                   ))}
                                 </div>
-                              );
-                            })()}
-                          </td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={() => setEditingAsset(item)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
-                            >
-                              <Pencil size={14} />
-                              Edit
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -918,6 +924,26 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
             </button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(detailsDoc)}
+        onClose={() => setDetailsDoc(null)}
+        title={detailsDoc?.equipment_name || 'Document Details'}
+        size="lg"
+      >
+        {detailsDoc?.extracted_data && Object.keys(detailsDoc.extracted_data).length > 0 ? (
+          <dl className="divide-y divide-slate-100">
+            {Object.entries(detailsDoc.extracted_data).map(([key, value]) => (
+              <div key={key} className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+                <dt className="text-sm font-medium text-slate-500">{formatFieldName(key)}:</dt>
+                <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatFieldValue(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-sm text-slate-500">No extracted details available for this document.</p>
+        )}
       </Modal>
 
       <AssetEditModal
