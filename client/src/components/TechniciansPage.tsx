@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ResponsiblePerson from './ResponsiblePerson';
 import {
   Users,
   Loader2,
@@ -67,8 +68,9 @@ const TECHNICIAN_TABS: { id: TechnicianTab; label: string; icon: typeof Wrench }
   { id: 'vehicles', label: 'Vehicles', icon: Truck },
 ];
 
-interface ResponsiblePerson {
+interface ResponsiblePersonSummary {
   responsible_person: string;
+  resolved_responsible_name?: string | null;
   total_documents: number;
   expiring_soon: number;
   overdue: number;
@@ -105,7 +107,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [responsiblePersons, setResponsiblePersons] = useState<ResponsiblePerson[]>([]);
+  const [responsiblePersons, setResponsiblePersons] = useState<ResponsiblePersonSummary[]>([]);
   const [responsiblePersonsLoading, setResponsiblePersonsLoading] = useState(true);
   const [responsiblePersonsError, setResponsiblePersonsError] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -173,10 +175,11 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
       if (!response.ok) {
         throw new Error(`Failed to load responsible persons: ${response.statusText}`);
       }
-      const json: ResponsiblePerson[] = await response.json();
+      const json: ResponsiblePersonSummary[] = await response.json();
       setResponsiblePersons(
         json.map((rp) => ({
           responsible_person: rp.responsible_person,
+          resolved_responsible_name: rp.resolved_responsible_name,
           total_documents: Number(rp.total_documents),
           expiring_soon: Number(rp.expiring_soon),
           overdue: Number(rp.overdue),
@@ -475,10 +478,12 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
                 <div key={rp.responsible_person} className="bg-white rounded-xl p-5 border border-slate-200 hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-semibold text-lg">
-                      {rp.responsible_person.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                      {(rp.resolved_responsible_name || rp.responsible_person).split(/[\s@.]+/).filter(Boolean).map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-800">{rp.responsible_person}</h3>
+                      <h3 className="font-semibold text-slate-800">
+                        <ResponsiblePerson value={rp.responsible_person} resolvedName={rp.resolved_responsible_name} showEmail />
+                      </h3>
                       <p className="text-xs text-slate-400">Document Responsible Person</p>
                     </div>
                   </div>

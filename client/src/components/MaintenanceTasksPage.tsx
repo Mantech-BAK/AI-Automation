@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ResponsiblePerson from './ResponsiblePerson';
 import {
   Wrench,
   Loader2,
@@ -31,6 +32,7 @@ interface MaintenanceTask {
   department?: string | null;
   asset_department?: string | null;
   responsible_person?: string | null;
+  resolved_responsible_name?: string | null;
   frequency_days?: number | null;
   technician_name?: string | null;
   status?: string;
@@ -987,7 +989,9 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
                 </div>
                 <div>
                   <p className="text-slate-400 text-xs uppercase tracking-wide">Responsible Person</p>
-                  <p className="text-slate-800 font-medium">{selectedTask.responsible_person || '-'}</p>
+                  <p className="text-slate-800 font-medium">
+                    <ResponsiblePerson value={selectedTask.responsible_person} resolvedName={selectedTask.resolved_responsible_name} showEmail />
+                  </p>
                 </div>
                 {selectedTask.task_type === 'document' && (
                   <div>

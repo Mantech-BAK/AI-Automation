@@ -11,6 +11,7 @@ import {
 import Modal from './Modal';
 import AssetEditModal, { EditableAsset } from './AssetEditModal';
 import VehiclesPage from './VehiclesPage';
+import ResponsiblePerson from './ResponsiblePerson';
 
 interface DocumentVersion {
   id: number;
@@ -40,6 +41,8 @@ interface Equipment {
   frequency_days?: number | null;
   tolerance_days?: number | null;
   responsible_person?: string | null;
+  resolved_responsible_name?: string | null;
+  document_name?: string | null;
   remarks?: string | null;
   company_name?: string | null;
   document_number?: string | null;
@@ -624,9 +627,11 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                 <table className="w-full">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Document Name</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Details</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Doc</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Docs</th>
                     </tr>
@@ -634,7 +639,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
@@ -649,6 +654,9 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 text-sm font-medium text-slate-800">
+                              {item.document_name || item.equipment_name || '-'}
+                            </td>
                             <td className="px-6 py-4">
                               <button
                                 onClick={() => setDetailsDoc(item)}
@@ -660,6 +668,9 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
                             <td className="px-6 py-4 text-sm text-slate-600">{formatDateDMY(item.registration_date)}</td>
                             <td className={`px-6 py-4 text-sm ${getDocumentExpiryColorClass(item.expiry_date)}`}>
                               {formatDateDMY(item.expiry_date)}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-600">
+                              <ResponsiblePerson value={item.responsible_person} resolvedName={item.resolved_responsible_name} showEmail />
                             </td>
                             <td className="px-6 py-4 text-sm">
                               {item.onedrive_url ? (
@@ -932,18 +943,26 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
         title={detailsDoc?.equipment_name || 'Document Details'}
         size="lg"
       >
-        {detailsDoc?.extracted_data && Object.keys(detailsDoc.extracted_data).length > 0 ? (
+        {detailsDoc ? (
           <dl className="divide-y divide-slate-100">
-            {Object.entries(detailsDoc.extracted_data).map(([key, value]) => (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Document name:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.document_name || detailsDoc.equipment_name || '-'}</dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Responsible person:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">
+                <ResponsiblePerson value={detailsDoc.responsible_person} resolvedName={detailsDoc.resolved_responsible_name} showEmail />
+              </dd>
+            </div>
+            {Object.entries(detailsDoc.extracted_data || {}).map(([key, value]) => (
               <div key={key} className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
                 <dt className="text-sm font-medium text-slate-500">{formatFieldName(key)}:</dt>
                 <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatFieldValue(value)}</dd>
               </div>
             ))}
           </dl>
-        ) : (
-          <p className="text-sm text-slate-500">No extracted details available for this document.</p>
-        )}
+        ) : null}
       </Modal>
 
       <AssetEditModal

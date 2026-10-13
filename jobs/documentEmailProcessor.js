@@ -78,9 +78,10 @@ function isExcludedField(key, newValue, existingValue) {
   return isDateKey(key) || looksLikeDate(newValue) || looksLikeDate(existingValue);
 }
 
-// A match needs at least this many comparable (non-date, non-empty) fields in
-// common, otherwise two sparse extractions could look identical by accident.
-const MIN_COMMON_FIELDS = 3;
+// Owner/company names are spelled differently by the AI on every run
+// ("Kaiksow", "KaiKso", "KAIKSOW"), so they are compared by similarity.
+const OWNER_KEYS = ['company_name', 'owner_name', 'entity_name', 'owner', 'company', 'licensee', 'applicant_name'];
+const OWNER_MIN_SIMILARITY = 0.8;
 
 let isProcessing = false;
 
@@ -223,6 +224,16 @@ const UNKNOWN_OWNER_VALUES = new Set(['unknown', 'unknown owner', 'unknown compa
 
 function isUnknownOwner(value) {
   return !value || UNKNOWN_OWNER_VALUES.has(String(value).trim().toLowerCase());
+}
+
+// Document name taken from the attachment filename: ".pdf" removed and any
+// leading numbers/codes stripped, e.g. "103123-Sewage Tanker STP License.pdf"
+// -> "Sewage Tanker STP License". Returns null if nothing usable is left (for
+// example "13687.pdf"), in which case the caller falls back to other sources.
+function documentNameFromFilename(fileName) {
+  const withoutExtension = String(fileName || '').replace(/\.pdf$/i, '').trim();
+  const stripped = withoutExtension.replace(/^[\s\d._\-–—()#]+/, '').replace(/\s+/g, ' ').trim();
+  return stripped || null;
 }
 
 function safeFilePart(value) {
@@ -383,23 +394,83 @@ function normalizeValue(value) {
   return String(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
-// Compares the non-date fields two extractions have in common. Returns null
-// when they disagree on any shared field (or share too few), otherwise the
-// number of shared fields that matched (used to rank candidates).
+// Fields that identify one particular certificate/licence: *_no, *_number, ids,
+// references and codes (cr_no, license_no, document_number, ...).
+function isIdentifierKey(key) {
+  return /(^|_)(no|number|num|id|ref|reference|code)($|_)/.test(String(key).toLowerCase());
+}
+
+function ownerOf(data) {
+  for (const key of OWNER_KEYS) {
+    const value = normalizeValue(data[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
+// 1 = identical, 0 = nothing in common (Levenshtein distance ratio).
+function similarity(a, b) {
+  if (a === b) return 1;
+  if (!a || !b) return 0;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return 1 - previous[b.length] / Math.max(a.length, b.length);
+}
+
+// Two owner/company names are "the same" when, ignoring case, spaces and
+// punctuation, one contains the other (or they are within a couple of typos).
+function ownersMatch(a, b) {
+  const squash = (value) => value.replace(/[^\p{L}\p{N}]+/gu, '');
+  const x = squash(a);
+  const y = squash(b);
+  if (!x || !y) return false;
+  return x.includes(y) || y.includes(x) || similarity(x, y) >= OWNER_MIN_SIMILARITY;
+}
+
+// Decides whether two extractions are the same document (a renewal or a
+// re-sent copy). Returns null for "different document", otherwise a score used
+// to rank candidates.
+//   1. The document name must be the same (case-insensitive). It comes from
+//      the attachment filename, so it is stable between runs.
+//   2. Identifier fields (cr_no, license_no, document_number, ...) are compared
+//      under the same key. Any one equal identifier makes it a match; if both
+//      records have identifiers but none agree it is a different certificate.
+//   3. With no identifier in common, the owner names (when both exist) must
+//      match loosely, since the AI spells them differently each run.
+// Dates are never compared (isExcludedField), and fields only one record has
+// are ignored.
 function compareExtractedData(newData, existingData) {
   if (!existingData || typeof existingData !== 'object') return null;
 
-  let common = 0;
+  const name = normalizeValue(newData.document_name);
+  if (!name || name !== normalizeValue(existingData.document_name)) return null;
+
+  let sharedIds = 0;
+  let equalIds = 0;
   for (const key of Object.keys(newData)) {
-    if (isExcludedField(key, newData[key], existingData[key])) continue;
+    if (!isIdentifierKey(key) || isExcludedField(key, newData[key], existingData[key])) continue;
     const a = normalizeValue(newData[key]);
     const b = normalizeValue(existingData[key]);
     if (!a || !b) continue;
-    if (a !== b) return null;
-    common++;
+    sharedIds++;
+    if (a === b) equalIds++;
   }
 
-  return common >= MIN_COMMON_FIELDS ? common : null;
+  const ownerA = ownerOf(newData);
+  const ownerB = ownerOf(existingData);
+  const ownerKnown = Boolean(ownerA && ownerB);
+  const ownerSame = ownerKnown && ownersMatch(ownerA, ownerB);
+
+  if (equalIds > 0) return 1 + equalIds * 2 + (ownerSame ? 1 : 0);
+  if (sharedIds > 0) return null; // identifiers disagree
+  if (ownerKnown && !ownerSame) return null;
+  return 1 + (ownerSame ? 1 : 0);
 }
 
 async function findExistingDocument(extractedData) {
@@ -417,22 +488,9 @@ async function findExistingDocument(extractedData) {
   return best;
 }
 
-// Identity of a document ignoring everything date-like, so two copies of the
-// same PDF produce the same signature however the AI phrased the dates.
-function documentSignature(data) {
-  return JSON.stringify(
-    Object.keys(data)
-      .filter((key) => !isDateKey(key) && !looksLikeDate(data[key]))
-      .sort()
-      .map((key) => [key, normalizeValue(data[key])])
-      .filter(([, value]) => value)
-  );
-}
-
 // Startup clean-up: keeps the oldest record of each group of documents that
-// match each other (same non-date fields) and deletes the rest. Uses the same
-// matching rules as the processor, so different owners' documents that merely
-// share a document name are left alone.
+// match each other and deletes the rest. Uses the same matching rules as the
+// processor.
 async function removeDuplicateDocuments() {
   const { rows } = await pool.query(`SELECT id, extracted_data FROM assets WHERE extracted_data IS NOT NULL ORDER BY id`);
 
@@ -465,7 +523,7 @@ function escapeHtml(value) {
 
 // Result: { status: 'updated' | 'created' | 'duplicate' | 'failed', fileName, documentName?, expiry?, reason?, reasonCode? }
 // reasonCode ('scanned' | 'invalid_json' | 'no_expiry') picks the wording of the summary email.
-async function processPdf(messageId, attachment, seenSignatures, senderName, senderAddress) {
+async function processPdf(messageId, attachment, senderName, senderAddress) {
   const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode });
 
   const attachmentUrl = `/users/${serviceAccount()}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`;
@@ -513,7 +571,13 @@ async function processPdf(messageId, attachment, seenSignatures, senderName, sen
   // also copied into dedicated columns.
   const doc = {
     extracted_data: raw,
-    document_name: firstString('document_name') || attachment.name.replace(/\.pdf$/i, ''),
+    // The attachment filename is the document name everywhere (database,
+    // OneDrive filename, UI). Groq's extracted name varies from run to run, so
+    // it is only a fallback when the filename has nothing usable in it.
+    document_name:
+      documentNameFromFilename(attachment.name) ||
+      firstString('document_name') ||
+      String(attachment.name || '').replace(/\.pdf$/i, '').trim(),
     registration_date: cleanDate(raw.registration_date) || cleanDate(raw.issue_date) || cleanDate(raw.date_of_issue),
     expiry_date: cleanDate(raw.expiry_date),
     owner_name: firstString('company_name', 'owner_name', 'owner', 'company'),
@@ -529,6 +593,10 @@ async function processPdf(messageId, attachment, seenSignatures, senderName, sen
     doc.owner_name = senderName || null;
   }
 
+  // Keep the stored extraction consistent with the chosen name, so it can't
+  // differ between runs when documents are matched against each other.
+  raw.document_name = doc.document_name;
+
   if (!doc.expiry_date) {
     console.warn(`Cannot process PDF — no expiry date found ("${attachment.name}")`);
     return fail('could not extract expiry date', 'no_expiry');
@@ -536,14 +604,9 @@ async function processPdf(messageId, attachment, seenSignatures, senderName, sen
 
   const base = { fileName: attachment.name, documentName: doc.document_name, expiry: doc.expiry_date };
 
-  // Same document twice in this run (e.g. two identical attachments).
-  const signature = documentSignature(doc.extracted_data);
-  if (seenSignatures.has(signature)) {
-    console.log(`Duplicate PDF skipped (same document already handled in this run): ${doc.document_name}`);
-    return { ...base, status: 'duplicate' };
-  }
-  seenSignatures.add(signature);
-
+  // Documents handled earlier in this same run are already in the database
+  // (each record is committed before the next PDF is checked), so this also
+  // catches the same PDF attached twice, or sent in several emails.
   const existing = await findExistingDocument(doc.extracted_data);
 
   // Already stored with the very same expiry - nothing new to record.
@@ -665,7 +728,6 @@ async function processDocumentEmails() {
   try {
     await cleanupOrphanedTempFiles();
 
-    const seenSignatures = new Set();
     // sender address -> [{ subject, result }] for the single end-of-run summary
     const entriesBySender = new Map();
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -716,7 +778,7 @@ async function processDocumentEmails() {
         for (const attachment of pdfs) {
           let result;
           try {
-            result = await processPdf(message.id, attachment, seenSignatures, message.from?.emailAddress?.name || message.from?.emailAddress?.address || null, message.from?.emailAddress?.address || null);
+            result = await processPdf(message.id, attachment, message.from?.emailAddress?.name || message.from?.emailAddress?.address || null, message.from?.emailAddress?.address || null);
           } catch (error) {
             console.error(`Failed to process PDF "${attachment.name}" in "${message.subject}":`, error.message);
             result = { status: 'failed', fileName: attachment.name, reason: error.message };
@@ -761,4 +823,4 @@ async function processDocumentEmails() {
   return summary;
 }
 
-module.exports = { processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
+module.exports = { documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };

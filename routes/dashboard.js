@@ -1,4 +1,5 @@
 const express = require('express');
+const { addResolvedNames } = require('../utils/displayName');
 const path = require('path');
 const dotenv = require('dotenv');
 const { pool } = require('../db');
@@ -327,6 +328,7 @@ router.get('/tasks', async (req, res) => {
       params
     );
 
+    await addResolvedNames(rows);
     return res.json(rows);
   } catch (error) {
     console.error('Tasks query failed:', error);
@@ -421,6 +423,7 @@ router.get('/assets', async (req, res) => {
         assets.*,
         ac.name AS category_name,
         at.name AS type_name,
+        assets.equipment_name AS document_name,
         ad.name AS department_name,
         COALESCE((
           SELECT json_agg(
@@ -443,6 +446,7 @@ router.get('/assets', async (req, res) => {
     `,
       params
     );
+    await addResolvedNames(rows);
     return res.json(rows);
   } catch (error) {
     console.error('Assets query failed:', error);
@@ -478,6 +482,7 @@ router.get('/documents/responsible-persons', async (req, res) => {
       GROUP BY responsible_person
       ORDER BY overdue DESC, expiring_soon DESC
     `);
+    await addResolvedNames(rows);
     return res.json(rows);
   } catch (error) {
     console.error('Responsible persons query failed:', error);
