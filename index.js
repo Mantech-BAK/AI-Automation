@@ -21,8 +21,8 @@ const notificationsConfigRouter = require('./routes/notifications-config');
 const usersRouter = require('./routes/users');
 const vehiclesRouter = require('./routes/vehicles');
 const { startStatusTracker } = require('./jobs/statusTracker');
-const { startEmailProcessor } = require('./jobs/emailProcessor');
-const { processDocumentEmails } = require('./jobs/documentEmailProcessor');
+const { processEmails } = require('./jobs/emailProcessor');
+const { processDocumentEmails, removeDuplicateDocuments } = require('./jobs/documentEmailProcessor');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -94,18 +94,26 @@ app.use((req, res) => {
 });
 
 startStatusTracker();
-startEmailProcessor();
+removeDuplicateDocuments().catch((error) => {
+  console.error('Duplicate document clean-up failed:', error.message);
+});
 
-async function runDocumentEmailProcessor() {
+// One combined schedule: documents first, then the general email processor,
+// so PDF emails are handled (and marked read) before the generic summariser
+// looks at the mailbox. Each step is isolated so one failing doesn't skip the other.
+cron.schedule('0,30 * * * *', async () => {
   try {
     await processDocumentEmails();
   } catch (error) {
     console.error('Document email processor job failed:', error.message, error.stack);
   }
-}
 
-cron.schedule('0,30 * * * *', runDocumentEmailProcessor);
-setTimeout(runDocumentEmailProcessor, 10000);
+  try {
+    await processEmails();
+  } catch (error) {
+    console.error('Email processor job failed:', error.message, error.stack);
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

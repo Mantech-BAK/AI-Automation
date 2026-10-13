@@ -11,7 +11,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const MAX_TEXT_CHARS = 20000;
+const MAX_TEXT_CHARS = 3000;
 const ONEDRIVE_FOLDER = 'Maintenance Documents';
 
 const SYSTEM_PROMPT =
@@ -82,7 +82,7 @@ function isExcludedField(key, newValue, existingValue) {
 // common, otherwise two sparse extractions could look identical by accident.
 const MIN_COMMON_FIELDS = 3;
 
-let running = false;
+let isProcessing = false;
 
 function serviceAccount() {
   const email = process.env.SERVICE_ACCOUNT_EMAIL;
@@ -104,21 +104,34 @@ function cleanDate(value) {
   return Number.isNaN(new Date(text).getTime()) ? null : text;
 }
 
+class InvalidAiJsonError extends Error {}
+
+// Extracts a JSON object from the model output. Models often wrap the JSON in
+// markdown fences or add a sentence before/after it, so fences are stripped and
+// the outermost {...} is pulled out with a regex before parsing.
 function parseJsonObject(rawText) {
-  const text = String(rawText || '');
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end < start) {
-    throw new Error('No JSON object found in Groq response');
+  const rawResponse = String(rawText || '');
+  const withoutFences = rawResponse.replace(/```(?:json)?/gi, '');
+  const jsonMatch = withoutFences.match(/\{[\s\S]*\}/);
+  const cleaned = jsonMatch ? jsonMatch[0] : withoutFences;
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    // Log exactly what the model returned so the failure can be diagnosed.
+    console.error(`Groq response could not be parsed as JSON (${error.message}). Raw response:
+${rawResponse}`);
+    throw new InvalidAiJsonError('AI returned invalid JSON');
   }
-  return JSON.parse(text.slice(start, end + 1));
 }
 
 async function extractDocumentData(text) {
+  // Long inputs make the model's answer long enough to be cut off mid-JSON.
+  const truncatedText = text.slice(0, MAX_TEXT_CHARS);
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: text.slice(0, MAX_TEXT_CHARS) },
+    { role: 'user', content: truncatedText },
   ];
 
   let completion;
@@ -132,6 +145,84 @@ async function extractDocumentData(text) {
   }
 
   return parseJsonObject(completion.choices[0].message.content);
+}
+
+const MIN_TEXT_CHARS = 100;
+const TEMP_FOLDER = 'temp';
+const TEMP_FILE_PREFIX = 'ocr_temp_';
+const TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000;
+
+// Fallback for scanned PDFs with no text layer: park the file in OneDrive and
+// ask Graph to convert it to plain text. Never throws - any failure just means
+// "no text", and the temp file is always removed afterwards.
+async function extractTextViaGraph(pdfBuffer) {
+  const fileName = `${TEMP_FILE_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`;
+  const itemPath = `${TEMP_FOLDER}/${fileName}`.split('/').map(encodeURIComponent).join('/');
+  const base = `https://graph.microsoft.com/v1.0/users/${serviceAccount()}/drive/root:/${itemPath}`;
+  let uploaded = false;
+
+  try {
+    const token = await getAppOnlyToken();
+    const upload = await fetch(`${base}:/content`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/pdf' },
+      body: pdfBuffer,
+    });
+    if (!upload.ok) {
+      throw new Error(`temp upload failed (${upload.status})`);
+    }
+    uploaded = true;
+
+    const converted = await fetch(`${base}:/content?format=txt`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!converted.ok) {
+      throw new Error(`text conversion failed (${converted.status})`);
+    }
+    return await converted.text();
+  } catch (error) {
+    console.warn(`Graph text extraction failed: ${error.message}`);
+    return '';
+  } finally {
+    if (uploaded) {
+      try {
+        await graphRequest('DELETE', `/users/${serviceAccount()}/drive/root:/${itemPath}`, null, 'app');
+      } catch (error) {
+        console.warn(`Could not delete temp file ${fileName}: ${error.message}`);
+      }
+    }
+  }
+}
+
+// Removes ocr_temp_ files left behind by earlier runs that crashed before
+// their own clean-up. Never throws.
+async function cleanupOrphanedTempFiles() {
+  let removed = 0;
+  try {
+    const data = await graphRequest('GET', `/users/${serviceAccount()}/drive/root:/${TEMP_FOLDER}:/children`, null, 'app');
+    const cutoff = Date.now() - TEMP_FILE_MAX_AGE_MS;
+
+    for (const item of data?.value || []) {
+      if (!String(item.name || '').startsWith(TEMP_FILE_PREFIX)) continue;
+      if (new Date(item.createdDateTime).getTime() > cutoff) continue;
+      try {
+        await graphRequest('DELETE', `/users/${serviceAccount()}/drive/items/${encodeURIComponent(item.id)}`, null, 'app');
+        removed++;
+      } catch (error) {
+        console.warn(`Could not delete orphaned temp file ${item.name}: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    // 404 just means there is no temp folder yet.
+    if (error.status !== 404) console.warn(`Temp file clean-up failed: ${error.message}`);
+  }
+
+  console.log(`Temp files cleaned up: ${removed}`);
+  return removed;
+}
+
+const UNKNOWN_OWNER_VALUES = new Set(['unknown', 'unknown owner', 'unknown company', 'n/a', 'na', 'none', 'not found', 'not available']);
+
+function isUnknownOwner(value) {
+  return !value || UNKNOWN_OWNER_VALUES.has(String(value).trim().toLowerCase());
 }
 
 function safeFilePart(value) {
@@ -162,6 +253,22 @@ async function uploadToOneDrive(pdfBuffer, companyName, documentName, expiryDate
     if (!response.ok) {
       throw new Error(`${response.status} ${body.error?.code || ''} ${body.error?.message || response.statusText}`.trim());
     }
+
+    // A sharing link (organization-wide, view only) opens for anyone in the
+    // tenant, unlike the raw webUrl which only works for the file's owner.
+    // If link creation fails the file is still stored, so fall back to webUrl.
+    try {
+      const link = await graphRequest(
+        'POST',
+        `/users/${serviceAccount()}/drive/items/${encodeURIComponent(body.id)}/createLink`,
+        { type: 'view', scope: 'organization' },
+        'app'
+      );
+      if (link?.link?.webUrl) return link.link.webUrl;
+    } catch (linkError) {
+      console.warn(`Could not create sharing link for "${documentName}": ${linkError.message}`);
+    }
+
     return body.webUrl || null;
   } catch (error) {
     console.warn(`OneDrive upload failed for "${documentName}": ${error.message}`);
@@ -252,7 +359,7 @@ async function createNewDocument(doc, oneDriveUrl) {
      ) RETURNING id`,
     [
       doc.document_name, doc.owner_name, doc.document_type, doc.document_number, doc.issuing_authority,
-      doc.expiry_date, doc.registration_date, oneDriveUrl, process.env.SERVICE_ACCOUNT_EMAIL,
+      doc.expiry_date, doc.registration_date, oneDriveUrl, doc.responsible_person,
       JSON.stringify(doc.extracted_data),
     ]
   );
@@ -297,37 +404,103 @@ function compareExtractedData(newData, existingData) {
 
 async function findExistingDocument(extractedData) {
   const { rows } = await pool.query(
-    `SELECT id, extracted_data, onedrive_url FROM assets WHERE extracted_data IS NOT NULL`
+    `SELECT id, extracted_data, onedrive_url, expiry_date FROM assets WHERE extracted_data IS NOT NULL`
   );
 
   let best = null;
   for (const row of rows) {
     const score = compareExtractedData(extractedData, row.extracted_data);
     if (score !== null && (!best || score > best.score)) {
-      best = { id: row.id, score };
+      best = { id: row.id, expiryDate: row.expiry_date, score };
     }
   }
-  return best ? best.id : null;
+  return best;
 }
 
-// Returns 'updated' | 'created' | 'skipped'. Throws on unexpected failures.
-async function processPdf(messageId, attachment) {
+// Identity of a document ignoring everything date-like, so two copies of the
+// same PDF produce the same signature however the AI phrased the dates.
+function documentSignature(data) {
+  return JSON.stringify(
+    Object.keys(data)
+      .filter((key) => !isDateKey(key) && !looksLikeDate(data[key]))
+      .sort()
+      .map((key) => [key, normalizeValue(data[key])])
+      .filter(([, value]) => value)
+  );
+}
+
+// Startup clean-up: keeps the oldest record of each group of documents that
+// match each other (same non-date fields) and deletes the rest. Uses the same
+// matching rules as the processor, so different owners' documents that merely
+// share a document name are left alone.
+async function removeDuplicateDocuments() {
+  const { rows } = await pool.query(`SELECT id, extracted_data FROM assets WHERE extracted_data IS NOT NULL ORDER BY id`);
+
+  const kept = [];
+  const duplicateIds = [];
+  for (const row of rows) {
+    if (kept.some((existing) => compareExtractedData(row.extracted_data, existing.extracted_data) !== null)) {
+      duplicateIds.push(row.id);
+    } else {
+      kept.push(row);
+    }
+  }
+
+  if (duplicateIds.length > 0) {
+    await pool.query(`DELETE FROM assets WHERE id = ANY($1)`, [duplicateIds]);
+  }
+
+  console.log(`Duplicate documents removed: ${duplicateIds.length}`);
+  return duplicateIds.length;
+}
+
+function formatDMY(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value || '');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Result: { status: 'updated' | 'created' | 'duplicate' | 'failed', fileName, documentName?, expiry?, reason?, reasonCode? }
+// reasonCode ('scanned' | 'invalid_json' | 'no_expiry') picks the wording of the summary email.
+async function processPdf(messageId, attachment, seenSignatures, senderName, senderAddress) {
+  const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode });
+
   const attachmentUrl = `/users/${serviceAccount()}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`;
   const full = await graphRequest('GET', attachmentUrl, null, 'app');
 
   if (!full.contentBytes) {
-    throw new Error(`Attachment "${attachment.name}" has no content`);
+    return fail('attachment has no content');
   }
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
-  const { text } = await pdfParse(pdfBuffer);
+  let { text } = await pdfParse(pdfBuffer);
 
-  if (!text || !text.trim()) {
-    console.warn(`Cannot process PDF "${attachment.name}" — no extractable text (scanned image?)`);
-    return 'skipped';
+  // Scanned PDFs have little or no text layer - try Microsoft's conversion.
+  if (!text || text.trim().length < MIN_TEXT_CHARS) {
+    console.log(`"${attachment.name}" has little extractable text, trying Graph text conversion`);
+    const converted = await extractTextViaGraph(pdfBuffer);
+
+    if (!converted || converted.trim().length < MIN_TEXT_CHARS) {
+      console.warn(`Failed — scanned image PDF — Microsoft could not extract text — please use a text-based PDF ("${attachment.name}")`);
+      return fail('scanned image PDF — Microsoft could not extract text — please use a text-based PDF', 'scanned');
+    }
+    text = converted;
   }
 
-  const raw = await extractDocumentData(text);
+  let raw;
+  try {
+    raw = await extractDocumentData(text);
+  } catch (error) {
+    if (error instanceof InvalidAiJsonError) {
+      console.error(`AI returned invalid JSON for "${attachment.name}":`, error.message);
+      return fail(error.message, 'invalid_json');
+    }
+    throw error;
+  }
+
   const firstString = (...keys) => {
     for (const key of keys) {
       const value = cleanString(typeof raw[key] === 'object' ? null : raw[key]);
@@ -347,48 +520,180 @@ async function processPdf(messageId, attachment) {
     document_type: firstString('document_type') || 'general',
     document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number'),
     issuing_authority: firstString('issuing_authority'),
+    // Whoever sent the document is responsible for it.
+    responsible_person: senderAddress || null,
   };
+
+  // The AI sometimes can't find an owner - fall back to whoever sent the email.
+  if (isUnknownOwner(doc.owner_name)) {
+    doc.owner_name = senderName || null;
+  }
 
   if (!doc.expiry_date) {
     console.warn(`Cannot process PDF — no expiry date found ("${attachment.name}")`);
-    return 'skipped';
+    return fail('could not extract expiry date', 'no_expiry');
+  }
+
+  const base = { fileName: attachment.name, documentName: doc.document_name, expiry: doc.expiry_date };
+
+  // Same document twice in this run (e.g. two identical attachments).
+  const signature = documentSignature(doc.extracted_data);
+  if (seenSignatures.has(signature)) {
+    console.log(`Duplicate PDF skipped (same document already handled in this run): ${doc.document_name}`);
+    return { ...base, status: 'duplicate' };
+  }
+  seenSignatures.add(signature);
+
+  const existing = await findExistingDocument(doc.extracted_data);
+
+  // Already stored with the very same expiry - nothing new to record.
+  if (existing && existing.expiryDate === doc.expiry_date) {
+    console.log(`Duplicate PDF skipped (already in system with same expiry): ${doc.document_name}`);
+    return { ...base, status: 'duplicate' };
   }
 
   const oneDriveUrl = await uploadToOneDrive(pdfBuffer, doc.owner_name, doc.document_name, doc.expiry_date);
-  const existingId = await findExistingDocument(doc.extracted_data);
 
-  if (existingId) {
-    await updateExistingDocument(existingId, doc, oneDriveUrl);
+  if (existing) {
+    await updateExistingDocument(existing.id, doc, oneDriveUrl);
   } else {
     await createNewDocument(doc, oneDriveUrl);
   }
 
-  const action = existingId ? 'updated' : 'created';
+  const status = existing ? 'updated' : 'created';
   console.log(
-    `Processed PDF: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${action} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
+    `Processed PDF: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${status} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
   );
-  return action;
+  return { ...base, status };
+}
+
+function describeResult(result) {
+  switch (result.status) {
+    case 'updated':
+      return `Successfully processed — ${result.documentName} — Expiry updated to ${formatDMY(result.expiry)}`;
+    case 'created':
+      return `New document created — ${result.documentName} — Expires ${formatDMY(result.expiry)}`;
+    case 'duplicate':
+      return `Duplicate — ${result.documentName} — already exists in system with same details`;
+    default:
+      switch (result.reasonCode) {
+        case 'scanned':
+          return `${result.fileName} — Failed: This is a scanned image PDF. Please use a text-searchable PDF version and resend.`;
+        case 'invalid_json':
+          return `${result.fileName} — Failed: Could not read document content. Please resend.`;
+        case 'no_expiry':
+          return `${result.fileName} — Failed: No expiry date found in document. Please ensure the document contains a visible expiry date.`;
+        default:
+          return `${result.fileName} — Failed: ${result.reason}`;
+      }
+  }
+}
+
+// Sends ONE summary email per unique sender at the end of a run, covering all
+// of that sender's documents across every email they sent. Never throws.
+// entries: [{ subject, result }] collected as PDFs are processed.
+async function sendSummaryEmails(entriesBySender) {
+  const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
+
+  for (const [senderAddress, entries] of entriesBySender) {
+    // Avoid mailing ourselves (and a possible reply loop).
+    if (senderAddress.toLowerCase() === ownAddress) continue;
+
+    const results = entries.map((entry) => entry.result);
+
+    // Merge the CC lists of all this sender's emails (unique, case-insensitive).
+    // The service account and the recipient themselves are never CC'd.
+    const ccAddresses = new Map();
+    for (const entry of entries) {
+      for (const address of entry.cc || []) {
+        const key = address.toLowerCase();
+        if (key === ownAddress || key === senderAddress.toLowerCase()) continue;
+        if (!ccAddresses.has(key)) ccAddresses.set(key, address);
+      }
+    }
+    const count = (status) => results.filter((r) => r.status === status).length;
+    const created = count('created');
+    const processed = count('updated') + created;
+    const totals = `Total: ${processed} processed, ${created} new, ${count('duplicate')} duplicates, ${count('failed')} failed`;
+
+    const subjects = [...new Set(entries.map((entry) => entry.subject || '(no subject)'))];
+    const sections = subjects
+      .map((subject) => {
+        const items = entries
+          .filter((entry) => (entry.subject || '(no subject)') === subject)
+          .map(({ result }) => `<li>${escapeHtml(result.status === 'failed' ? describeResult(result) : `${result.fileName}: ${describeResult(result)}`)}</li>`)
+          .join('');
+        return `<p><b>${escapeHtml(subject)}</b></p><ul>${items}</ul>`;
+      })
+      .join('');
+    const content = `<p>Summary of the ${results.length} PDF attachment${results.length === 1 ? '' : 's'} received from you:</p>${sections}<p><b>${totals}</b></p>`;
+    const subject = subjects.length === 1
+      ? `Document Processing Summary — ${subjects[0]}`
+      : `Document Processing Summary — ${subjects.length} emails`;
+
+    try {
+      await graphRequest(
+        'POST',
+        `/users/${serviceAccount()}/sendMail`,
+        {
+          message: {
+            subject,
+            body: { contentType: 'HTML', content },
+            toRecipients: [{ emailAddress: { address: senderAddress } }],
+            ccRecipients: [...ccAddresses.values()].map((address) => ({ emailAddress: { address } })),
+          },
+          saveToSentItems: 'true',
+        },
+        'app'
+      );
+      console.log(`Summary email sent to ${senderAddress} (${results.length} document${results.length === 1 ? '' : 's'}, ${ccAddresses.size} CC)`);
+    } catch (error) {
+      console.warn(`Could not send summary email to ${senderAddress}: ${error.message}`);
+    }
+  }
 }
 
 async function processDocumentEmails() {
-  const summary = { emailsChecked: 0, pdfsFound: 0, documentsUpdated: 0, documentsCreated: 0, failed: 0, skipped: 0 };
+  const summary = { emailsChecked: 0, pdfsFound: 0, documentsUpdated: 0, documentsCreated: 0, duplicates: 0, failed: 0 };
 
-  if (running) {
-    console.log('Document email processing already in progress, skipping this run');
+  if (isProcessing) {
+    console.log('Already processing — skipping this run');
     return { ...summary, alreadyRunning: true };
   }
-  running = true;
+  isProcessing = true;
 
   try {
-    const filter = 'hasAttachments eq true and isRead eq false';
+    await cleanupOrphanedTempFiles();
+
+    const seenSignatures = new Set();
+    // sender address -> [{ subject, result }] for the single end-of-run summary
+    const entriesBySender = new Map();
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const filter = `hasAttachments eq true and isRead eq false and receivedDateTime ge ${since}`;
     const data = await graphRequest(
       'GET',
-      `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject&$top=20`,
+      `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,from,ccRecipients&$top=50`,
       null,
       'app'
     );
     const messages = Array.isArray(data?.value) ? data.value : [];
     summary.emailsChecked = messages.length;
+
+    // TEMP DEBUG: same query without the unread condition, log only (not processed).
+    try {
+      const debugFilter = `hasAttachments eq true and receivedDateTime ge ${since}`;
+      const debugData = await graphRequest(
+        'GET',
+        `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(debugFilter)}&$select=id,subject,isRead,receivedDateTime&$top=50`,
+        null,
+        'app'
+      );
+      const debugMessages = Array.isArray(debugData?.value) ? debugData.value : [];
+      console.log(`[DEBUG] Emails with attachments (read or unread) in last 30 days: ${debugMessages.length}`);
+      debugMessages.forEach((m) => console.log(`[DEBUG]   ${m.isRead ? 'READ  ' : 'UNREAD'} ${m.receivedDateTime} — ${m.subject}`));
+    } catch (error) {
+      console.warn(`[DEBUG] Debug fetch failed: ${error.message}`);
+    }
 
     for (const message of messages) {
       try {
@@ -406,32 +711,43 @@ async function processDocumentEmails() {
         if (pdfs.length === 0) continue;
 
         summary.pdfsFound += pdfs.length;
-        let messageFailed = false;
+        const senderAddress = message.from?.emailAddress?.address || null;
 
         for (const attachment of pdfs) {
+          let result;
           try {
-            const result = await processPdf(message.id, attachment);
-            if (result === 'updated') summary.documentsUpdated++;
-            else if (result === 'created') summary.documentsCreated++;
-            else summary.skipped++;
+            result = await processPdf(message.id, attachment, seenSignatures, message.from?.emailAddress?.name || message.from?.emailAddress?.address || null, message.from?.emailAddress?.address || null);
           } catch (error) {
-            messageFailed = true;
-            summary.failed++;
             console.error(`Failed to process PDF "${attachment.name}" in "${message.subject}":`, error.message);
+            result = { status: 'failed', fileName: attachment.name, reason: error.message };
           }
+
+          if (senderAddress) {
+            if (!entriesBySender.has(senderAddress)) entriesBySender.set(senderAddress, []);
+            entriesBySender.get(senderAddress).push({
+              subject: message.subject,
+              result,
+              cc: (message.ccRecipients || []).map((r) => r.emailAddress?.address).filter(Boolean),
+            });
+          } else {
+            console.warn(`No sender address on "${message.subject}", it will not be included in a summary email`);
+          }
+          if (result.status === 'updated') summary.documentsUpdated++;
+          else if (result.status === 'created') summary.documentsCreated++;
+          else if (result.status === 'duplicate') summary.duplicates++;
+          else summary.failed++;
         }
 
-        // A failed PDF leaves the email unread so the next run retries it.
-        if (!messageFailed) {
-          await graphRequest('PATCH', `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}`, { isRead: true }, 'app');
-        }
+        await graphRequest('PATCH', `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}`, { isRead: true }, 'app');
       } catch (error) {
         summary.failed++;
         console.error(`Failed to process email "${message.subject}":`, error.message);
       }
     }
+
+    await sendSummaryEmails(entriesBySender);
   } finally {
-    running = false;
+    isProcessing = false;
   }
 
   console.log('Document email processing summary:');
@@ -439,10 +755,10 @@ async function processDocumentEmails() {
   console.log(`  Total PDFs found: ${summary.pdfsFound}`);
   console.log(`  Total documents updated: ${summary.documentsUpdated}`);
   console.log(`  Total documents created: ${summary.documentsCreated}`);
+  console.log(`  Total duplicates skipped: ${summary.duplicates}`);
   console.log(`  Total failed: ${summary.failed}`);
-  if (summary.skipped) console.log(`  Skipped (no expiry date / no text): ${summary.skipped}`);
 
   return summary;
 }
 
-module.exports = { processDocumentEmails, compareExtractedData, isDateKey, looksLikeDate };
+module.exports = { processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
