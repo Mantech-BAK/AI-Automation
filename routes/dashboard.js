@@ -306,6 +306,7 @@ router.get('/tasks', async (req, res) => {
         a.site_location AS department,
         a.department AS asset_department,
         a.responsible_person,
+        a.type_of_service,
         a.frequency_days,
         t.name AS technician_name,
         wo.status,
@@ -379,7 +380,7 @@ router.get('/assets', async (req, res) => {
     // `type` is the coarse Equipment/Document split (asset_types).
     // `category`/`categories` is the fine-grained tag (asset_categories) -
     // e.g. VehiclesPage.tsx passes categories=Light Vehicle,Heavy Vehicle,...
-    const { type, category, categories, department, parent_asset_id } = req.query;
+    const { type, category, categories, department, parent_asset_id, sort, limit } = req.query;
     const conditions = [];
     const params = [];
 
@@ -417,6 +418,13 @@ router.get('/assets', async (req, res) => {
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+    // sort=recent: most recently updated first (dashboard "recent assets" list);
+    // limit is clamped so a stray value can't pull the whole table.
+    const limitNumber = Math.min(Math.max(parseInt(limit, 10) || 0, 0), 500);
+    const orderClause =
+      (sort === 'recent' ? 'ORDER BY assets.updated_at DESC NULLS LAST, assets.id DESC' : 'ORDER BY assets.id') +
+      (limitNumber ? ` LIMIT ${limitNumber}` : '');
+
     const { rows } = await pool.query(
       `
       SELECT
@@ -442,7 +450,7 @@ router.get('/assets', async (req, res) => {
       LEFT JOIN asset_types at ON at.id = assets.type_id
       LEFT JOIN asset_departments ad ON ad.id = assets.department_id
       ${whereClause}
-      ORDER BY assets.id
+      ${orderClause}
     `,
       params
     );
@@ -1002,7 +1010,8 @@ router.put('/assets/:id', async (req, res) => {
          tolerance_days = $14,
          responsible_person = $15,
          remarks = $16,
-         parent_asset_id = $17
+         parent_asset_id = $17,
+         updated_at = NOW()
        WHERE id = $18
        RETURNING *`,
       [

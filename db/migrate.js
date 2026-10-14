@@ -640,6 +640,7 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_document_versions_asset_id ON document_versions(asset_id);
 
       ALTER TABLE assets ADD COLUMN IF NOT EXISTS extracted_data JSONB;
+      ALTER TABLE assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
     `);
 
     const defaultSettings = [

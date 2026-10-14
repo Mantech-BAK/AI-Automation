@@ -127,14 +127,16 @@ function formatFieldValue(value: unknown): string {
 }
 
 interface EquipmentPageProps {
+  // Set by a module (Equipment / Documents / Vehicles) to show only its own tab.
+  lockedTab?: PageTab;
   initialTab?: PageTab;
   initialDocExpiryTile?: DocExpiryTile;
   initialVehicleId?: number | null;
   initialSite?: string;
 }
 
-export default function EquipmentPage({ initialTab, initialDocExpiryTile, initialVehicleId, initialSite }: EquipmentPageProps = {}) {
-  const [activeTab, setActiveTab] = useState<PageTab>(initialTab || 'equipment');
+export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryTile, initialVehicleId, initialSite }: EquipmentPageProps = {}) {
+  const [activeTab, setActiveTab] = useState<PageTab>(lockedTab || initialTab || 'equipment');
   const [docExpiryTile, setDocExpiryTile] = useState<DocExpiryTile>(initialDocExpiryTile || 'all');
 
   const [equipment, setEquipment] = useState<Equipment[]>([]);
@@ -407,8 +409,16 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Equipment</h1>
-          <p className="text-slate-500 mt-1">Manage your equipment and assets</p>
+          <h1 className="text-2xl font-bold text-slate-800">
+            {lockedTab === 'documents' ? 'Documents' : lockedTab === 'vehicles' ? 'Vehicles' : 'Equipment'}
+          </h1>
+          <p className="text-slate-500 mt-1">
+            {lockedTab === 'documents'
+              ? 'Track documents, expiry dates and renewals'
+              : lockedTab === 'vehicles'
+              ? 'Manage your vehicles'
+              : 'Manage your equipment and assets'}
+          </p>
         </div>
         {activeTab === 'equipment' && (
           <div className="flex gap-3">
@@ -428,7 +438,8 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
         )}
       </div>
 
-      {/* Tab Switcher */}
+      {/* Tab Switcher (hidden when a module pins this page to a single tab) */}
+      {!lockedTab && (
       <div className="flex items-center gap-2 flex-wrap">
         {([
           { id: 'equipment', label: 'Equipment', icon: Cog },
@@ -453,6 +464,7 @@ export default function EquipmentPage({ initialTab, initialDocExpiryTile, initia
           );
         })}
       </div>
+      )}
 
       {activeTab === 'equipment' && (
         loading ? (

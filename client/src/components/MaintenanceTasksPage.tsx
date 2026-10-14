@@ -78,6 +78,8 @@ interface VehicleUpcomingTask {
 }
 
 interface MaintenanceTasksPageProps {
+  // Set by a module (Equipment / Documents / Vehicles) to show only its own tab.
+  lockedTab?: PageTab;
   initialFilter?: NavFilter | null;
   onNavigate?: (page: string, filter?: NavFilter) => void;
 }
@@ -217,10 +219,12 @@ function matchesDocTile(task: MaintenanceTask, tile: DocTile): boolean {
   return matchesDateTile(task.expiry_date, tile);
 }
 
-export default function MaintenanceTasksPage({ initialFilter, onNavigate }: MaintenanceTasksPageProps) {
-  const initialTab: PageTab = (initialFilter?.tab && ['equipment', 'documents', 'vehicles'].includes(initialFilter.tab))
-    ? (initialFilter.tab as PageTab)
-    : 'equipment';
+export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavigate }: MaintenanceTasksPageProps) {
+  const filterTab: PageTab | null =
+    initialFilter?.tab && ['equipment', 'documents', 'vehicles'].includes(initialFilter.tab)
+      ? (initialFilter.tab as PageTab)
+      : null;
+  const initialTab: PageTab = lockedTab ?? filterTab ?? 'equipment';
   const initialStatus: StatusFilter = VALID_STATUS_FILTERS.includes(initialFilter?.taskStatus as StatusFilter)
     ? (initialFilter!.taskStatus as StatusFilter)
     : 'all';
@@ -509,11 +513,20 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Maintenance Tasks</h1>
-        <p className="text-slate-500 mt-1">View work orders, documents, and project activities</p>
+        <h1 className="text-2xl font-bold text-slate-800">
+          {lockedTab === 'documents' ? 'Document Tasks' : lockedTab === 'vehicles' ? 'Vehicle Tasks' : 'Maintenance Tasks'}
+        </h1>
+        <p className="text-slate-500 mt-1">
+          {lockedTab === 'documents'
+            ? 'View document renewal tasks'
+            : lockedTab === 'vehicles'
+            ? 'View vehicle renewals and maintenance'
+            : 'View work orders, documents, and project activities'}
+        </p>
       </div>
 
-      {/* Tab Switcher */}
+      {/* Tab Switcher (hidden when a module pins this page to a single tab) */}
+      {!lockedTab && (
       <div className="flex items-center gap-2 flex-wrap">
         {PAGE_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -534,6 +547,7 @@ export default function MaintenanceTasksPage({ initialFilter, onNavigate }: Main
           );
         })}
       </div>
+      )}
 
       {activeTab === 'equipment' && (
         loading ? (

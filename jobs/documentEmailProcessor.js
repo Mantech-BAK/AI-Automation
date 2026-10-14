@@ -313,6 +313,7 @@ async function updateExistingDocument(assetId, doc, oneDriveUrl) {
          registration_date = $2,
          extracted_data = $3::jsonb,
          last_received_at = NOW(),
+         updated_at = NOW(),
          onedrive_url = COALESCE($4, onedrive_url)
        WHERE id = $5`,
       [doc.expiry_date, doc.registration_date, JSON.stringify(doc.extracted_data), oneDriveUrl, assetId]

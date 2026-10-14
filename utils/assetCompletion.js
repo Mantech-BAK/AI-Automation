@@ -32,7 +32,8 @@ async function completeDocumentAsset(assetId, originalDueDate) {
 
   const { rows } = await pool.query(
     `UPDATE assets
-     SET last_completed_date = CURRENT_DATE,
+     SET updated_at = NOW(),
+         last_completed_date = CURRENT_DATE,
          next_due_date = (
            CASE
              WHEN $3::date IS NOT NULL AND (CURRENT_DATE - $3::date) <= $2 THEN $3::date

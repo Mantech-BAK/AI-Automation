@@ -12,8 +12,11 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { NavFilter } from '../App';
+import { moduleOfNotificationType, type ModuleId } from '../lib/modules';
 
 interface NotificationsPageProps {
+  // When set, only this module's notifications are listed.
+  module?: ModuleId;
   onNavigate?: (page: string, filter?: NavFilter) => void;
 }
 
@@ -107,10 +110,14 @@ function getTypeBorderClass(type: string): string {
   }
 }
 
-export default function NotificationsPage({ onNavigate }: NotificationsPageProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+export default function NotificationsPage({ module, onNavigate }: NotificationsPageProps) {
+  const [allNotifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const notifications = module
+    ? allNotifications.filter((notif) => moduleOfNotificationType(notif.notification_type) === module)
+    : allNotifications;
 
   useEffect(() => {
     fetchNotifications();

@@ -46,6 +46,8 @@ interface LookupOption {
 }
 
 interface TechniciansPageProps {
+  // Set by a module to show only its own tab (maintenance / documentation / vehicles).
+  lockedTab?: TechnicianTab;
   onViewEmployee?: (empId: string) => void;
 }
 
@@ -102,8 +104,8 @@ function getTaskStatusColor(status?: string) {
   }
 }
 
-export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps) {
-  const [activeTab, setActiveTab] = useState<TechnicianTab>('maintenance');
+export default function TechniciansPage({ lockedTab, onViewEmployee }: TechniciansPageProps) {
+  const [activeTab, setActiveTab] = useState<TechnicianTab>(lockedTab ?? 'maintenance');
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -376,7 +378,8 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
         </div>
       </div>
 
-      {/* Tab Switcher */}
+      {/* Tab Switcher (hidden when a module pins this page to a single tab) */}
+      {!lockedTab && (
       <div className="flex items-center gap-2 flex-wrap">
         {TECHNICIAN_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -397,6 +400,7 @@ export default function TechniciansPage({ onViewEmployee }: TechniciansPageProps
           );
         })}
       </div>
+      )}
 
       {activeTab === 'vehicles' && (
         vehiclesLoading ? (

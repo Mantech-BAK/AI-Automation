@@ -49,7 +49,8 @@ async function applyAssetRecurrence(assetId, maintenanceIntervalDays, taskType, 
     // old expiry date, since the renewal itself resets the clock.
     const { rows, rowCount } = await pool.query(
       `UPDATE assets
-       SET registration_date = CURRENT_DATE,
+       SET updated_at = NOW(),
+           registration_date = CURRENT_DATE,
            last_completed_date = CURRENT_DATE,
            next_due_date = CURRENT_DATE + ($1 || ' days')::interval,
            expiry_date = CURRENT_DATE + ($1 || ' days')::interval
@@ -63,7 +64,8 @@ async function applyAssetRecurrence(assetId, maintenanceIntervalDays, taskType, 
 
   const { rows, rowCount } = await pool.query(
     `UPDATE assets
-     SET last_completed_date = CURRENT_DATE,
+     SET updated_at = NOW(),
+         last_completed_date = CURRENT_DATE,
          next_due_date = CURRENT_DATE + ($1 || ' days')::interval
      WHERE id = $2
      RETURNING expiry_date, next_due_date`,

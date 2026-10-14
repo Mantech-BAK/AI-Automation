@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { toTitleCase } = require('../utils/text');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
 const { completeDocumentAsset } = require('../utils/assetCompletion');
+const { addResolvedNames } = require('../utils/displayName');
 
 const router = express.Router();
 
@@ -43,6 +44,8 @@ function mapVehicleRow(row) {
     department: row.department,
     site_location: row.site_location,
     incharge: row.responsible_person,
+    incharge_name: row.resolved_responsible_name || row.responsible_person || null,
+    incharge_contact: row.incharge_contact || null,
     remarks: row.remarks,
     total_tasks: Number(row.total_tasks || 0),
     expired_tasks: Number(row.expired_tasks || 0),
@@ -79,6 +82,10 @@ router.get('/', async (req, res) => {
       SELECT
         v.*,
         ac.name AS category_name,
+        -- Phone number (or email) of the in-charge person when they are in the employee master.
+        (SELECT COALESCE(NULLIF(e.contact_number, ''), e.email) FROM employees e
+          WHERE LOWER(e.email) = LOWER(v.responsible_person) OR LOWER(e.name) = LOWER(v.responsible_person)
+          LIMIT 1) AS incharge_contact,
         COUNT(child.id)::int AS total_tasks,
         COUNT(child.id) FILTER (WHERE child.expiry_date IS NOT NULL AND child.expiry_date < CURRENT_DATE)::int AS expired_tasks,
         COUNT(child.id) FILTER (WHERE child.expiry_date IS NOT NULL AND child.expiry_date >= CURRENT_DATE AND child.expiry_date <= CURRENT_DATE + INTERVAL '30 days')::int AS expiring_tasks
@@ -91,6 +98,7 @@ router.get('/', async (req, res) => {
     `,
       [VEHICLE_CATEGORIES]
     );
+    await addResolvedNames(rows);
     return res.json(rows.map(mapVehicleRow));
   } catch (error) {
     console.error('Load vehicles failed:', error);
