@@ -161,9 +161,11 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
       color: flagColor(project.management_flag),
     }));
 
-  // Margin Risk Watch: the projects flagged for margin risk, against a 15% target.
+  // Margin Risk Watch: every project forecast below the 15% target margin, lowest first.
   const TARGET_MARGIN = 0.15;
-  const marginRisk = projects.filter((project) => project.management_flag === 'Margin Risk');
+  const marginRisk = projects
+    .filter((project) => project.forecast_margin_pct < TARGET_MARGIN)
+    .sort((a, b) => a.forecast_margin_pct - b.forecast_margin_pct);
 
   // Progress Overview: simple averages across the projects shown.
   const average = (pick: (project: Project) => number) => (projects.length ? sumOf(projects, pick) / projects.length : 0);
@@ -392,7 +394,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                           <tr key={project.project_id} className="hover:bg-slate-50">
                             <td className="px-5 py-3 align-top">
                               <p className="font-medium text-slate-800 whitespace-nowrap">{project.project_id}</p>
-                              <span className="mt-1 inline-block"><FlagBadge flag="Margin Risk" /></span>
+                              <span className="mt-1 inline-block"><FlagBadge flag={project.management_flag} /></span>
                             </td>
                             <td className="px-5 py-3 text-slate-600 align-top">{project.customer}</td>
                             <td className="px-5 py-3 text-right font-semibold text-red-600 align-top">{pct(project.forecast_margin_pct)}</td>
