@@ -643,6 +643,87 @@ async function runMigrations() {
       ALTER TABLE assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
     `);
 
+    // Project Tracking module: projects, AR transactions and retention.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        project_id TEXT PRIMARY KEY,
+        so_no TEXT,
+        customer TEXT,
+        project_type TEXT,
+        start_date DATE,
+        expected_end_date DATE,
+        so_value_bhd NUMERIC(14,2),
+        retention_rate NUMERIC(5,4),
+        net_invoiced_bhd NUMERIC(14,2),
+        collections_bhd NUMERIC(14,2),
+        actual_cost_bhd NUMERIC(14,2),
+        committed_cost_bhd NUMERIC(14,2),
+        total_cost_exposure_bhd NUMERIC(14,2),
+        outstanding_ar_bhd NUMERIC(14,2),
+        unbilled_so_balance_bhd NUMERIC(14,2),
+        forecast_margin_bhd NUMERIC(14,2),
+        forecast_margin_pct NUMERIC(6,4),
+        billing_pct NUMERIC(6,4),
+        collection_pct_of_invoiced NUMERIC(6,4),
+        project_status TEXT,
+        completion_pct NUMERIC(6,4),
+        planned_progress_pct NUMERIC(6,4),
+        progress_variance_pct NUMERIC(6,4),
+        management_flag TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS project_ar_transactions (
+        id SERIAL PRIMARY KEY,
+        project_id TEXT REFERENCES projects(project_id),
+        transaction_ref TEXT,
+        so_no TEXT,
+        transaction_type TEXT,
+        transaction_date DATE,
+        amount_bhd NUMERIC(14,2),
+        description TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS project_retention (
+        id SERIAL PRIMARY KEY,
+        project_id TEXT REFERENCES projects(project_id),
+        so_no TEXT,
+        retention_rate NUMERIC(5,4),
+        retention_amount_bhd NUMERIC(14,2),
+        release_rule TEXT,
+        collection_treatment TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_project_ar_transactions_project_id ON project_ar_transactions(project_id);
+      CREATE INDEX IF NOT EXISTS idx_project_retention_project_id ON project_retention(project_id);
+    `);
+
+    // Seed the 30 sample projects only into an empty table.
+    const { rows: projectCount } = await pool.query('SELECT COUNT(*)::int AS count FROM projects');
+    if (projectCount[0].count === 0) {
+      const { PROJECT_COLUMNS, PROJECT_ROWS } = require('./data/projectsSeed');
+      const placeholders = PROJECT_COLUMNS.map((_, index) => `$${index + 1}`).join(', ');
+      for (const row of PROJECT_ROWS) {
+        await pool.query(
+          `INSERT INTO projects (${PROJECT_COLUMNS.join(', ')}) VALUES (${placeholders}) ON CONFLICT (project_id) DO NOTHING`,
+          row
+        );
+      }
+      console.log(`Seeded ${PROJECT_ROWS.length} projects.`);
+    }
+
+    // One retention row per project that has none yet: amount = SO value x rate.
+    await pool.query(`
+      INSERT INTO project_retention (project_id, so_no, retention_rate, retention_amount_bhd, release_rule, collection_treatment)
+      SELECT p.project_id, p.so_no, p.retention_rate, ROUND(p.so_value_bhd * p.retention_rate, 2),
+             'On practical completion', 'Excluded from AR'
+      FROM projects p
+      WHERE NOT EXISTS (SELECT 1 FROM project_retention r WHERE r.project_id = p.project_id);
+    `);
+
     const defaultSettings = [
       ['daily_check_time', '6'],
       ['working_hours_start', '07:30'],

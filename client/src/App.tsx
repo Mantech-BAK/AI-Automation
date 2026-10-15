@@ -14,6 +14,7 @@ import CalendarPage from './components/CalendarPage';
 import SettingsPage from './components/SettingsPage';
 import UsersPage from './components/UsersPage';
 import LoginPage from './pages/LoginPage';
+import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
 import { MODULE_ORDER, allNavItems, isModuleId, type ModuleId } from './lib/modules';
 
@@ -64,6 +65,8 @@ export interface NavFilter {
 // "no restriction" (matches routes/dashboard.js's buildPermissionConditions).
 function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
   if (user.role === 'admin') return true;
+  // Project financials are opt-in: the user needs the 'Project' item type, an empty list is not enough.
+  if (module === 'projects') return (user.allowed_item_types || []).includes('Project');
   const allowedItemTypes = user.allowed_item_types || [];
   if (allowedItemTypes.length === 0) return true;
   return allowedItemTypes.includes(module === 'documents' ? 'Document' : 'Equipment');
@@ -251,6 +254,11 @@ function App() {
   const lockedTab = currentItem?.tab;
 
   const renderPage = () => {
+    if (activeModule === 'projects') {
+      return <ProjectsModule page={currentPage} onNavigate={handleNavigate} />;
+    }
+
+    // The other modules share the asset / task / document pages below.
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard module={activeModule} onNavigate={handleNavigate} />;

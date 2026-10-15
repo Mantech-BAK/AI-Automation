@@ -2,6 +2,7 @@ import type { NavFilter } from '../App';
 import type { ModuleId } from '../lib/modules';
 import DocumentsDashboard from './dashboard/DocumentsDashboard';
 import EquipmentDashboard from './dashboard/EquipmentDashboard';
+import ProjectsDashboard from '../pages/ProjectsDashboard';
 import VehiclesDashboard from './dashboard/VehiclesDashboard';
 
 interface DashboardProps {
@@ -18,6 +19,8 @@ export default function Dashboard({ module, onNavigate }: DashboardProps) {
       return <VehiclesDashboard onNavigate={onNavigate} />;
     case 'documents':
       return <DocumentsDashboard onNavigate={onNavigate} />;
+    case 'projects':
+      return <ProjectsDashboard onNavigate={onNavigate} />;
     default:
       return <EquipmentDashboard onNavigate={onNavigate} />;
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
+import { ArrowRight, BarChart3, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
 import { MODULE_ORDER, MODULES, type ModuleId } from '../lib/modules';
 
 interface ModuleSelectPageProps {
@@ -24,6 +24,7 @@ const CARD_STYLE: Record<ModuleId, { accentText: string; accentBg: string; ring:
   equipment: { accentText: 'text-blue-600', accentBg: 'bg-blue-50', ring: 'hover:shadow-blue-200/70', watermark: Cog },
   vehicles: { accentText: 'text-orange-600', accentBg: 'bg-orange-50', ring: 'hover:shadow-orange-200/70', watermark: Truck },
   documents: { accentText: 'text-purple-600', accentBg: 'bg-purple-50', ring: 'hover:shadow-purple-200/70', watermark: FileText },
+  projects: { accentText: 'text-teal-600', accentBg: 'bg-teal-50', ring: 'hover:shadow-teal-200/70', watermark: BarChart3 },
 };
 
 function bahrainDateLabel(): string {
@@ -125,7 +126,7 @@ export default function ModuleSelectPage({ userName, accessibleModules, onSelect
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 lg:px-8 -mt-16 pb-12">
         {/* Module cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
           {MODULE_ORDER.map((id) => {
             const module = MODULES[id];
             const style = CARD_STYLE[id];

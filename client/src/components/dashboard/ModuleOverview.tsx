@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import type { NavFilter } from '../../App';
-import { moduleOfNotificationType, type ModuleId } from '../../lib/modules';
+import { moduleOfNotificationType, type LegacyModuleId } from '../../lib/modules';
 
 interface DashboardSummary {
   overdue_tasks: number;
@@ -56,7 +56,7 @@ interface DashboardSummary {
 
 interface DashboardProps {
   // Which module's overview to show (each module only gets its own section).
-  module: ModuleId;
+  module: LegacyModuleId;
   onNavigate: (page: string, filter?: NavFilter) => void;
 }
 
@@ -379,7 +379,7 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
   ];
   const simpleSystemTiles: TileDef[] = [notificationsTile, settingsTile];
 
-  const donuts: Record<ModuleId, JSX.Element> = {
+  const donuts: Record<LegacyModuleId, JSX.Element> = {
     equipment: (
       <DonutSection
         title="EQUIPMENT"
@@ -409,7 +409,7 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
     ),
   };
 
-  const tileGroups: Record<ModuleId, { label: string; tiles: TileDef[] }[]> = {
+  const tileGroups: Record<LegacyModuleId, { label: string; tiles: TileDef[] }[]> = {
     equipment: [
       { label: 'Equipment', tiles: equipmentTiles },
       { label: 'People', tiles: peopleTiles },

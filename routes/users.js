@@ -4,7 +4,7 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
-const VALID_ITEM_TYPES = ['Equipment', 'Document'];
+const VALID_ITEM_TYPES = ['Equipment', 'Document', 'Project'];
 
 function isStringArray(value) {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');

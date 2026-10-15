@@ -1,15 +1,21 @@
 import {
   Bell,
+  BarChart3,
   Building2,
   Calendar,
   CalendarDays,
   Cog,
+  CircleDollarSign,
   Contact,
   FileText,
+  FolderOpen,
   LayoutDashboard,
   Mail,
   MapPin,
+  Receipt,
   Settings,
+  ShieldCheck,
+  ShoppingCart,
   Truck,
   UserCheck,
   UserCog,
@@ -19,7 +25,11 @@ import {
 } from 'lucide-react';
 import type { NavFilter } from '../App';
 
-export type ModuleId = 'equipment' | 'vehicles' | 'documents';
+export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects';
+
+// The three modules built on the shared asset/task dashboards (Project Tracking
+// has its own pages under pages/projects).
+export type LegacyModuleId = Exclude<ModuleId, 'projects'>;
 
 export type TabId = NonNullable<NavFilter['tab']>;
 export type TechnicianTabId = 'maintenance' | 'documentation' | 'vehicles';
@@ -112,12 +122,31 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
+  projects: {
+    id: 'projects',
+    label: 'Project Tracking',
+    description: 'Monitor project financials, billing & collections',
+    icon: BarChart3,
+    gradient: 'from-teal-500 to-cyan-600',
+    // Settings is appended to every module's sidebar via SYSTEM_NAV.
+    nav: [
+      DASHBOARD,
+      { id: 'all-projects', label: 'All Projects', icon: FolderOpen, page: 'project-all' },
+      { id: 'financials', label: 'Financials', icon: CircleDollarSign, page: 'project-financials' },
+      { id: 'procurement', label: 'Procurement', icon: ShoppingCart, page: 'project-procurement' },
+      { id: 'collections', label: 'Collections & AR', icon: Receipt, page: 'project-collections' },
+      { id: 'retention', label: 'Retention', icon: ShieldCheck, page: 'project-retention' },
+      SCHEDULE_MEETING,
+      EMAIL_PROCESSING,
+      { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
+    ],
+  },
 };
 
-export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents'];
+export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents', 'projects'];
 
 export function isModuleId(value: string | undefined): value is ModuleId {
-  return value === 'equipment' || value === 'vehicles' || value === 'documents';
+  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects';
 }
 
 export function allNavItems(module: ModuleId): ModuleNavItem[] {
@@ -128,5 +157,6 @@ export function allNavItems(module: ModuleId): ModuleNavItem[] {
 export function moduleOfNotificationType(type: string): ModuleId {
   if (type.startsWith('document')) return 'documents';
   if (type.startsWith('vehicle')) return 'vehicles';
+  if (type.startsWith('project')) return 'projects';
   return 'equipment';
 }
