@@ -41,6 +41,8 @@ export interface ProjectsSummary {
   flagValues: Record<string, number>;
   byType: { type: string; soValue: number; invoiced: number; forecastMarginPct: number }[];
   byCustomer: { customer: string; soValue: number; invoiced: number; collected: number }[];
+  // Set when the summary was requested for a single project (?project_id=).
+  project?: { project_id: string; customer: string | null; project_type: string | null } | null;
 }
 
 export interface RetentionRow {
@@ -115,13 +117,16 @@ export interface ProjectFilters {
   customer: string;
   type: string;
   flag: string;
+  // Single-project view (dashboard only); '' = whole portfolio.
+  project?: string;
 }
 
-export const NO_FILTERS: ProjectFilters = { customer: '', type: '', flag: '' };
+export const NO_FILTERS: ProjectFilters = { customer: '', type: '', flag: '', project: '' };
 
 export function filterProjects(projects: Project[], filters: ProjectFilters): Project[] {
   return projects.filter(
     (project) =>
+      (!filters.project || project.project_id === filters.project) &&
       (!filters.customer || project.customer === filters.customer) &&
       (!filters.type || project.project_type === filters.type) &&
       (!filters.flag || project.management_flag === filters.flag)
@@ -130,6 +135,7 @@ export function filterProjects(projects: Project[], filters: ProjectFilters): Pr
 
 export function filterQuery(filters: ProjectFilters): string {
   const params = new URLSearchParams();
+  if (filters.project) params.set('project_id', filters.project);
   if (filters.customer) params.set('customer', filters.customer);
   if (filters.type) params.set('type', filters.type);
   if (filters.flag) params.set('flag', filters.flag);

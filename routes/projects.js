@@ -59,6 +59,7 @@ function buildFilters(query) {
     }
   };
 
+  add('project_id', query.project_id);
   add('customer', query.customer);
   add('project_type', query.type);
   add('management_flag', query.flag);
@@ -91,6 +92,16 @@ router.get('/summary', async (req, res) => {
     const { rows: raw } = await pool.query(`SELECT * FROM projects ${where} ORDER BY project_id`, params);
     const rows = raw.map(toNumbers);
 
+    // ?project_id= narrows the summary to one project (same shape, so a single
+    // project's figures are simply its own row: value, invoiced, margin %, ...).
+    const projectId = typeof req.query.project_id === 'string' ? req.query.project_id.trim() : '';
+    if (projectId && rows.length === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const project = projectId
+      ? { project_id: rows[0].project_id, customer: rows[0].customer, project_type: rows[0].project_type }
+      : null;
+
     const flagCounts = Object.fromEntries(FLAG_NAMES.map((name) => [name, 0]));
     for (const row of rows) {
       const flag = row.management_flag || 'Unflagged';
@@ -100,6 +111,7 @@ router.get('/summary', async (req, res) => {
     const retentionHeld = rows.reduce((total, row) => total + (row.so_value_bhd || 0) * (row.retention_rate || 0), 0);
 
     return res.json({
+      project,
       projectCount: rows.length,
       totalSOValue: sum(rows, 'so_value_bhd'),
       totalInvoiced: sum(rows, 'net_invoiced_bhd'),

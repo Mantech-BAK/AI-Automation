@@ -66,6 +66,12 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
   const s = summary.data;
   const loading = summary.loading;
 
+  // The selected project: from the API once loaded, otherwise from the list so
+  // the badge appears immediately.
+  const selectedProject = filters.project
+    ? s?.project ?? (all.data ?? []).find((project) => project.project_id === filters.project) ?? { project_id: filters.project, customer: null, project_type: null }
+    : null;
+
   // ---------- derived data ----------
   const comboData = s
     ? [
@@ -116,7 +122,24 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
     <div className="space-y-6">
       <DashboardBanner moduleLabel="Project Tracking" gradient="from-teal-500 to-cyan-600" />
 
-      <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} />
+      <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} showProjectFilter />
+
+      {selectedProject && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3">
+          <p className="text-sm text-teal-900">
+            <span className="font-semibold">Single-project view:</span>{' '}
+            {selectedProject.project_id} — {selectedProject.customer}
+            {selectedProject.project_type && <span className="text-teal-700"> &middot; {selectedProject.project_type}</span>}
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilters(NO_FILTERS)}
+            className="text-sm font-medium text-teal-700 hover:underline"
+          >
+            Back to all projects
+          </button>
+        </div>
+      )}
 
       {summary.error && <ErrorState message={summary.error} />}
 

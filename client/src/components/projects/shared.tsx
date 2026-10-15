@@ -42,39 +42,62 @@ export function FilterBar({
   projects,
   filters,
   onChange,
+  showProjectFilter = false,
 }: {
   projects: Project[];
   filters: ProjectFilters;
   onChange: (filters: ProjectFilters) => void;
+  // Adds the "All Projects" single-project dropdown (used by the dashboard).
+  showProjectFilter?: boolean;
 }) {
   const selectClass =
     'px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
   const flags = unique([...FLAG_ORDER, ...projects.map((project) => project.management_flag)]);
 
+  // Changing customer / type / flag leaves single-project view, so the
+  // dropdowns can never contradict the selected project.
+  const change = (patch: Partial<ProjectFilters>) => onChange({ ...filters, project: '', ...patch });
+  const byId = [...projects].sort((a, b) => a.project_id.localeCompare(b.project_id, undefined, { numeric: true }));
+
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <select value={filters.customer} onChange={(e) => onChange({ ...filters, customer: e.target.value })} className={selectClass}>
+      {showProjectFilter && (
+        <select
+          value={filters.project || ''}
+          // Picking a project shows that project alone; "All Projects" restores the portfolio.
+          onChange={(e) => onChange({ customer: '', type: '', flag: '', project: e.target.value })}
+          className={`${selectClass} ${filters.project ? 'border-teal-500 ring-1 ring-teal-500 text-teal-700 font-medium' : ''}`}
+        >
+          <option value="">All Projects</option>
+          {byId.map((project) => (
+            <option key={project.project_id} value={project.project_id}>
+              {project.project_id} — {project.customer}
+            </option>
+          ))}
+        </select>
+      )}
+      <select value={filters.customer} onChange={(e) => change({ customer: e.target.value })} className={selectClass}>
         <option value="">All Customers</option>
         {unique(projects.map((project) => project.customer)).map((customer) => (
           <option key={customer} value={customer}>{customer}</option>
         ))}
       </select>
-      <select value={filters.type} onChange={(e) => onChange({ ...filters, type: e.target.value })} className={selectClass}>
+      <select value={filters.type} onChange={(e) => change({ type: e.target.value })} className={selectClass}>
         <option value="">All Project Types</option>
         {unique(projects.map((project) => project.project_type)).map((type) => (
           <option key={type} value={type}>{type}</option>
         ))}
       </select>
-      <select value={filters.flag} onChange={(e) => onChange({ ...filters, flag: e.target.value })} className={selectClass}>
+      <select value={filters.flag} onChange={(e) => change({ flag: e.target.value })} className={selectClass}>
         <option value="">All Management Flags</option>
         {flags.map((flag) => (
           <option key={flag} value={flag}>{flag}</option>
         ))}
       </select>
-      {(filters.customer || filters.type || filters.flag) && (
+      {(filters.customer || filters.type || filters.flag || filters.project) && (
         <button
           type="button"
-          onClick={() => onChange({ customer: '', type: '', flag: '' })}
+          onClick={() => onChange({ customer: '', type: '', flag: '', project: '' })}
           className="text-sm font-medium text-teal-600 hover:underline"
         >
           Clear filters
