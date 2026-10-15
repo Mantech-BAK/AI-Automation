@@ -7,6 +7,7 @@ import {
   Cell,
   ComposedChart,
   Legend,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -150,6 +151,16 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
     ? (sumOf(topCustomers.flatMap(({ rows }) => rows), (project) => project.collections_bhd) / topInvoiced) * 100
     : 0;
 
+  // Top 5 projects by outstanding receivables, coloured by management flag.
+  const arBars = [...projects]
+    .sort((a, b) => b.outstanding_ar_bhd - a.outstanding_ar_bhd)
+    .slice(0, 5)
+    .map((project) => ({
+      label: `${project.project_id} · ${project.customer ?? ''}`,
+      value: project.outstanding_ar_bhd,
+      color: flagColor(project.management_flag),
+    }));
+
   const alerts = projects.filter((project) => project.management_flag === 'Collection Risk' || project.management_flag === 'Margin Risk');
   const collectionRiskCount = projects.filter((project) => project.management_flag === 'Collection Risk').length;
   const marginRiskCount = projects.filter((project) => project.management_flag === 'Margin Risk').length;
@@ -254,10 +265,6 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                   </table>
                 </div>
               )}
-            </Panel>
-
-            <Panel title="Procurement vs. Cost" icon={PieChartIcon}>
-              <ProcurementDonut />
             </Panel>
           </div>
 
@@ -443,6 +450,61 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
               )}
             </Panel>
           </div>
+        </div>
+
+        {/* Procurement donut (left column) + Outstanding AR chart (centre and right columns) */}
+        <div className="grid grid-cols-1 xl:grid-cols-[2fr_3fr] gap-6">
+          <Panel title="Procurement vs. Cost" icon={PieChartIcon}>
+            <ProcurementDonut />
+          </Panel>
+
+          <Panel title="Top 5 Projects by Outstanding AR" icon={AlertTriangle}>
+            {all.loading ? (
+              <SkeletonBlock height="h-72" />
+            ) : arBars.length === 0 ? (
+              <EmptyState icon={AlertTriangle} message="No receivables to show" />
+            ) : (
+              <div className="px-5 py-4">
+                <div className="h-60">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={arBars} layout="vertical" margin={{ top: 4, right: 76, bottom: 4, left: 0 }}>
+                      <XAxis
+                        type="number"
+                        tickFormatter={(value: number) => amount(value)}
+                        tick={{ fontSize: 11, fill: '#64748b' }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="label"
+                        width={190}
+                        tick={{ fontSize: 12, fill: '#334155' }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(value: string) => (value.length > 28 ? `${value.slice(0, 27)}…` : value)}
+                      />
+                      <Tooltip cursor={{ fill: '#f1f5f9' }} formatter={(value) => [bhd(Number(value)), 'Outstanding AR']} />
+                      <Bar dataKey="value" name="Outstanding AR" radius={[0, 6, 6, 0]} maxBarSize={28}>
+                        {arBars.map((bar) => (
+                          <Cell key={bar.label} fill={bar.color} />
+                        ))}
+                        <LabelList dataKey="value" position="right" formatter={(value) => amount(Number(value))} style={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-2 text-xs text-slate-500">
+                  {FLAG_ORDER.filter((flag) => flag !== 'Behind Plan').map((flag) => (
+                    <span key={flag} className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: flagColor(flag) }} />
+                      {flag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Panel>
         </div>
 
         {/* Bottom row: billing and collection donuts */}
