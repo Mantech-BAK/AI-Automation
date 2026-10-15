@@ -19,7 +19,7 @@ import {
 } from 'recharts';
 import type { NavFilter } from '../App';
 import { DashboardBanner, EmptyState, ErrorState, Panel, TableHead, useJson } from '../components/dashboard/parts';
-import { FilterBar, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
+import { FilterBar, FlagBadge, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
 import {
   FLAG_ORDER,
   NO_FILTERS,
@@ -161,6 +161,18 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
       color: flagColor(project.management_flag),
     }));
 
+  // Margin Risk Watch: the projects flagged for margin risk, against a 15% target.
+  const TARGET_MARGIN = 0.15;
+  const marginRisk = projects.filter((project) => project.management_flag === 'Margin Risk');
+
+  // Progress Overview: simple averages across the projects shown.
+  const average = (pick: (project: Project) => number) => (projects.length ? sumOf(projects, pick) / projects.length : 0);
+  const progressRows = [
+    { label: 'Avg Completion %', value: average((project) => project.completion_pct), bar: 'bg-blue-600' },
+    { label: 'Avg Billing %', value: average((project) => project.billing_pct), bar: 'bg-teal-600' },
+    { label: 'Avg Collection %', value: average((project) => project.collection_pct_of_invoiced), bar: 'bg-purple-600' },
+  ];
+
   const alerts = projects.filter((project) => project.management_flag === 'Collection Risk' || project.management_flag === 'Margin Risk');
   const collectionRiskCount = projects.filter((project) => project.management_flag === 'Collection Risk').length;
   const marginRiskCount = projects.filter((project) => project.management_flag === 'Margin Risk').length;
@@ -208,9 +220,9 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
         </Panel>
       ) : (
         <>
-        <div className="grid grid-cols-1 xl:grid-cols-[2fr_1.5fr_1.5fr] gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[2fr_1.5fr_1.5fr] gap-6">
           {/* ---------------- LEFT ---------------- */}
-          <div className="space-y-6 min-w-0">
+          <div className="flex flex-col gap-6 min-w-0">
             <Panel title="Project Value vs. Financial Progress" icon={BarChart3}>
               {loading ? (
                 <SkeletonBlock height="h-72" />
@@ -269,7 +281,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
           </div>
 
           {/* ---------------- CENTER ---------------- */}
-          <div className="space-y-6 min-w-0">
+          <div className="flex flex-col gap-6 min-w-0">
             <Panel title="Project Status (by Value)" icon={PieChartIcon}>
               {loading ? (
                 <SkeletonBlock height="h-72" />
@@ -362,10 +374,43 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                 </div>
               )}
             </Panel>
+
+            <Panel title="Margin Risk Watch" icon={AlertTriangle} iconClassName="text-red-500" className="flex-1">
+              {all.loading ? (
+                <SkeletonBlock height="h-40" />
+              ) : marginRisk.length === 0 ? (
+                <div className="flex-1 flex flex-col justify-center">
+                  <EmptyState icon={ShieldCheck} message="No projects at margin risk" hint="Every project is above its margin threshold." />
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <TableHead columns={['Project ID', 'Customer', 'Forecast Margin %']} />
+                      <tbody className="divide-y divide-slate-100">
+                        {marginRisk.map((project) => (
+                          <tr key={project.project_id} className="hover:bg-slate-50">
+                            <td className="px-5 py-3 align-top">
+                              <p className="font-medium text-slate-800 whitespace-nowrap">{project.project_id}</p>
+                              <span className="mt-1 inline-block"><FlagBadge flag="Margin Risk" /></span>
+                            </td>
+                            <td className="px-5 py-3 text-slate-600 align-top">{project.customer}</td>
+                            <td className="px-5 py-3 text-right font-semibold text-red-600 align-top">{pct(project.forecast_margin_pct)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-auto px-5 py-4 text-xs text-slate-500 border-t border-slate-100">
+                    Target margin: {Math.round(TARGET_MARGIN * 100)}% — these projects are below threshold
+                  </p>
+                </div>
+              )}
+            </Panel>
           </div>
 
           {/* ---------------- RIGHT ---------------- */}
-          <div className="space-y-6 min-w-0">
+          <div className="flex flex-col gap-6 min-w-0">
             <Panel title="KPI by Project Type" icon={BarChart3}>
               <div className="px-5 pt-3 flex gap-2">
                 {(['value', 'invoiced'] as const).map((metric) => (
@@ -447,6 +492,28 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                     {s.totalSOValue ? pct(s.retentionHeld / s.totalSOValue) : '0%'} of SO value)
                   </li>
                 </ul>
+              )}
+            </Panel>
+
+            <Panel title="Progress Overview" icon={BarChart3} className="flex-1">
+              {all.loading ? (
+                <SkeletonBlock height="h-40" />
+              ) : projects.length === 0 ? (
+                <EmptyState icon={BarChart3} message="No projects to average" />
+              ) : (
+                <div className="flex-1 flex flex-col justify-center gap-5 px-5 py-5">
+                  {progressRows.map((row) => (
+                    <div key={row.label}>
+                      <div className="flex items-center justify-between text-sm mb-1.5">
+                        <span className="text-slate-600">{row.label}</span>
+                        <span className="font-semibold text-slate-800">{pct(row.value)}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div className={`h-full rounded-full ${row.bar}`} style={{ width: `${Math.min(Math.max(row.value, 0), 1) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </Panel>
           </div>

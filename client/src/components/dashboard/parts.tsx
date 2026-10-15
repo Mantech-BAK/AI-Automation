@@ -172,17 +172,22 @@ export function Panel({
   icon: Icon,
   action,
   children,
+  className = '',
+  iconClassName = 'text-slate-400',
 }: {
   title: string;
   icon: LucideIcon;
   action?: { label: string; onClick: () => void };
   children: ReactNode;
+  // e.g. 'flex-1' so a card stretches to fill the rest of a flex column.
+  className?: string;
+  iconClassName?: string;
 }) {
   return (
-    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <section className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col ${className}`}>
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-100">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <Icon size={16} className="text-slate-400" />
+          <Icon size={16} className={iconClassName} />
           {title}
         </h2>
         {action && (
