@@ -167,3 +167,68 @@ export function ProcurementDonut({ height = 'h-52' }: { height?: string }) {
     </div>
   );
 }
+
+export interface RateSlice {
+  name: string;
+  // Percentage (0-100) - also the slice size.
+  value: number;
+  color: string;
+}
+
+function shortName(name: string, max = 13): string {
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
+}
+
+// Donut whose slices are rates (billing %, collection %), labelled outside with
+// "name pct%", a centre label and a legend underneath.
+export function RateDonut({
+  slices,
+  centerLabel,
+  centerValue,
+}: {
+  slices: RateSlice[];
+  centerLabel: string;
+  centerValue: string;
+}) {
+  return (
+    <div className="px-5 py-4">
+      <div className="h-64 relative">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
+            <Pie
+              data={slices}
+              dataKey="value"
+              nameKey="name"
+              innerRadius="52%"
+              outerRadius="72%"
+              paddingAngle={2}
+              stroke="none"
+              label={(props: { name?: string; value?: number }) => `${shortName(String(props.name ?? ''))} ${(props.value ?? 0).toFixed(1)}%`}
+              labelLine
+            >
+              {slices.map((slice) => (
+                <Cell key={slice.name} fill={slice.color} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value, name) => [`${Number(value).toFixed(1)}%`, String(name)]} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">{centerLabel}</span>
+          <span className="text-2xl font-extrabold text-slate-800">{centerValue}</span>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+        {slices.map((slice) => (
+          <div key={slice.name} className="flex items-center justify-between gap-3 text-xs">
+            <span className="flex items-center gap-2 text-slate-600 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: slice.color }} />
+              <span className="truncate">{slice.name}</span>
+            </span>
+            <span className="font-semibold text-slate-800 flex-shrink-0">{slice.value.toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

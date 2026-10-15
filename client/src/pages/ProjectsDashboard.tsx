@@ -18,7 +18,7 @@ import {
 } from 'recharts';
 import type { NavFilter } from '../App';
 import { DashboardBanner, EmptyState, ErrorState, Panel, TableHead, useJson } from '../components/dashboard/parts';
-import { FilterBar, FlagDot, KpiTile, ProcurementDonut, Skeleton, SkeletonBlock } from '../components/projects/shared';
+import { FilterBar, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
 import {
   FLAG_ORDER,
   NO_FILTERS,
@@ -112,6 +112,39 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
     value: typeMetric === 'value' ? row.soValue : row.invoiced,
   }));
 
+  // ---- bottom donuts, computed from the (filtered) project list ----
+  const CUSTOMER_COLORS = ['#2563eb', '#0d9488', '#7c3aed', '#f59e0b', '#e11d48'];
+  const sumOf = (rows: Project[], pick: (project: Project) => number) => rows.reduce((total, project) => total + pick(project), 0);
+
+  // Billing progress per project type = invoiced / SO value.
+  const billingSlices: RateSlice[] = [...new Set(projects.map((project) => project.project_type || 'Unspecified'))]
+    .map((type) => {
+      const group = projects.filter((project) => (project.project_type || 'Unspecified') === type);
+      const soValue = sumOf(group, (project) => project.so_value_bhd);
+      return { name: type, value: soValue ? (sumOf(group, (project) => project.net_invoiced_bhd) / soValue) * 100 : 0, color: typeColor(type) };
+    })
+    .sort((a, b) => b.value - a.value);
+  const overallBilling = sumOf(projects, (project) => project.so_value_bhd)
+    ? (sumOf(projects, (project) => project.net_invoiced_bhd) / sumOf(projects, (project) => project.so_value_bhd)) * 100
+    : 0;
+
+  // Collection rate for the 5 customers with the largest SO value = collected / invoiced.
+  const topCustomers = [...new Set(projects.map((project) => project.customer || 'Unspecified'))]
+    .map((customer) => ({
+      customer,
+      rows: projects.filter((project) => (project.customer || 'Unspecified') === customer),
+    }))
+    .sort((a, b) => sumOf(b.rows, (project) => project.so_value_bhd) - sumOf(a.rows, (project) => project.so_value_bhd))
+    .slice(0, 5);
+  const collectionSlices: RateSlice[] = topCustomers.map(({ customer, rows }, index) => {
+    const invoiced = sumOf(rows, (project) => project.net_invoiced_bhd);
+    return { name: customer, value: invoiced ? (sumOf(rows, (project) => project.collections_bhd) / invoiced) * 100 : 0, color: CUSTOMER_COLORS[index % CUSTOMER_COLORS.length] };
+  });
+  const topInvoiced = sumOf(topCustomers.flatMap(({ rows }) => rows), (project) => project.net_invoiced_bhd);
+  const overallCollection = topInvoiced
+    ? (sumOf(topCustomers.flatMap(({ rows }) => rows), (project) => project.collections_bhd) / topInvoiced) * 100
+    : 0;
+
   const alerts = projects.filter((project) => project.management_flag === 'Collection Risk' || project.management_flag === 'Margin Risk');
   const collectionRiskCount = projects.filter((project) => project.management_flag === 'Collection Risk').length;
   const marginRiskCount = projects.filter((project) => project.management_flag === 'Margin Risk').length;
@@ -158,6 +191,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
           <EmptyState icon={BarChart3} message="No projects match these filters" hint="Clear the filters to see the whole portfolio." />
         </Panel>
       ) : (
+        <>
         <div className="grid grid-cols-1 xl:grid-cols-[2fr_1.5fr_1.5fr] gap-6 items-start">
           {/* ---------------- LEFT ---------------- */}
           <div className="space-y-6 min-w-0">
@@ -405,6 +439,30 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
             </Panel>
           </div>
         </div>
+
+        {/* Bottom row: billing and collection donuts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Panel title="Billing Progress by Project Type" icon={PieChartIcon}>
+            {all.loading ? (
+              <SkeletonBlock height="h-72" />
+            ) : billingSlices.length === 0 ? (
+              <EmptyState icon={PieChartIcon} message="No billing data" />
+            ) : (
+              <RateDonut slices={billingSlices} centerLabel="Billing Progress" centerValue={`${overallBilling.toFixed(1)}%`} />
+            )}
+          </Panel>
+
+          <Panel title="Collection Rate by Customer (top 5 by SO value)" icon={PieChartIcon}>
+            {all.loading ? (
+              <SkeletonBlock height="h-72" />
+            ) : collectionSlices.length === 0 ? (
+              <EmptyState icon={PieChartIcon} message="No collection data" />
+            ) : (
+              <RateDonut slices={collectionSlices} centerLabel="Collection Rate" centerValue={`${overallCollection.toFixed(1)}%`} />
+            )}
+          </Panel>
+        </div>
+        </>
       )}
     </div>
   );
