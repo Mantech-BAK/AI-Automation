@@ -85,7 +85,9 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
 
   const statusSlices = s
     ? FLAG_ORDER.concat(Object.keys(s.flagCounts).filter((flag) => !FLAG_ORDER.includes(flag))).map((flag) => ({
+        // The four management flags are always listed, in this order, with exactly these names.
         flag,
+        name: flag,
         count: s.flagCounts[flag] ?? 0,
         value: s.flagValues[flag] ?? 0,
       }))
@@ -95,10 +97,13 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
   const trendData = s
     ? TREND_MONTHS.map(({ month, factor }) => ({
         month,
+        // Each series grows along its own curve (all reach 100% in June), so the
+        // lines separate and move instead of overlapping: contract value is
+        // booked early, then billing, cost and finally collections follow.
         'Project Value': Math.round(s.totalSOValue * factor),
-        Invoiced: Math.round(s.totalInvoiced * factor),
-        Collected: Math.round(s.totalCollected * factor),
-        'Actual Cost': Math.round(s.totalActualCost * factor),
+        Invoiced: Math.round(s.totalInvoiced * Math.pow(factor, 1.4)),
+        Collected: Math.round(s.totalCollected * Math.pow(factor, 1.9)),
+        'Actual Cost': Math.round(s.totalActualCost * Math.pow(factor, 1.2)),
       }))
     : [];
 
@@ -266,7 +271,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                   <div className="h-52 relative">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={statusSlices.filter((slice) => slice.value > 0)} dataKey="value" nameKey="flag" innerRadius="58%" outerRadius="88%" paddingAngle={2} stroke="none">
+                        <Pie data={statusSlices.filter((slice) => slice.value > 0)} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="88%" paddingAngle={2} stroke="none">
                           {statusSlices.filter((slice) => slice.value > 0).map((slice) => (
                             <Cell key={slice.flag} fill={flagColor(slice.flag)} />
                           ))}
@@ -306,7 +311,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                       <LineChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <YAxis tickFormatter={compact} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={['auto', 'auto']} tickFormatter={compact} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <Tooltip formatter={(value) => bhd(Number(value))} />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
                         <Line type="monotone" dataKey="Project Value" stroke="#2563eb" strokeWidth={2} dot={false} />

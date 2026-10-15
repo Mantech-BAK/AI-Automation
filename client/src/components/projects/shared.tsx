@@ -140,10 +140,10 @@ export const PROCUREMENT_SPLIT = [
 export function ProcurementDonut({ height = 'h-52' }: { height?: string }) {
   return (
     <div className="px-5 py-4">
-      <div className={`${height} relative`}>
+      <div className={`${height} relative flex justify-center`}>
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie data={PROCUREMENT_SPLIT} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="85%" paddingAngle={2} stroke="none">
+          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+            <Pie data={PROCUREMENT_SPLIT} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="58%" outerRadius="85%" paddingAngle={2} stroke="none">
               {PROCUREMENT_SPLIT.map((slice) => (
                 <Cell key={slice.name} fill={slice.color} />
               ))}
@@ -175,12 +175,8 @@ export interface RateSlice {
   color: string;
 }
 
-function shortName(name: string, max = 13): string {
-  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
-}
-
-// Donut whose slices are rates (billing %, collection %), labelled outside with
-// "name pct%", a centre label and a legend underneath.
+// Donut whose slices are rates (billing %, collection %), with a centre label
+// and a legend underneath (name and percentage for every slice).
 export function RateDonut({
   slices,
   centerLabel,
@@ -194,18 +190,8 @@ export function RateDonut({
     <div className="px-5 py-4">
       <div className="h-64 relative">
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
-            <Pie
-              data={slices}
-              dataKey="value"
-              nameKey="name"
-              innerRadius="52%"
-              outerRadius="72%"
-              paddingAngle={2}
-              stroke="none"
-              label={(props: { name?: string; value?: number }) => `${shortName(String(props.name ?? ''))} ${(props.value ?? 0).toFixed(1)}%`}
-              labelLine
-            >
+          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+            <Pie data={slices} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="58%" outerRadius="85%" paddingAngle={2} stroke="none" label={false} labelLine={false}>
               {slices.map((slice) => (
                 <Cell key={slice.name} fill={slice.color} />
               ))}
