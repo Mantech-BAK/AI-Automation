@@ -115,7 +115,8 @@ router.get('/summary', async (req, res) => {
       flagCounts[flag] = (flagCounts[flag] || 0) + 1;
     }
 
-    const retentionHeld = rows.reduce((total, row) => total + (row.so_value_bhd || 0) * (row.retention_rate || 0), 0);
+    // Retention is withheld from what has been invoiced (matches the workbook's Retention sheet).
+    const retentionHeld = rows.reduce((total, row) => total + (row.net_invoiced_bhd || 0) * (row.retention_rate || 0), 0);
 
     return res.json({
       project,
@@ -157,11 +158,15 @@ router.get('/summary', async (req, res) => {
 // Declared before "/:id" so these fixed paths aren't read as a project id.
 router.get('/ar-transactions', async (req, res) => {
   try {
+    // ?type= narrows to one document type: 'AR Invoice' or 'Incoming Payment'.
+    const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
     const { rows } = await pool.query(
       `SELECT t.*, p.customer
        FROM project_ar_transactions t
        LEFT JOIN projects p ON p.project_id = t.project_id
-       ORDER BY t.project_id, t.transaction_date NULLS LAST, t.id`
+       ${type ? 'WHERE t.transaction_type = $1' : ''}
+       ORDER BY t.project_id, t.transaction_date NULLS LAST, t.id`,
+      type ? [type] : []
     );
     return res.json(rows.map((row) => ({ ...row, amount_bhd: row.amount_bhd === null ? null : Number(row.amount_bhd) })));
   } catch (error) {
@@ -175,7 +180,7 @@ const withAmount = (row) => ({ ...row, amount_bhd: row.amount_bhd === null ? nul
 router.get('/procurement', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, project_id, customer, vendor, description, amount_bhd, date, category
+      `SELECT id, project_id, customer, document_no, so_no, document_type, date, amount_bhd, cost_status
        FROM project_procurement
        ORDER BY date DESC NULLS LAST, id DESC`
     );
@@ -189,7 +194,7 @@ router.get('/procurement', async (req, res) => {
 router.get('/adjustments', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, project_id, customer, description, adjustment_type, amount_bhd, date, reference
+      `SELECT id, project_id, customer, description, adjustment_type, amount_bhd, date, reference, so_no
        FROM project_adjustments
        ORDER BY date DESC NULLS LAST, id DESC`
     );

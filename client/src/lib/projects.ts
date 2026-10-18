@@ -76,11 +76,14 @@ export interface ProcurementRow {
   id: number;
   project_id: string;
   customer: string | null;
-  vendor: string | null;
-  description: string | null;
-  amount_bhd: number | null;
+  document_no: string | null;
+  so_no: string | null;
+  // 'Purchase Order' or 'AP Invoice'.
+  document_type: string | null;
   date: string | null;
-  category: string | null;
+  amount_bhd: number | null;
+  // 'Committed' (purchase orders) or 'Actual Cost' (AP invoices).
+  cost_status: string | null;
 }
 
 export interface AdjustmentRow {
@@ -92,10 +95,15 @@ export interface AdjustmentRow {
   amount_bhd: number | null;
   date: string | null;
   reference: string | null;
+  so_no?: string | null;
 }
 
 // Credit notes, discounts and write-offs reduce what a customer owes; debit notes add to it.
 export const CREDIT_TYPES = ['Credit Note', 'Discount', 'Write-off'];
+
+// transaction_type values in project_ar_transactions.
+export const AR_INVOICE = 'AR Invoice';
+export const INCOMING_PAYMENT = 'Incoming Payment';
 
 // Management flag colours, shared by the dots, badges and the status donut.
 export const FLAG_ORDER = ['On Track', 'Collection Risk', 'Margin Risk', 'Behind Plan'];

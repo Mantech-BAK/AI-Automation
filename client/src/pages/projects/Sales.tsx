@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
 import { Amt, DateRangeFilter, SkeletonBlock } from '../../components/projects/shared';
-import { amount2, formatDMY, type ArTransaction } from '../../lib/projects';
+import { AR_INVOICE, amount2, formatDMY, type ArTransaction } from '../../lib/projects';
 
 const STATUS_STYLES: Record<string, string> = {
   Paid: 'bg-emerald-50 text-emerald-700',
+  Open: 'bg-sky-50 text-sky-700',
   Pending: 'bg-amber-50 text-amber-700',
   Overdue: 'bg-red-50 text-red-700',
 };
 
 // Sales: every AR invoice, filterable by transaction date.
 export default function Sales() {
-  const transactions = useJson<ArTransaction[]>('/api/projects/ar-transactions');
+  const transactions = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(AR_INVOICE)}`);
   const [range, setRange] = useState({ from: '', to: '' });
 
   const rows = (transactions.data ?? []).filter(

@@ -730,10 +730,21 @@ async function runMigrations() {
       console.log(`Seeded ${PROJECT_ROWS.length} projects.`);
     }
 
-    // One retention row per project that has none yet: amount = SO value x rate.
+    // Retention rows from the workbook (only into an empty table).
+    const { rows: retentionCount } = await pool.query('SELECT COUNT(*)::int AS count FROM project_retention');
+    if (retentionCount[0].count === 0) {
+      const { RETENTION_COLUMNS, RETENTION_ROWS } = require('./data/projectLedgerSeed');
+      const placeholders = RETENTION_COLUMNS.map((_, index) => `$${index + 1}`).join(', ');
+      for (const row of RETENTION_ROWS) {
+        await pool.query(`INSERT INTO project_retention (${RETENTION_COLUMNS.join(', ')}) VALUES (${placeholders})`, row);
+      }
+      console.log(`Seeded ${RETENTION_ROWS.length} retention rows.`);
+    }
+
+    // Fallback: one retention row per project that has none yet: amount = invoiced x rate.
     await pool.query(`
       INSERT INTO project_retention (project_id, so_no, retention_rate, retention_amount_bhd, release_rule, collection_treatment)
-      SELECT p.project_id, p.so_no, p.retention_rate, ROUND(p.so_value_bhd * p.retention_rate, 2),
+      SELECT p.project_id, p.so_no, p.retention_rate, ROUND(p.net_invoiced_bhd * p.retention_rate, 2),
              'On practical completion', 'Excluded from AR'
       FROM projects p
       WHERE NOT EXISTS (SELECT 1 FROM project_retention r WHERE r.project_id = p.project_id);
@@ -762,13 +773,18 @@ async function runMigrations() {
         id SERIAL PRIMARY KEY,
         project_id TEXT REFERENCES projects(project_id),
         customer TEXT,
-        vendor TEXT,
-        description TEXT,
-        amount_bhd NUMERIC(14,2),
+        document_no TEXT,
+        so_no TEXT,
+        document_type TEXT,
         date DATE,
-        category TEXT,
+        amount_bhd NUMERIC(14,2),
+        cost_status TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+      ALTER TABLE project_procurement ADD COLUMN IF NOT EXISTS document_no TEXT;
+      ALTER TABLE project_procurement ADD COLUMN IF NOT EXISTS so_no TEXT;
+      ALTER TABLE project_procurement ADD COLUMN IF NOT EXISTS document_type TEXT;
+      ALTER TABLE project_procurement ADD COLUMN IF NOT EXISTS cost_status TEXT;
 
       CREATE TABLE IF NOT EXISTS project_adjustments (
         id SERIAL PRIMARY KEY,
@@ -779,8 +795,11 @@ async function runMigrations() {
         amount_bhd NUMERIC(14,2),
         date DATE,
         reference TEXT,
+        so_no TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      ALTER TABLE project_adjustments ADD COLUMN IF NOT EXISTS so_no TEXT;
 
       CREATE INDEX IF NOT EXISTS idx_project_procurement_project_id ON project_procurement(project_id);
       CREATE INDEX IF NOT EXISTS idx_project_adjustments_project_id ON project_adjustments(project_id);

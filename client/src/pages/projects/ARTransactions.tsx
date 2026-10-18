@@ -2,11 +2,11 @@ import { Fragment } from 'react';
 import { Receipt } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
 import { Amt, SkeletonBlock } from '../../components/projects/shared';
-import { amount2, bhd, formatDMY, type ArTransaction } from '../../lib/projects';
+import { AR_INVOICE, amount2, bhd, formatDMY, type ArTransaction } from '../../lib/projects';
 
 // Collections & AR: every AR transaction, grouped by project with a subtotal.
 export default function ARTransactions() {
-  const transactions = useJson<ArTransaction[]>('/api/projects/ar-transactions');
+  const transactions = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(AR_INVOICE)}`);
 
   const groups = new Map<string, ArTransaction[]>();
   for (const row of transactions.data ?? []) {
