@@ -64,6 +64,10 @@ const msalConfig = {
 // are missing, which used to crash the whole server at require() time.
 let msalClient = null;
 function getMsalClient() {
+  // Never construct the MSAL client unless all three credentials are present.
+  if (!tenantId || !clientId || !clientSecret) {
+    throw new Error('Missing TENANT_ID, CLIENT_ID or CLIENT_SECRET in environment');
+  }
   if (!msalClient) msalClient = new ConfidentialClientApplication(msalConfig);
   return msalClient;
 }
