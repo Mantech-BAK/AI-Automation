@@ -52,24 +52,30 @@ function AmountPctLabel({ x, y, width, height, value, total }: { x?: unknown; y?
 
 interface Props {
   onNavigate: (page: string, filter?: NavFilter) => void;
+  // Project to preselect (handed over from the Financials page).
+  initialProject?: string;
 }
 
 // Share of the portfolio totals reached in each month Jan-Jun 2026. The app does
 // not store monthly history, so the trend is an illustrative growth curve.
 const TREND_MONTHS = [
-  { month: 'Jan', factor: 0.55 },
-  { month: 'Feb', factor: 0.65 },
-  { month: 'Mar', factor: 0.75 },
-  { month: 'Apr', factor: 0.84 },
-  { month: 'May', factor: 0.93 },
-  { month: 'Jun', factor: 1 },
+  { month: 'Jan', start: '2026-01-01', factor: 0.55 },
+  { month: 'Feb', start: '2026-02-01', factor: 0.65 },
+  { month: 'Mar', start: '2026-03-01', factor: 0.75 },
+  { month: 'Apr', start: '2026-04-01', factor: 0.84 },
+  { month: 'May', start: '2026-05-01', factor: 0.93 },
+  { month: 'Jun', start: '2026-06-01', factor: 1 },
 ];
 
 // The retention released share is an estimate until release dates are tracked.
 const RELEASED_SHARE = 0.68;
 
-export default function ProjectsDashboard({ onNavigate }: Props) {
-  const [filters, setFilters] = useState<ProjectFilters>(NO_FILTERS);
+export default function ProjectsDashboard({ onNavigate, initialProject }: Props) {
+  // A project can be preselected by the page that opened the dashboard, or by a ?project=P-001 link.
+  const [filters, setFilters] = useState<ProjectFilters>(() => ({
+    ...NO_FILTERS,
+    project: initialProject || new URLSearchParams(window.location.search).get('project') || '',
+  }));
   const [typeMetric, setTypeMetric] = useState<'value' | 'invoiced'>('value');
 
   const all = useJson<Project[]>('/api/projects');
@@ -109,7 +115,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
   const statusTotal = statusSlices.reduce((total, slice) => total + slice.count, 0);
 
   const trendData = s
-    ? TREND_MONTHS.map(({ month, factor }) => ({
+    ? TREND_MONTHS.filter(({ start }) => !filters.asOf || start <= filters.asOf).map(({ month, factor }) => ({
         month,
         // Each series grows along its own curve (all reach 100% in June), so the
         // lines separate and move instead of overlapping: contract value is
@@ -226,14 +232,14 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
       {summary.error && <ErrorState message={summary.error} />}
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Each figure carries its share of the total project value. */}
-        <KpiTile label="Total Project Value" band="bg-blue-600" value={<Amt value={s?.totalSOValue} total={s?.totalSOValue} format={bhd} />} loading={loading} />
-        <KpiTile label="Total Invoiced" band="bg-teal-600" value={<Amt value={s?.totalInvoiced} total={s?.totalSOValue} format={bhd} />} loading={loading} />
-        <KpiTile label="Total Collected" band="bg-purple-600" value={<Amt value={s?.totalCollected} total={s?.totalSOValue} format={bhd} />} loading={loading} />
-        <KpiTile label="Outstanding Receivables" band="bg-orange-500" value={<Amt value={s?.outstandingAR} total={s?.totalSOValue} format={bhd} />} loading={loading} />
-        <KpiTile label="Total Cost / Spent" band="bg-slate-600" value={<Amt value={s?.totalCostExposure} total={s?.totalSOValue} format={bhd} />} loading={loading} />
-        <KpiTile label="Retention Held" band="bg-rose-600" value={<Amt value={s?.retentionHeld} total={s?.totalSOValue} format={bhd} />} loading={loading} />
+        <KpiTile label="Project Value" band="bg-blue-600" value={bhd(s?.totalSOValue)} percent={sharePct(s?.totalSOValue, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Invoiced" band="bg-teal-600" value={bhd(s?.totalInvoiced)} percent={sharePct(s?.totalInvoiced, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Collected" band="bg-purple-600" value={bhd(s?.totalCollected)} percent={sharePct(s?.totalCollected, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Outstanding Receivables" band="bg-orange-500" value={bhd(s?.outstandingAR)} percent={sharePct(s?.outstandingAR, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Cost / Spent" band="bg-slate-600" value={bhd(s?.totalCostExposure)} percent={sharePct(s?.totalCostExposure, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Retention Held" band="bg-rose-600" value={bhd(s?.retentionHeld)} percent={sharePct(s?.retentionHeld, s?.totalSOValue)} loading={loading} />
       </div>
 
       {empty ? (

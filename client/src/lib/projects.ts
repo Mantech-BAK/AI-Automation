@@ -72,6 +72,31 @@ export interface ArTransaction {
   status: string | null;
 }
 
+export interface ProcurementRow {
+  id: number;
+  project_id: string;
+  customer: string | null;
+  vendor: string | null;
+  description: string | null;
+  amount_bhd: number | null;
+  date: string | null;
+  category: string | null;
+}
+
+export interface AdjustmentRow {
+  id: number;
+  project_id: string;
+  customer: string | null;
+  description: string | null;
+  adjustment_type: string | null;
+  amount_bhd: number | null;
+  date: string | null;
+  reference: string | null;
+}
+
+// Credit notes, discounts and write-offs reduce what a customer owes; debit notes add to it.
+export const CREDIT_TYPES = ['Credit Note', 'Discount', 'Write-off'];
+
 // Management flag colours, shared by the dots, badges and the status donut.
 export const FLAG_ORDER = ['On Track', 'Collection Risk', 'Margin Risk', 'Behind Plan'];
 export const FLAG_COLORS: Record<string, string> = {
@@ -122,21 +147,19 @@ export interface ProjectFilters {
   flag: string;
   // Single-project view (dashboard only); '' = whole portfolio.
   project?: string;
-  // Date range (YYYY-MM-DD), dashboard only; '' = open-ended.
-  dateFrom?: string;
-  dateTo?: string;
+  // "As of" date (YYYY-MM-DD), dashboard only: data from each project's start up to
+  // this date. '' = no cut-off.
+  asOf?: string;
 }
 
-export const NO_FILTERS: ProjectFilters = { customer: '', type: '', flag: '', project: '', dateFrom: '', dateTo: '' };
+export const NO_FILTERS: ProjectFilters = { customer: '', type: '', flag: '', project: '', asOf: '' };
 
 type FacetKey = 'customer' | 'type' | 'flag' | 'project';
 
-// A project is inside the date range when its start..expected-end window
-// overlaps it (projects without dates are never excluded).
+// With an "As of" date, a project is included once it has started (its data runs
+// from its start date up to the chosen date). Projects without a start date are kept.
 function inDateRange(project: Project, filters: ProjectFilters): boolean {
-  if (filters.dateFrom && project.expected_end_date && project.expected_end_date < filters.dateFrom) return false;
-  if (filters.dateTo && project.start_date && project.start_date > filters.dateTo) return false;
-  return true;
+  return !filters.asOf || !project.start_date || project.start_date <= filters.asOf;
 }
 
 // Applies every filter except `skip` - used to build cascading dropdowns, where
@@ -184,8 +207,7 @@ export function filterQuery(filters: ProjectFilters): string {
   if (filters.customer) params.set('customer', filters.customer);
   if (filters.type) params.set('type', filters.type);
   if (filters.flag) params.set('flag', filters.flag);
-  if (filters.dateFrom) params.set('date_from', filters.dateFrom);
-  if (filters.dateTo) params.set('date_to', filters.dateTo);
+  if (filters.asOf) params.set('as_of', filters.asOf);
   const query = params.toString();
   return query ? `?${query}` : '';
 }

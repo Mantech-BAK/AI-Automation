@@ -1,10 +1,16 @@
 import { BarChart3, Table2 } from 'lucide-react';
+import type { NavFilter } from '../../App';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
 import { Amt, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
 import { bhd, compact, pct, sharePct, type Project, type ProjectsSummary } from '../../lib/projects';
 
-export default function Financials() {
+interface Props {
+  // Opens the dashboard for one project (a row click).
+  onNavigate: (page: string, filter?: NavFilter) => void;
+}
+
+export default function Financials({ onNavigate }: Props) {
   const summary = useJson<ProjectsSummary>('/api/projects/summary');
   const projects = useJson<Project[]>('/api/projects');
   const s = summary.data;
@@ -77,7 +83,12 @@ export default function Financials() {
               />
               <tbody className="divide-y divide-slate-100">
                 {(projects.data ?? []).map((project) => (
-                  <tr key={project.project_id} className="hover:bg-slate-50">
+                  <tr
+                    key={project.project_id}
+                    onClick={() => onNavigate('dashboard', { projectId: project.project_id })}
+                    title={`Open ${project.project_id} on the dashboard`}
+                    className="hover:bg-teal-50/60 cursor-pointer"
+                  >
                     <td className="px-5 py-2.5 font-medium text-slate-800 whitespace-nowrap">{project.project_id}</td>
                     <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{project.customer}</td>
                     <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap"><Amt value={project.so_value_bhd} total={totals.so} /></td>

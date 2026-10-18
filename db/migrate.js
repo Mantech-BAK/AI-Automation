@@ -756,6 +756,51 @@ async function runMigrations() {
       console.log(`Seeded ${AR_ROWS.length} AR transactions.`);
     }
 
+    // Procurement spend and AR adjustments (credit/debit notes, write-offs, discounts).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_procurement (
+        id SERIAL PRIMARY KEY,
+        project_id TEXT REFERENCES projects(project_id),
+        customer TEXT,
+        vendor TEXT,
+        description TEXT,
+        amount_bhd NUMERIC(14,2),
+        date DATE,
+        category TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS project_adjustments (
+        id SERIAL PRIMARY KEY,
+        project_id TEXT REFERENCES projects(project_id),
+        customer TEXT,
+        description TEXT,
+        adjustment_type TEXT,
+        amount_bhd NUMERIC(14,2),
+        date DATE,
+        reference TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_project_procurement_project_id ON project_procurement(project_id);
+      CREATE INDEX IF NOT EXISTS idx_project_adjustments_project_id ON project_adjustments(project_id);
+    `);
+
+    const ledger = require('./data/projectLedgerSeed');
+    for (const [table, columns, rows] of [
+      ['project_procurement', ledger.PROCUREMENT_COLUMNS, ledger.PROCUREMENT_ROWS],
+      ['project_adjustments', ledger.ADJUSTMENT_COLUMNS, ledger.ADJUSTMENT_ROWS],
+    ]) {
+      const { rows: existing } = await pool.query(`SELECT COUNT(*)::int AS count FROM ${table}`);
+      if (existing[0].count === 0) {
+        const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
+        for (const row of rows) {
+          await pool.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`, row);
+        }
+        console.log(`Seeded ${rows.length} rows into ${table}.`);
+      }
+    }
+
     const defaultSettings = [
       ['daily_check_time', '6'],
       ['working_hours_start', '07:30'],

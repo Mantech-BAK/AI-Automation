@@ -64,15 +64,10 @@ function buildFilters(query) {
   add('project_type', query.type);
   add('management_flag', query.flag);
 
-  // Date range: keep projects whose start..expected end window overlaps the
-  // range (projects with no dates are never excluded).
-  const isDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
-  if (isDate(query.date_from)) {
-    params.push(query.date_from);
-    conditions.push(`(expected_end_date IS NULL OR expected_end_date >= $${params.length})`);
-  }
-  if (isDate(query.date_to)) {
-    params.push(query.date_to);
+  // As-of date: keep projects that had started by that date (their data runs from
+  // the project start up to the date).
+  if (typeof query.as_of === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(query.as_of)) {
+    params.push(query.as_of);
     conditions.push(`(start_date IS NULL OR start_date <= $${params.length})`);
   }
 
@@ -172,6 +167,36 @@ router.get('/ar-transactions', async (req, res) => {
   } catch (error) {
     console.error('AR transactions query failed:', error);
     return res.status(500).json({ error: 'Failed to load AR transactions' });
+  }
+});
+
+const withAmount = (row) => ({ ...row, amount_bhd: row.amount_bhd === null ? null : Number(row.amount_bhd) });
+
+router.get('/procurement', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, project_id, customer, vendor, description, amount_bhd, date, category
+       FROM project_procurement
+       ORDER BY date DESC NULLS LAST, id DESC`
+    );
+    return res.json(rows.map(withAmount));
+  } catch (error) {
+    console.error('Procurement query failed:', error);
+    return res.status(500).json({ error: 'Failed to load procurement' });
+  }
+});
+
+router.get('/adjustments', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, project_id, customer, description, adjustment_type, amount_bhd, date, reference
+       FROM project_adjustments
+       ORDER BY date DESC NULLS LAST, id DESC`
+    );
+    return res.json(rows.map(withAmount));
+  } catch (error) {
+    console.error('Adjustments query failed:', error);
+    return res.status(500).json({ error: 'Failed to load adjustments' });
   }
 });
 

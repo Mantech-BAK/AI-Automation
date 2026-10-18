@@ -60,7 +60,7 @@ export function FilterBar({
   onChange: (filters: ProjectFilters) => void;
   // Adds the "All Projects" single-project dropdown (used by the dashboard).
   showProjectFilter?: boolean;
-  // Adds the From / To date inputs and a "Clear dates" button (used by the dashboard).
+  // Adds the single "As of Date" input and its Clear button (used by the dashboard).
   showDateFilter?: boolean;
 }) {
   const selectClass =
@@ -77,7 +77,6 @@ export function FilterBar({
   const customerOf = (id: string) => projects.find((project) => project.project_id === id)?.customer;
 
   const hasFilters = filters.customer || filters.type || filters.flag || filters.project;
-  const hasDates = filters.dateFrom || filters.dateTo;
 
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -118,16 +117,12 @@ export function FilterBar({
       {showDateFilter && (
         <>
           <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
-            From
-            <input type="date" value={filters.dateFrom || ''} max={filters.dateTo || undefined} onChange={(e) => change({ dateFrom: e.target.value })} className={inputClass} />
+            As of Date
+            <input type="date" value={filters.asOf || ''} onChange={(e) => change({ asOf: e.target.value })} className={inputClass} />
           </label>
-          <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
-            To
-            <input type="date" value={filters.dateTo || ''} min={filters.dateFrom || undefined} onChange={(e) => change({ dateTo: e.target.value })} className={inputClass} />
-          </label>
-          {hasDates && (
-            <button type="button" onClick={() => change({ dateFrom: '', dateTo: '' })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
-              Clear dates
+          {filters.asOf && (
+            <button type="button" onClick={() => change({ asOf: '' })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
+              Clear
             </button>
           )}
         </>
@@ -146,14 +141,69 @@ export function FilterBar({
   );
 }
 
-// Colour-banded headline figure (the six KPI tiles on the dashboard).
-export function KpiTile({ label, value, band, loading }: { label: string; value: ReactNode; band: string; loading?: boolean }) {
+// Colour-banded headline figure (the six KPI tiles on the dashboard). Fixed height
+// with label, value and percentage on fixed rows so every tile lines up.
+export function KpiTile({
+  label,
+  value,
+  percent,
+  band,
+  loading,
+}: {
+  label: string;
+  value: string;
+  // Share of the relevant total, e.g. "18.2%".
+  percent: string;
+  band: string;
+  loading?: boolean;
+}) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className={`${band} px-4 py-2 text-xs font-semibold text-white tracking-wide`}>{label}</div>
-      <div className="px-4 py-4">
-        {loading ? <Skeleton className="h-7 w-32" /> : <p className="text-xl font-bold text-slate-800 whitespace-nowrap">{value}</p>}
+    <div className="h-32 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      <div className={`${band} px-4 py-2 text-xs font-semibold text-white tracking-wide truncate`}>{label}</div>
+      <div className="flex-1 px-4 py-3 flex flex-col justify-between">
+        {loading ? (
+          <>
+            <Skeleton className="h-7 w-32" />
+            <Skeleton className="h-3 w-12" />
+          </>
+        ) : (
+          <>
+            <p className="text-xl font-bold text-slate-800 whitespace-nowrap">{value}</p>
+            <p className="text-gray-400 text-xs">({percent})</p>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+// From / To inputs for the transaction lists (Sales, Adjustments).
+export function DateRangeFilter({
+  from,
+  to,
+  onChange,
+}: {
+  from: string;
+  to: string;
+  onChange: (range: { from: string; to: string }) => void;
+}) {
+  const inputClass =
+    'w-36 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
+        From
+        <input type="date" value={from} max={to || undefined} onChange={(e) => onChange({ from: e.target.value, to })} className={inputClass} />
+      </label>
+      <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
+        To
+        <input type="date" value={to} min={from || undefined} onChange={(e) => onChange({ from, to: e.target.value })} className={inputClass} />
+      </label>
+      {(from || to) && (
+        <button type="button" onClick={() => onChange({ from: '', to: '' })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
+          Clear
+        </button>
+      )}
     </div>
   );
 }

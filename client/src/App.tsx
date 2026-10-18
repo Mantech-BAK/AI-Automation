@@ -52,6 +52,8 @@ export interface NavFilter {
   vehicleFilter?: VehicleTileFilter;
   taskStatus?: string;
   vehicleId?: number;
+  // Project Tracking: preselects this project on the dashboard (from Financials).
+  projectId?: string;
   // Pre-seeds EquipmentPage.tsx's site/department filter dropdown (its
   // Equipment and Documents tabs both filter by assets.site_location) - used
   // by SitesPage.tsx and DepartmentsPage.tsx card clicks. Department names
@@ -106,9 +108,9 @@ function App() {
   const currentItem = activeModule ? allNavItems(activeModule).find((item) => item.id === activeNavId) : undefined;
   const currentPage = currentItem?.page ?? activeNavId;
 
-  const pushRoute = useCallback((module: ModuleId | null, navId: string) => {
-    const path = buildPath(module, navId);
-    if (window.location.pathname !== path) {
+  const pushRoute = useCallback((module: ModuleId | null, navId: string, projectId?: string) => {
+    const path = buildPath(module, navId) + (projectId ? `?project=${encodeURIComponent(projectId)}` : '');
+    if (window.location.pathname + window.location.search !== path) {
       window.history.pushState(null, '', path);
     }
   }, []);
@@ -121,7 +123,7 @@ function App() {
     setActiveNavId(navId);
     setNavFilter(filter ?? null);
     setAccessDeniedMessage(null);
-    pushRoute(module, navId);
+    pushRoute(module, navId, filter?.projectId);
   };
 
   const handleSelectModule = (module: ModuleId) => {
@@ -256,7 +258,7 @@ function App() {
 
   const renderPage = () => {
     if (activeModule === 'projects') {
-      return <ProjectsModule page={currentPage} onNavigate={handleNavigate} />;
+      return <ProjectsModule page={currentPage} onNavigate={handleNavigate} navFilter={navFilter} />;
     }
 
     // The other modules share the asset / task / document pages below.

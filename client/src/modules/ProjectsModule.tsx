@@ -8,31 +8,39 @@ import ProjectsDashboard from '../pages/ProjectsDashboard';
 import AllProjects from '../pages/projects/AllProjects';
 import ARTransactions from '../pages/projects/ARTransactions';
 import Financials from '../pages/projects/Financials';
-import PaymentsCollections from '../pages/projects/PaymentsCollections';
+import Adjustments from '../pages/projects/Adjustments';
+import PaymentsAP from '../pages/projects/PaymentsAP';
 import Procurement from '../pages/projects/Procurement';
 import Retention from '../pages/projects/Retention';
+import Sales from '../pages/projects/Sales';
 
 interface ProjectsModuleProps {
   // The nav item's `page` id (see the 'projects' entry in lib/modules.ts).
   page: string;
   onNavigate: (page: string, filter?: NavFilter) => void;
+  // Filter handed over by the page that navigated here (e.g. a project to preselect).
+  navFilter?: NavFilter | null;
 }
 
 // Renders whichever Project Tracking page the sidebar has selected. The sidebar
 // itself (and the module's route) are driven by the 'projects' entry in
 // lib/modules.ts and App.tsx.
-export default function ProjectsModule({ page, onNavigate }: ProjectsModuleProps) {
+export default function ProjectsModule({ page, onNavigate, navFilter }: ProjectsModuleProps) {
   switch (page) {
     case 'project-all':
       return <AllProjects />;
     case 'project-financials':
-      return <Financials />;
+      return <Financials onNavigate={onNavigate} />;
+    case 'project-sales':
+      return <Sales />;
+    case 'project-adjustments':
+      return <Adjustments />;
     case 'project-procurement':
       return <Procurement />;
     case 'project-collections':
       return <ARTransactions />;
     case 'project-payments':
-      return <PaymentsCollections />;
+      return <PaymentsAP />;
     case 'project-retention':
       return <Retention />;
     // Tools shared with the other modules.
@@ -47,6 +55,6 @@ export default function ProjectsModule({ page, onNavigate }: ProjectsModuleProps
     case 'users':
       return <UsersPage />;
     default:
-      return <ProjectsDashboard onNavigate={onNavigate} />;
+      return <ProjectsDashboard onNavigate={onNavigate} initialProject={navFilter?.projectId} />;
   }
 }
