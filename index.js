@@ -27,6 +27,19 @@ const { processDocumentEmails, removeDuplicateDocuments } = require('./jobs/docu
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+// A failing background job or stray rejection should be logged, not take the
+// whole API down.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
+if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
+  console.warn('WARNING: DATABASE_URL is not set - falling back to localhost PostgreSQL.');
+}
+if (!process.env.SESSION_SECRET) {
+  console.warn('WARNING: SESSION_SECRET is not set - using an insecure default.');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const clientDistPath = path.join(__dirname, 'client', 'dist');

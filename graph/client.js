@@ -60,12 +60,20 @@ const msalConfig = {
   },
 };
 
-const msalClient = new ConfidentialClientApplication(msalConfig);
+// Created on first use: the MSAL constructor throws when the client ID / secret
+// are missing, which used to crash the whole server at require() time.
+let msalClient = null;
+function getMsalClient() {
+  if (!msalClient) msalClient = new ConfidentialClientApplication(msalConfig);
+  return msalClient;
+}
 
 async function getAppOnlyToken() {
   if (!tenantId || !clientId || !clientSecret) {
     throw new Error('Missing TENANT_ID, CLIENT_ID or CLIENT_SECRET in environment');
-  } const result = await msalClient.acquireTokenByClientCredential({
+  }
+
+  const result = await getMsalClient().acquireTokenByClientCredential({
     scopes: graphScopes,
   });
 
