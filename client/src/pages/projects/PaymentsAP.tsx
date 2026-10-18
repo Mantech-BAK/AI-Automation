@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CreditCard } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, SkeletonBlock } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
 import { INCOMING_PAYMENT, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
 type Tab = 'collections' | 'payments';
@@ -11,15 +11,23 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'payments', label: 'Payments' },
 ];
 
+const FILTERS: LedgerFilterDef<ArTransaction>[] = [
+  { key: 'customer', allLabel: 'All Customers', pick: (row) => row.customer, resets: ['project'] },
+  { key: 'project', allLabel: 'All Projects', pick: (row) => row.project_id },
+];
+
 // Payments & AP. Collections = the workbook's Collections sheet (incoming payments
 // received from customers). Payments (money paid out) has no source data yet, so it is empty.
 export default function PaymentsAP() {
   const [tab, setTab] = useState<Tab>('collections');
   const [asOfDate, setAsOfDate] = useState(todayISO());
+  const [filters, setFilters] = useState(emptyLedgerValues(FILTERS));
   const collections = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(INCOMING_PAYMENT)}`);
 
   // Everything up to and including the As of Date.
-  const rows = (collections.data ?? []).filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
+  const all = collections.data ?? [];
+  const dated = all.filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
+  const rows = applyLedgerFilters(dated, FILTERS, filters);
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
@@ -28,8 +36,6 @@ export default function PaymentsAP() {
         <h1 className="text-2xl font-bold text-slate-800">Payments &amp; AP</h1>
         <p className="text-slate-500 mt-1">Collections received from customers and payments made</p>
       </div>
-
-      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
 
       <div className="flex gap-2">
         {TABS.map((item) => (
@@ -45,6 +51,13 @@ export default function PaymentsAP() {
           </button>
         ))}
       </div>
+
+      {tab === 'collections' && (
+        <>
+          <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
+          {collections.data && <RowCount shown={rows.length} total={all.length} />}
+        </>
+      )}
 
       {tab === 'payments' ? (
         <Panel title="Payments" icon={CreditCard}>

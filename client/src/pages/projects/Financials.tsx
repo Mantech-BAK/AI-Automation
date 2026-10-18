@@ -3,8 +3,8 @@ import { BarChart3, Table2 } from 'lucide-react';
 import type { NavFilter } from '../../App';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
-import { bhd, compact, pct, sharePct, todayISO, type Project, type ProjectsSummary } from '../../lib/projects';
+import { Amt, FilterBar, RowCount, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { NO_FILTERS, bhd, compact, filterProjects, pct, sharePct, todayISO, type Project, type ProjectFilters } from '../../lib/projects';
 
 interface Props {
   // Opens the dashboard for one project (a row click).
@@ -12,12 +12,12 @@ interface Props {
 }
 
 export default function Financials({ onNavigate }: Props) {
-  // Projects that had started by the As of Date (their data runs from the start up to it).
-  const [asOfDate, setAsOfDate] = useState(todayISO());
-  const summary = useJson<ProjectsSummary>(`/api/projects/summary${asOfDate ? `?as_of=${asOfDate}` : ''}`);
-  const projects = useJson<Project[]>(`/api/projects${asOfDate ? `?as_of=${asOfDate}` : ''}`);
-  const s = summary.data;
-  const rows = projects.data ?? [];
+  // All projects are fetched once; every dropdown (and the As of Date) filters them here, instantly.
+  const projects = useJson<Project[]>('/api/projects');
+  const [filters, setFilters] = useState<ProjectFilters>({ ...NO_FILTERS, asOf: todayISO() });
+  const all = projects.data ?? [];
+  const rows = filterProjects(all, filters);
+
   const sumOf = (pick: (project: Project) => number) => rows.reduce((total, project) => total + pick(project), 0);
   const totals = {
     so: sumOf((p) => p.so_value_bhd),
@@ -28,8 +28,18 @@ export default function Financials({ onNavigate }: Props) {
     exposure: sumOf((p) => p.total_cost_exposure_bhd),
     margin: sumOf((p) => p.forecast_margin_bhd),
   };
-  // Tooltip share: each series against its own portfolio total.
-  const seriesTotal: Record<string, number> = { 'SO Value': s?.totalSOValue ?? 0, Invoiced: s?.totalInvoiced ?? 0, Collected: s?.totalCollected ?? 0 };
+  // Forecast margin weighted by SO value, so bigger projects count for more.
+  const forecastMarginPct = totals.so ? sumOf((p) => p.forecast_margin_pct * p.so_value_bhd) / totals.so : 0;
+  const byCustomer = [...new Set(rows.map((p) => p.customer || 'Unspecified'))]
+    .map((customer) => {
+      const group = rows.filter((p) => (p.customer || 'Unspecified') === customer);
+      const add = (pick: (project: Project) => number) => group.reduce((total, p) => total + pick(p), 0);
+      return { customer, soValue: add((p) => p.so_value_bhd), invoiced: add((p) => p.net_invoiced_bhd), collected: add((p) => p.collections_bhd) };
+    })
+    .sort((a, b) => b.soValue - a.soValue);
+  // Tooltip share: each series against its own total.
+  const seriesTotal: Record<string, number> = { 'SO Value': totals.so, Invoiced: totals.invoiced, Collected: totals.collected };
+  const loading = projects.loading;
 
   return (
     <div className="space-y-6">
@@ -38,27 +48,28 @@ export default function Financials({ onNavigate }: Props) {
         <p className="text-slate-500 mt-1">Portfolio billing, collections and margin</p>
       </div>
 
-      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
+      <FilterBar projects={all} filters={filters} onChange={setFilters} showProjectFilter showDateFilter />
+      {projects.data && <RowCount shown={rows.length} total={all.length} noun="projects" />}
 
-      {summary.error && <ErrorState message={summary.error} />}
+      {projects.error && <ErrorState message={projects.error} />}
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <SummaryCard label="Total SO Value" value={s ? <Amt value={s.totalSOValue} total={s.totalSOValue} format={bhd} /> : '...'} tone="text-blue-600" />
-        <SummaryCard label="Total Invoiced" value={s ? <Amt value={s.totalInvoiced} total={s.totalSOValue} format={bhd} /> : '...'} tone="text-teal-600" />
-        <SummaryCard label="Total Collected" value={s ? <Amt value={s.totalCollected} total={s.totalSOValue} format={bhd} /> : '...'} tone="text-purple-600" />
-        <SummaryCard label="Outstanding AR" value={s ? <Amt value={s.outstandingAR} total={s.totalSOValue} format={bhd} /> : '...'} tone="text-orange-600" />
-        <SummaryCard label="Forecast Margin" value={s ? pct(s.forecastMarginPct) : '...'} tone="text-emerald-600" />
+        <SummaryCard label="Total SO Value" value={loading ? '...' : <Amt value={totals.so} total={totals.so} format={bhd} />} tone="text-blue-600" />
+        <SummaryCard label="Total Invoiced" value={loading ? '...' : <Amt value={totals.invoiced} total={totals.so} format={bhd} />} tone="text-teal-600" />
+        <SummaryCard label="Total Collected" value={loading ? '...' : <Amt value={totals.collected} total={totals.so} format={bhd} />} tone="text-purple-600" />
+        <SummaryCard label="Outstanding AR" value={loading ? '...' : <Amt value={totals.ar} total={totals.so} format={bhd} />} tone="text-orange-600" />
+        <SummaryCard label="Forecast Margin" value={loading ? '...' : pct(forecastMarginPct)} tone="text-emerald-600" />
       </div>
 
       <Panel title="SO Value vs Invoiced vs Collected by Customer" icon={BarChart3}>
-        {summary.loading ? (
+        {loading ? (
           <SkeletonBlock height="h-80" />
-        ) : !s || s.byCustomer.length === 0 ? (
+        ) : byCustomer.length === 0 ? (
           <EmptyState icon={BarChart3} message="No financial data yet" />
         ) : (
           <div className="h-80 px-3 pt-4 pb-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={s.byCustomer} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <BarChart data={byCustomer} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis dataKey="customer" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
                 <YAxis tickFormatter={compact} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />

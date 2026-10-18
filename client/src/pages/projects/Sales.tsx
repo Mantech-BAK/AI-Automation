@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, SkeletonBlock } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
 import { AR_INVOICE, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
 const STATUS_STYLES: Record<string, string> = {
@@ -11,13 +11,22 @@ const STATUS_STYLES: Record<string, string> = {
   Overdue: 'bg-red-50 text-red-700',
 };
 
+const FILTERS: LedgerFilterDef<ArTransaction>[] = [
+  { key: 'customer', allLabel: 'All Customers', pick: (row) => row.customer, resets: ['project'] },
+  { key: 'project', allLabel: 'All Projects', pick: (row) => row.project_id },
+  { key: 'status', allLabel: 'All Statuses', pick: (row) => row.status },
+];
+
 // Sales: every AR invoice dated up to the chosen As of Date.
 export default function Sales() {
   const transactions = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(AR_INVOICE)}`);
   const [asOfDate, setAsOfDate] = useState(todayISO());
+  const [filters, setFilters] = useState(emptyLedgerValues(FILTERS));
 
   // Everything up to and including the As of Date.
-  const rows = (transactions.data ?? []).filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
+  const all = transactions.data ?? [];
+  const dated = all.filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
+  const rows = applyLedgerFilters(dated, FILTERS, filters);
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
@@ -27,7 +36,8 @@ export default function Sales() {
         <p className="text-slate-500 mt-1">All invoices raised against projects</p>
       </div>
 
-      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
+      <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
+      {transactions.data && <RowCount shown={rows.length} total={all.length} />}
 
       <Panel title={`Invoices${transactions.data ? ` (${rows.length})` : ''}`} icon={TrendingUp}>
         {transactions.loading ? (

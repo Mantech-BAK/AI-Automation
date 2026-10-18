@@ -95,7 +95,7 @@ export function FilterBar({
           ))}
         </select>
       )}
-      <select value={filters.customer} onChange={(e) => change({ customer: e.target.value })} aria-label="Customer" className={selectClass}>
+      <select value={filters.customer} onChange={(e) => change({ customer: e.target.value, project: '' })} aria-label="Customer" className={selectClass}>
         <option value="">All Customers</option>
         {customers.map((customer) => (
           <option key={customer} value={customer}>{customer}</option>
@@ -174,6 +174,102 @@ export function KpiTile({
         )}
       </div>
     </div>
+  );
+}
+
+// ---------- dropdown filters for the transaction lists (Sales, Payments, Procurement, Adjustments) ----------
+
+export interface LedgerFilterDef<T> {
+  key: string;
+  // First option, e.g. "All Customers".
+  allLabel: string;
+  pick: (row: T) => string | null | undefined;
+  // Filters cleared whenever this one changes (customer -> project).
+  resets?: string[];
+  // Fixed order for the options (e.g. document types); anything else is sorted A-Z.
+  order?: string[];
+}
+
+export type LedgerFilterValues = Record<string, string>;
+
+export const emptyLedgerValues = <T,>(defs: LedgerFilterDef<T>[]): LedgerFilterValues => Object.fromEntries(defs.map((def) => [def.key, '']));
+
+// Rows that satisfy every selected filter, optionally ignoring one (for cascading options).
+export function applyLedgerFilters<T>(rows: T[], defs: LedgerFilterDef<T>[], values: LedgerFilterValues, skip?: string): T[] {
+  return rows.filter((row) => defs.every((def) => def.key === skip || !values[def.key] || def.pick(row) === values[def.key]));
+}
+
+// Options for one dropdown come from the rows that match all the OTHER filters, so
+// choosing a customer narrows the project list and "All" widens everything again.
+function ledgerOptions<T>(rows: T[], defs: LedgerFilterDef<T>[], values: LedgerFilterValues, def: LedgerFilterDef<T>): string[] {
+  const found = [...new Set(applyLedgerFilters(rows, defs, values, def.key).map(def.pick).filter((v): v is string => Boolean(v)))];
+  const first = def.order ? def.order.filter((v) => found.includes(v)) : [];
+  return [...first, ...found.filter((v) => !first.includes(v)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))];
+}
+
+export function LedgerFilters<T>({
+  rows,
+  defs,
+  values,
+  onChange,
+  extra,
+}: {
+  // The full (unfiltered by dropdowns) data the options are derived from.
+  rows: T[];
+  defs: LedgerFilterDef<T>[];
+  values: LedgerFilterValues;
+  onChange: (values: LedgerFilterValues) => void;
+  // Extra controls on the same row (the As of Date picker).
+  extra?: ReactNode;
+}) {
+  const selectClass =
+    'px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
+
+  const change = (def: LedgerFilterDef<T>, value: string) => {
+    let next: LedgerFilterValues = { ...values, [def.key]: value };
+    for (const key of def.resets ?? []) next[key] = '';
+    // Drop any other selection that no longer fits (keeps the dropdowns consistent).
+    for (let pass = 0; pass < defs.length; pass += 1) {
+      let changed = false;
+      for (const other of defs) {
+        if (next[other.key] && !ledgerOptions(rows, defs, next, other).includes(next[other.key])) {
+          next = { ...next, [other.key]: '' };
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    onChange(next);
+  };
+
+  const active = defs.some((def) => values[def.key]);
+
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      {defs.map((def) => (
+        <select key={def.key} value={values[def.key]} onChange={(e) => change(def, e.target.value)} aria-label={def.allLabel.replace(/^All /, '')} className={selectClass}>
+          <option value="">{def.allLabel}</option>
+          {ledgerOptions(rows, defs, values, def).map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      ))}
+      {extra}
+      {active && (
+        <button type="button" onClick={() => onChange(emptyLedgerValues(defs))} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
+          Clear filters
+        </button>
+      )}
+    </div>
+  );
+}
+
+// "Showing 12 of 60 rows"
+export function RowCount({ shown, total, noun = 'rows' }: { shown: number; total: number; noun?: string }) {
+  return (
+    <p className="text-xs text-slate-500">
+      Showing <span className="font-semibold text-slate-700">{shown}</span> of {total} {noun}
+    </p>
   );
 }
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PieChart as PieChartIcon, ShoppingCart } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, SummaryCard, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
 import { amount2, bhd, formatDMY, sharePct, todayISO, type ProcurementRow } from '../../lib/projects';
 
 // Purchase orders are commitments; AP invoices are the cost actually incurred.
@@ -12,11 +12,21 @@ const STATUS_COLORS: Record<string, string> = {
 };
 const statusColor = (status?: string | null) => (status && STATUS_COLORS[status]) || '#94a3b8';
 
+const FILTERS: LedgerFilterDef<ProcurementRow>[] = [
+  { key: 'customer', allLabel: 'All Customers', pick: (row) => row.customer, resets: ['project'] },
+  { key: 'project', allLabel: 'All Projects', pick: (row) => row.project_id },
+  { key: 'type', allLabel: 'All Document Types', pick: (row) => row.document_type, order: ['Purchase Order', 'AP Invoice'] },
+  { key: 'status', allLabel: 'All Cost Statuses', pick: (row) => row.cost_status, order: ['Committed', 'Actual Cost'] },
+];
+
 export default function Procurement() {
   const procurement = useJson<ProcurementRow[]>('/api/projects/procurement');
   const [asOfDate, setAsOfDate] = useState(todayISO());
   // Everything up to and including the As of Date.
-  const rows = (procurement.data ?? []).filter((row) => !asOfDate || !row.date || row.date <= asOfDate);
+  const [filters, setFilters] = useState(emptyLedgerValues(FILTERS));
+  const all = procurement.data ?? [];
+  const dated = all.filter((row) => !asOfDate || !row.date || row.date <= asOfDate);
+  const rows = applyLedgerFilters(dated, FILTERS, filters);
 
   const totalOf = (status: string) => rows.filter((row) => row.cost_status === status).reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
   const committed = totalOf('Committed');
@@ -35,7 +45,8 @@ export default function Procurement() {
         <p className="text-slate-500 mt-1">Purchase orders (committed) and AP invoices (actual cost) by project</p>
       </div>
 
-      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
+      <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
+      {procurement.data && <RowCount shown={rows.length} total={all.length} />}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SummaryCard label="Purchase Orders (Committed)" value={procurement.loading ? '...' : <Amt value={committed} total={total} format={bhd} />} tone="text-blue-600" />

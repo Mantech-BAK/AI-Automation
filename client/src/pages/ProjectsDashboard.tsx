@@ -19,7 +19,7 @@ import {
 } from 'recharts';
 import type { NavFilter } from '../App';
 import { EmptyState, ErrorState, GreetingLine, Panel, TableHead, useJson } from '../components/dashboard/parts';
-import { Amt, FilterBar, FlagBadge, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
+import { Amt, FilterBar, FlagBadge, RowCount, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
 import {
   FLAG_ORDER,
   NO_FILTERS,
@@ -211,6 +211,7 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
       <GreetingLine className="pl-14 lg:pl-4" />
 
       <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} showProjectFilter showDateFilter />
+      {all.data && <RowCount shown={projects.length} total={all.data.length} noun="projects" />}
 
       {selectedProject && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3">
