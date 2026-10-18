@@ -142,7 +142,10 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
         {!hideTopbar && (
         <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm px-4 lg:px-8 h-16 flex items-center gap-3 flex-shrink-0">
           <h1 className="text-lg font-semibold text-slate-800 pl-16 lg:pl-0">{pageTitle}</h1>
-          <span className="hidden sm:inline text-xs font-medium text-slate-400 uppercase tracking-wide">{definition.label}</span>
+          {/* Project Tracking pages show just their own title, without the module name. */}
+          {module !== 'projects' && (
+            <span className="hidden sm:inline text-xs font-medium text-slate-400 uppercase tracking-wide">{definition.label}</span>
+          )}
         </header>
         )}
 
