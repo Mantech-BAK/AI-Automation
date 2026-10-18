@@ -18,8 +18,8 @@ import {
   YAxis,
 } from 'recharts';
 import type { NavFilter } from '../App';
-import { DashboardBanner, EmptyState, ErrorState, Panel, TableHead, useJson } from '../components/dashboard/parts';
-import { FilterBar, FlagBadge, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
+import { EmptyState, ErrorState, GreetingLine, Panel, TableHead, useJson } from '../components/dashboard/parts';
+import { Amt, FilterBar, FlagBadge, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
 import {
   FLAG_ORDER,
   NO_FILTERS,
@@ -30,12 +30,25 @@ import {
   filterQuery,
   flagColor,
   pct,
+  sharePct,
   typeColor,
   type Project,
   type ProjectFilters,
   type ProjectsSummary,
   type RetentionRow,
 } from '../lib/projects';
+
+// Bar-end label "119,408 (18.2%)" with the percentage in a quieter grey.
+function AmountPctLabel({ x, y, width, height, value, total }: { x?: unknown; y?: unknown; width?: unknown; height?: unknown; value?: unknown; total: number }) {
+  const left = Number(x) + Number(width) + 6;
+  const middle = Number(y) + Number(height) / 2;
+  return (
+    <text x={left} y={middle} dominantBaseline="central" fontSize={12} fontWeight={600} fill="#334155">
+      {amount(Number(value))}
+      <tspan dx={4} fontSize={11} fontWeight={400} fill="#9ca3af">({sharePct(Number(value), total)})</tspan>
+    </text>
+  );
+}
 
 interface Props {
   onNavigate: (page: string, filter?: NavFilter) => void;
@@ -122,7 +135,11 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
   const CUSTOMER_COLORS = ['#2563eb', '#0d9488', '#7c3aed', '#f59e0b', '#e11d48'];
   const sumOf = (rows: Project[], pick: (project: Project) => number) => rows.reduce((total, project) => total + pick(project), 0);
 
-  // Billing progress per project type = invoiced / SO value.
+  const totalValue = sumOf(projects, (project) => project.so_value_bhd);
+  const totalInvoicedShown = sumOf(projects, (project) => project.net_invoiced_bhd);
+  const typeTotal = typeData.reduce((total, row) => total + row.value, 0);
+
+  // ---- bottom donuts
   const billingSlices: RateSlice[] = [...new Set(projects.map((project) => project.project_type || 'Unspecified'))]
     .map((type) => {
       const group = projects.filter((project) => (project.project_type || 'Unspecified') === type);
@@ -161,6 +178,8 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
       color: flagColor(project.management_flag),
     }));
 
+  const arTotal = sumOf(projects, (project) => project.outstanding_ar_bhd);
+
   // Margin Risk Watch: every project forecast below the 15% target margin, lowest first.
   const TARGET_MARGIN = 0.15;
   const marginRisk = projects
@@ -183,9 +202,9 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
-      <DashboardBanner moduleLabel="Project Tracking" gradient="from-teal-500 to-cyan-600" />
+      <GreetingLine className="pl-12 lg:pl-0" />
 
-      <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} showProjectFilter />
+      <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} showProjectFilter showDateFilter />
 
       {selectedProject && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3">
@@ -208,12 +227,13 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
 
       {/* KPI tiles */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiTile label="Total Project Value" band="bg-blue-600" value={bhd(s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Total Invoiced" band="bg-teal-600" value={bhd(s?.totalInvoiced)} loading={loading} />
-        <KpiTile label="Total Collected" band="bg-purple-600" value={bhd(s?.totalCollected)} loading={loading} />
-        <KpiTile label="Outstanding Receivables" band="bg-orange-500" value={bhd(s?.outstandingAR)} loading={loading} />
-        <KpiTile label="Total Cost / Spent" band="bg-slate-600" value={bhd(s?.totalCostExposure)} loading={loading} />
-        <KpiTile label="Retention Held" band="bg-rose-600" value={bhd(s?.retentionHeld)} loading={loading} />
+        {/* Each figure carries its share of the total project value. */}
+        <KpiTile label="Total Project Value" band="bg-blue-600" value={<Amt value={s?.totalSOValue} total={s?.totalSOValue} format={bhd} />} loading={loading} />
+        <KpiTile label="Total Invoiced" band="bg-teal-600" value={<Amt value={s?.totalInvoiced} total={s?.totalSOValue} format={bhd} />} loading={loading} />
+        <KpiTile label="Total Collected" band="bg-purple-600" value={<Amt value={s?.totalCollected} total={s?.totalSOValue} format={bhd} />} loading={loading} />
+        <KpiTile label="Outstanding Receivables" band="bg-orange-500" value={<Amt value={s?.outstandingAR} total={s?.totalSOValue} format={bhd} />} loading={loading} />
+        <KpiTile label="Total Cost / Spent" band="bg-slate-600" value={<Amt value={s?.totalCostExposure} total={s?.totalSOValue} format={bhd} />} loading={loading} />
+        <KpiTile label="Retention Held" band="bg-rose-600" value={<Amt value={s?.retentionHeld} total={s?.totalSOValue} format={bhd} />} loading={loading} />
       </div>
 
       {empty ? (
@@ -236,7 +256,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                       <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                       <YAxis yAxisId="left" tickFormatter={compact} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                       <YAxis yAxisId="right" orientation="right" unit="%" domain={[0, 60]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(value, name) => (name === 'Forecast Margin %' ? `${value}%` : bhd(Number(value)))} />
+                      <Tooltip formatter={(value, name) => (name === 'Forecast Margin %' ? `${value}%` : `${bhd(Number(value))} (${sharePct(Number(value), s?.totalSOValue)})`)} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Bar yAxisId="left" dataKey="value" name="Amount (BHD)" radius={[6, 6, 0, 0]} maxBarSize={52}>
                         {comboData.map((row) => (
@@ -269,8 +289,8 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                           <td className="px-5 py-2.5 font-medium text-slate-800 whitespace-nowrap">{project.project_id}</td>
                           <td className="px-5 py-2.5 text-slate-600">{project.customer}</td>
                           <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{project.project_type}</td>
-                          <td className="px-5 py-2.5 text-slate-700 text-right">{amount(project.so_value_bhd)}</td>
-                          <td className="px-5 py-2.5 text-slate-700 text-right">{amount(project.net_invoiced_bhd)}</td>
+                          <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap"><Amt value={project.so_value_bhd} total={totalValue} /></td>
+                          <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap"><Amt value={project.net_invoiced_bhd} total={totalInvoicedShown} /></td>
                           <td className="px-5 py-2.5 text-slate-700 text-right">{pct(project.forecast_margin_pct)}</td>
                           <td className="px-5 py-2.5"><FlagDot flag={project.management_flag} /></td>
                         </tr>
@@ -297,7 +317,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                             <Cell key={slice.flag} fill={flagColor(slice.flag)} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value, name) => [bhd(Number(value)), String(name)]} />
+                        <Tooltip formatter={(value, name) => [`${bhd(Number(value))} (${sharePct(Number(value), s?.totalSOValue)})`, String(name)]} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -333,7 +353,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <YAxis domain={['auto', 'auto']} tickFormatter={compact} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <Tooltip formatter={(value) => bhd(Number(value))} />
+                        <Tooltip formatter={(value, _name, item) => `${bhd(Number(value))} (${sharePct(Number(value), Number(item?.payload?.['Project Value']))})`} />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
                         <Line type="monotone" dataKey="Project Value" stroke="#2563eb" strokeWidth={2} dot={false} />
                         <Line type="monotone" dataKey="Invoiced" stroke="#0d9488" strokeWidth={2} dot={false} />
@@ -360,7 +380,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                     ].map((box) => (
                       <div key={box.label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-3 text-center">
                         <p className="text-[11px] text-slate-500">{box.label}</p>
-                        <p className={`text-sm font-bold mt-1 ${box.tone}`}>{bhd(box.value)}</p>
+                        <p className={`text-sm font-bold mt-1 ${box.tone}`}><Amt value={box.value} total={withheld} format={bhd} /></p>
                       </div>
                     ))}
                   </div>
@@ -437,7 +457,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="type" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} tickFormatter={(value: string) => (value.length > 11 ? `${value.slice(0, 10)}…` : value)} />
                       <YAxis tickFormatter={compact} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(value) => bhd(Number(value))} />
+                      <Tooltip formatter={(value) => `${bhd(Number(value))} (${sharePct(Number(value), typeTotal)})`} />
                       <Bar dataKey="value" name={typeMetric === 'value' ? 'Value' : 'Invoiced'} radius={[6, 6, 0, 0]} maxBarSize={44}>
                         {typeData.map((row) => (
                           <Cell key={row.type} fill={typeColor(row.type)} />
@@ -486,12 +506,10 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                   <li><strong className="text-slate-800">{collectionRiskCount}</strong> project{collectionRiskCount === 1 ? ' has' : 's have'} collection risk (outstanding AR)</li>
                   <li><strong className="text-slate-800">{marginRiskCount}</strong> project{marginRiskCount === 1 ? ' has' : 's have'} margin risk</li>
                   <li>
-                    Total collections <strong className="text-slate-800">{bhd(s.totalCollected)}</strong> (
-                    {s.totalInvoiced ? pct(s.totalCollected / s.totalInvoiced, 0) : '0%'} of invoiced)
+                    Total collections <strong className="text-slate-800"><Amt value={s.totalCollected} total={s.totalInvoiced} format={bhd} /></strong> of invoiced
                   </li>
                   <li>
-                    Retention held <strong className="text-slate-800">{bhd(s.retentionHeld)}</strong> (
-                    {s.totalSOValue ? pct(s.retentionHeld / s.totalSOValue) : '0%'} of SO value)
+                    Retention held <strong className="text-slate-800"><Amt value={s.retentionHeld} total={s.totalSOValue} format={bhd} /></strong> of SO value
                   </li>
                 </ul>
               )}
@@ -536,7 +554,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
               <div className="px-5 py-4">
                 <div className="h-60">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={arBars} layout="vertical" margin={{ top: 4, right: 76, bottom: 4, left: 0 }}>
+                    <BarChart data={arBars} layout="vertical" margin={{ top: 4, right: 110, bottom: 4, left: 0 }}>
                       <XAxis
                         type="number"
                         tickFormatter={(value: number) => amount(value)}
@@ -553,12 +571,12 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
                         tickLine={false}
                         tickFormatter={(value: string) => (value.length > 28 ? `${value.slice(0, 27)}…` : value)}
                       />
-                      <Tooltip cursor={{ fill: '#f1f5f9' }} formatter={(value) => [bhd(Number(value)), 'Outstanding AR']} />
+                      <Tooltip cursor={{ fill: '#f1f5f9' }} formatter={(value) => [`${bhd(Number(value))} (${sharePct(Number(value), arTotal)})`, 'Outstanding AR']} />
                       <Bar dataKey="value" name="Outstanding AR" radius={[0, 6, 6, 0]} maxBarSize={28}>
                         {arBars.map((bar) => (
                           <Cell key={bar.label} fill={bar.color} />
                         ))}
-                        <LabelList dataKey="value" position="right" formatter={(value) => amount(Number(value))} style={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} />
+                        <LabelList dataKey="value" content={(props) => <AmountPctLabel {...props} total={arTotal} />} />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>

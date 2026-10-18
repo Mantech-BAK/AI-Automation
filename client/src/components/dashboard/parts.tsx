@@ -93,6 +93,28 @@ function dateLabel(): string {
   }).format(new Date());
 }
 
+// "Good Morning / Afternoon / Evening, <name>" (Bahrain time) as a quiet line of text.
+export function GreetingLine({ className = '' }: { className?: string }) {
+  const [name, setName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/auth/me')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json) => {
+        if (!cancelled) setName(json?.user?.name || null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hour = bahrainHour();
+  const period = hour >= 5 && hour < 12 ? 'Good Morning' : hour >= 12 && hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  return <p className={`text-sm font-medium text-gray-500 ${className}`}>{name ? `${period}, ${name}` : period}</p>;
+}
+
 export function DashboardBanner({ moduleLabel, gradient }: { moduleLabel: string; gradient: string }) {
   const [name, setName] = useState<string | null>(null);
 

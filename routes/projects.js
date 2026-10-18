@@ -64,6 +64,18 @@ function buildFilters(query) {
   add('project_type', query.type);
   add('management_flag', query.flag);
 
+  // Date range: keep projects whose start..expected end window overlaps the
+  // range (projects with no dates are never excluded).
+  const isDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (isDate(query.date_from)) {
+    params.push(query.date_from);
+    conditions.push(`(expected_end_date IS NULL OR expected_end_date >= $${params.length})`);
+  }
+  if (isDate(query.date_to)) {
+    params.push(query.date_to);
+    conditions.push(`(start_date IS NULL OR start_date <= $${params.length})`);
+  }
+
   return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
 }
 

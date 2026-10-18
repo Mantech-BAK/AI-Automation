@@ -1,19 +1,21 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, FolderOpen, X } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, useJson } from '../../components/dashboard/parts';
-import { FilterBar, FlagBadge, SkeletonBlock } from '../../components/projects/shared';
-import { NO_FILTERS, amount, amount2, filterProjects, formatDMY, pct, type Project, type ProjectFilters } from '../../lib/projects';
+import { Amt, FilterBar, FlagBadge, SkeletonBlock } from '../../components/projects/shared';
+import { NO_FILTERS, amount2, filterProjects, formatDMY, pct, type Project, type ProjectFilters } from '../../lib/projects';
 
 type SortKey = keyof Project;
 
-const COLUMNS: { key: SortKey; label: string; align?: 'right'; render: (project: Project) => React.ReactNode }[] = [
+type Totals = Record<'so' | 'invoiced' | 'collected' | 'ar', number>;
+
+const COLUMNS: { key: SortKey; label: string; align?: 'right'; render: (project: Project, totals: Totals) => React.ReactNode }[] = [
   { key: 'project_id', label: 'Project ID', render: (p) => <span className="font-medium text-slate-800">{p.project_id}</span> },
   { key: 'customer', label: 'Customer', render: (p) => p.customer },
   { key: 'project_type', label: 'Project Type', render: (p) => p.project_type },
-  { key: 'so_value_bhd', label: 'SO Value BHD', align: 'right', render: (p) => amount(p.so_value_bhd) },
-  { key: 'net_invoiced_bhd', label: 'Net Invoiced BHD', align: 'right', render: (p) => amount(p.net_invoiced_bhd) },
-  { key: 'collections_bhd', label: 'Collections BHD', align: 'right', render: (p) => amount(p.collections_bhd) },
-  { key: 'outstanding_ar_bhd', label: 'Outstanding AR BHD', align: 'right', render: (p) => amount(p.outstanding_ar_bhd) },
+  { key: 'so_value_bhd', label: 'SO Value BHD', align: 'right', render: (p, t) => <Amt value={p.so_value_bhd} total={t.so} /> },
+  { key: 'net_invoiced_bhd', label: 'Net Invoiced BHD', align: 'right', render: (p, t) => <Amt value={p.net_invoiced_bhd} total={t.invoiced} /> },
+  { key: 'collections_bhd', label: 'Collections BHD', align: 'right', render: (p, t) => <Amt value={p.collections_bhd} total={t.collected} /> },
+  { key: 'outstanding_ar_bhd', label: 'Outstanding AR BHD', align: 'right', render: (p, t) => <Amt value={p.outstanding_ar_bhd} total={t.ar} /> },
   { key: 'completion_pct', label: 'Completion %', align: 'right', render: (p) => pct(p.completion_pct) },
   { key: 'billing_pct', label: 'Billing %', align: 'right', render: (p) => pct(p.billing_pct) },
   { key: 'collection_pct_of_invoiced', label: 'Collection %', align: 'right', render: (p) => pct(p.collection_pct_of_invoiced) },
@@ -75,14 +77,14 @@ function ProjectPanel({ row, onClose }: { row: Project; onClose: () => void }) {
           <Section title="Financial Summary">
             <Field label="SO Value (BHD)" value={amount2(p.so_value_bhd)} />
             <Field label="Retention Rate" value={pct(p.retention_rate, 0)} />
-            <Field label="Net Invoiced (BHD)" value={amount2(p.net_invoiced_bhd)} />
-            <Field label="Collections (BHD)" value={amount2(p.collections_bhd)} />
-            <Field label="Actual Cost (BHD)" value={amount2(p.actual_cost_bhd)} />
-            <Field label="Committed Cost (BHD)" value={amount2(p.committed_cost_bhd)} />
-            <Field label="Total Cost Exposure (BHD)" value={amount2(p.total_cost_exposure_bhd)} />
-            <Field label="Outstanding AR (BHD)" value={amount2(p.outstanding_ar_bhd)} />
-            <Field label="Unbilled SO Balance (BHD)" value={amount2(p.unbilled_so_balance_bhd)} />
-            <Field label="Forecast Margin (BHD)" value={amount2(p.forecast_margin_bhd)} />
+            <Field label="Net Invoiced (BHD)" value={<Amt value={p.net_invoiced_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Collections (BHD)" value={<Amt value={p.collections_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Actual Cost (BHD)" value={<Amt value={p.actual_cost_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Committed Cost (BHD)" value={<Amt value={p.committed_cost_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Total Cost Exposure (BHD)" value={<Amt value={p.total_cost_exposure_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Outstanding AR (BHD)" value={<Amt value={p.outstanding_ar_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Unbilled SO Balance (BHD)" value={<Amt value={p.unbilled_so_balance_bhd} total={p.so_value_bhd} format={amount2} />} />
+            <Field label="Forecast Margin (BHD)" value={<Amt value={p.forecast_margin_bhd} total={p.so_value_bhd} format={amount2} />} />
             <Field label="Forecast Margin %" value={pct(p.forecast_margin_pct, 2)} />
           </Section>
 
@@ -111,6 +113,13 @@ export default function AllProjects() {
     const order = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av ?? '').localeCompare(String(bv ?? ''), undefined, { numeric: true });
     return sort.dir === 'asc' ? order : -order;
   });
+
+  const totals: Totals = {
+    so: rows.reduce((sum, p) => sum + p.so_value_bhd, 0),
+    invoiced: rows.reduce((sum, p) => sum + p.net_invoiced_bhd, 0),
+    collected: rows.reduce((sum, p) => sum + p.collections_bhd, 0),
+    ar: rows.reduce((sum, p) => sum + p.outstanding_ar_bhd, 0),
+  };
 
   const toggleSort = (key: SortKey) =>
     setSort((current) => (current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
@@ -157,7 +166,7 @@ export default function AllProjects() {
                   <tr key={project.project_id} onClick={() => setSelected(project)} className="hover:bg-teal-50/50 cursor-pointer">
                     {COLUMNS.map((column) => (
                       <td key={column.key} className={`px-4 py-2.5 text-slate-600 whitespace-nowrap ${column.align === 'right' ? 'text-right' : ''}`}>
-                        {column.render(project)}
+                        {column.render(project, totals)}
                       </td>
                     ))}
                   </tr>

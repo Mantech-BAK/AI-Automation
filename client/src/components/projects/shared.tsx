@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { FLAG_ORDER, flagColor, unique, type Project, type ProjectFilters } from '../../lib/projects';
+import { FLAG_ORDER, amount, facetOptions, flagColor, normalizeFilters, sharePct, type Project, type ProjectFilters } from '../../lib/projects';
 
 export function FlagDot({ flag }: { flag?: string | null }) {
   return (
@@ -36,69 +36,108 @@ export function SkeletonBlock({ height = 'h-56' }: { height?: string }) {
   );
 }
 
+// A money value followed by its share of a total, e.g. "119,408 (18.2%)".
+export function Amt({ value, total, format = amount }: { value?: number | null; total?: number | null; format?: (value?: number | null) => string }) {
+  return (
+    <>
+      {format(value)} <span className="text-gray-400 text-xs font-normal">({sharePct(value, total)})</span>
+    </>
+  );
+}
+
 // Customer / project type / management flag dropdowns used by the dashboard and
-// the All Projects page.
+// the All Projects page. The dropdowns cascade: each one only offers values that
+// still fit the other selections (and the date range), and "All" re-expands the others.
 export function FilterBar({
   projects,
   filters,
   onChange,
   showProjectFilter = false,
+  showDateFilter = false,
 }: {
   projects: Project[];
   filters: ProjectFilters;
   onChange: (filters: ProjectFilters) => void;
   // Adds the "All Projects" single-project dropdown (used by the dashboard).
   showProjectFilter?: boolean;
+  // Adds the From / To date inputs and a "Clear dates" button (used by the dashboard).
+  showDateFilter?: boolean;
 }) {
   const selectClass =
     'px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
-  const flags = unique([...FLAG_ORDER, ...projects.map((project) => project.management_flag)]);
+  const inputClass = `${selectClass} w-36`;
 
-  // Changing customer / type / flag leaves single-project view, so the
-  // dropdowns can never contradict the selected project.
-  const change = (patch: Partial<ProjectFilters>) => onChange({ ...filters, project: '', ...patch });
-  const byId = [...projects].sort((a, b) => a.project_id.localeCompare(b.project_id, undefined, { numeric: true }));
+  const change = (patch: Partial<ProjectFilters>) => onChange(normalizeFilters(projects, { ...filters, ...patch }));
+
+  const customers = facetOptions(projects, filters, 'customer');
+  const types = facetOptions(projects, filters, 'type');
+  const availableFlags = facetOptions(projects, filters, 'flag');
+  const flags = [...FLAG_ORDER.filter((flag) => availableFlags.includes(flag)), ...availableFlags.filter((flag) => !FLAG_ORDER.includes(flag))];
+  const projectIds = facetOptions(projects, filters, 'project').sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const customerOf = (id: string) => projects.find((project) => project.project_id === id)?.customer;
+
+  const hasFilters = filters.customer || filters.type || filters.flag || filters.project;
+  const hasDates = filters.dateFrom || filters.dateTo;
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-end gap-3">
       {showProjectFilter && (
         <select
           value={filters.project || ''}
-          // Picking a project shows that project alone; "All Projects" restores the portfolio.
-          onChange={(e) => onChange({ customer: '', type: '', flag: '', project: e.target.value })}
+          onChange={(e) => change({ project: e.target.value })}
+          aria-label="Project"
           className={`${selectClass} ${filters.project ? 'border-teal-500 ring-1 ring-teal-500 text-teal-700 font-medium' : ''}`}
         >
           <option value="">All Projects</option>
-          {byId.map((project) => (
-            <option key={project.project_id} value={project.project_id}>
-              {project.project_id} — {project.customer}
+          {projectIds.map((id) => (
+            <option key={id} value={id}>
+              {id} — {customerOf(id)}
             </option>
           ))}
         </select>
       )}
-      <select value={filters.customer} onChange={(e) => change({ customer: e.target.value })} className={selectClass}>
+      <select value={filters.customer} onChange={(e) => change({ customer: e.target.value })} aria-label="Customer" className={selectClass}>
         <option value="">All Customers</option>
-        {unique(projects.map((project) => project.customer)).map((customer) => (
+        {customers.map((customer) => (
           <option key={customer} value={customer}>{customer}</option>
         ))}
       </select>
-      <select value={filters.type} onChange={(e) => change({ type: e.target.value })} className={selectClass}>
+      <select value={filters.type} onChange={(e) => change({ type: e.target.value })} aria-label="Project type" className={selectClass}>
         <option value="">All Project Types</option>
-        {unique(projects.map((project) => project.project_type)).map((type) => (
+        {types.map((type) => (
           <option key={type} value={type}>{type}</option>
         ))}
       </select>
-      <select value={filters.flag} onChange={(e) => change({ flag: e.target.value })} className={selectClass}>
+      <select value={filters.flag} onChange={(e) => change({ flag: e.target.value })} aria-label="Management flag" className={selectClass}>
         <option value="">All Management Flags</option>
         {flags.map((flag) => (
           <option key={flag} value={flag}>{flag}</option>
         ))}
       </select>
-      {(filters.customer || filters.type || filters.flag || filters.project) && (
+
+      {showDateFilter && (
+        <>
+          <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
+            From
+            <input type="date" value={filters.dateFrom || ''} max={filters.dateTo || undefined} onChange={(e) => change({ dateFrom: e.target.value })} className={inputClass} />
+          </label>
+          <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
+            To
+            <input type="date" value={filters.dateTo || ''} min={filters.dateFrom || undefined} onChange={(e) => change({ dateTo: e.target.value })} className={inputClass} />
+          </label>
+          {hasDates && (
+            <button type="button" onClick={() => change({ dateFrom: '', dateTo: '' })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
+              Clear dates
+            </button>
+          )}
+        </>
+      )}
+
+      {hasFilters && (
         <button
           type="button"
-          onClick={() => onChange({ customer: '', type: '', flag: '', project: '' })}
-          className="text-sm font-medium text-teal-600 hover:underline"
+          onClick={() => onChange({ ...filters, customer: '', type: '', flag: '', project: '' })}
+          className="pb-2 text-sm font-medium text-teal-600 hover:underline"
         >
           Clear filters
         </button>
@@ -108,7 +147,7 @@ export function FilterBar({
 }
 
 // Colour-banded headline figure (the six KPI tiles on the dashboard).
-export function KpiTile({ label, value, band, loading }: { label: string; value: string; band: string; loading?: boolean }) {
+export function KpiTile({ label, value, band, loading }: { label: string; value: ReactNode; band: string; loading?: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className={`${band} px-4 py-2 text-xs font-semibold text-white tracking-wide`}>{label}</div>

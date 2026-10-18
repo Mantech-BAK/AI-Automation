@@ -8,6 +8,7 @@ import ProjectsDashboard from '../pages/ProjectsDashboard';
 import AllProjects from '../pages/projects/AllProjects';
 import ARTransactions from '../pages/projects/ARTransactions';
 import Financials from '../pages/projects/Financials';
+import PaymentsCollections from '../pages/projects/PaymentsCollections';
 import Procurement from '../pages/projects/Procurement';
 import Retention from '../pages/projects/Retention';
 
@@ -30,6 +31,8 @@ export default function ProjectsModule({ page, onNavigate }: ProjectsModuleProps
       return <Procurement />;
     case 'project-collections':
       return <ARTransactions />;
+    case 'project-payments':
+      return <PaymentsCollections />;
     case 'project-retention':
       return <Retention />;
     // Tools shared with the other modules.

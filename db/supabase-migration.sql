@@ -618,7 +618,9 @@ CREATE TABLE public.project_ar_transactions (
     transaction_date date,
     amount_bhd numeric(14,2),
     description text,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    due_date date,
+    status text
 );
 
 

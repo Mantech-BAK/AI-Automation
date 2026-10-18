@@ -739,6 +739,23 @@ async function runMigrations() {
       WHERE NOT EXISTS (SELECT 1 FROM project_retention r WHERE r.project_id = p.project_id);
     `);
 
+    // Invoice due date and payment status for the Payments & Collections page.
+    await pool.query(`
+      ALTER TABLE project_ar_transactions ADD COLUMN IF NOT EXISTS due_date DATE;
+      ALTER TABLE project_ar_transactions ADD COLUMN IF NOT EXISTS status TEXT;
+    `);
+
+    // Sample invoices, only into an empty table.
+    const { rows: arCount } = await pool.query('SELECT COUNT(*)::int AS count FROM project_ar_transactions');
+    if (arCount[0].count === 0) {
+      const { AR_COLUMNS, AR_ROWS } = require('./data/arSeed');
+      const placeholders = AR_COLUMNS.map((_, index) => `$${index + 1}`).join(', ');
+      for (const row of AR_ROWS) {
+        await pool.query(`INSERT INTO project_ar_transactions (${AR_COLUMNS.join(', ')}) VALUES (${placeholders})`, row);
+      }
+      console.log(`Seeded ${AR_ROWS.length} AR transactions.`);
+    }
+
     const defaultSettings = [
       ['daily_check_time', '6'],
       ['working_hours_start', '07:30'],

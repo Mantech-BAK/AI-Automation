@@ -23,6 +23,9 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
   // Users is admin-only; Settings is open to everyone, as before.
   const systemItems = SYSTEM_NAV.filter((item) => item.id !== 'users' || role === 'admin');
 
+  // The Project Tracking dashboard opens with a greeting instead of a title bar.
+  const hideTopbar = module === 'projects' && activeNavId === 'dashboard';
+
   const pageTitle = [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
 
   const renderItem = (item: ModuleNavItem) => {
@@ -136,10 +139,12 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
       {/* Main content */}
       <main className="lg:ml-56 min-h-screen flex flex-col">
         {/* Topbar */}
+        {!hideTopbar && (
         <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm px-4 lg:px-8 h-16 flex items-center gap-3 flex-shrink-0">
           <h1 className="text-lg font-semibold text-slate-800 pl-16 lg:pl-0">{pageTitle}</h1>
           <span className="hidden sm:inline text-xs font-medium text-slate-400 uppercase tracking-wide">{definition.label}</span>
         </header>
+        )}
 
         <div
           className="flex-1 p-4 lg:p-8"

@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { Receipt } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { SkeletonBlock } from '../../components/projects/shared';
+import { Amt, SkeletonBlock } from '../../components/projects/shared';
 import { amount2, bhd, formatDMY, type ArTransaction } from '../../lib/projects';
 
 // Collections & AR: every AR transaction, grouped by project with a subtotal.
@@ -43,7 +43,7 @@ export default function ARTransactions() {
                         <td className="px-5 py-2.5 text-slate-600">{row.transaction_ref || '-'}</td>
                         <td className="px-5 py-2.5 text-slate-600">{row.transaction_type || '-'}</td>
                         <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{formatDMY(row.transaction_date)}</td>
-                        <td className="px-5 py-2.5 text-slate-700 text-right">{amount2(row.amount_bhd)}</td>
+                        <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap"><Amt value={row.amount_bhd} total={total} format={amount2} /></td>
                         <td className="px-5 py-2.5 text-slate-600">{row.description || '-'}</td>
                       </tr>
                     ))}
@@ -52,7 +52,7 @@ export default function ARTransactions() {
                         Subtotal {projectId}
                       </td>
                       <td className="px-5 py-2 text-right font-semibold text-slate-800">
-                        {amount2(rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0))}
+                        <Amt value={rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0)} total={total} format={amount2} />
                       </td>
                       <td />
                     </tr>
@@ -60,7 +60,7 @@ export default function ARTransactions() {
                 ))}
                 <tr className="bg-teal-50">
                   <td colSpan={5} className="px-5 py-3 text-sm font-bold text-slate-700 text-right">Total</td>
-                  <td className="px-5 py-3 text-right font-bold text-slate-900">{bhd(total)}</td>
+                  <td className="px-5 py-3 text-right font-bold text-slate-900"><Amt value={total} total={total} format={bhd} /></td>
                   <td />
                 </tr>
               </tbody>

@@ -67,6 +67,9 @@ export interface ArTransaction {
   transaction_date: string | null;
   amount_bhd: number | null;
   description: string | null;
+  due_date: string | null;
+  // Paid, Pending or Overdue.
+  status: string | null;
 }
 
 // Management flag colours, shared by the dots, badges and the status donut.
@@ -119,18 +122,60 @@ export interface ProjectFilters {
   flag: string;
   // Single-project view (dashboard only); '' = whole portfolio.
   project?: string;
+  // Date range (YYYY-MM-DD), dashboard only; '' = open-ended.
+  dateFrom?: string;
+  dateTo?: string;
 }
 
-export const NO_FILTERS: ProjectFilters = { customer: '', type: '', flag: '', project: '' };
+export const NO_FILTERS: ProjectFilters = { customer: '', type: '', flag: '', project: '', dateFrom: '', dateTo: '' };
 
-export function filterProjects(projects: Project[], filters: ProjectFilters): Project[] {
+type FacetKey = 'customer' | 'type' | 'flag' | 'project';
+
+// A project is inside the date range when its start..expected-end window
+// overlaps it (projects without dates are never excluded).
+function inDateRange(project: Project, filters: ProjectFilters): boolean {
+  if (filters.dateFrom && project.expected_end_date && project.expected_end_date < filters.dateFrom) return false;
+  if (filters.dateTo && project.start_date && project.start_date > filters.dateTo) return false;
+  return true;
+}
+
+// Applies every filter except `skip` - used to build cascading dropdowns, where
+// each dropdown only offers values that still fit all the OTHER filters.
+export function filterProjects(projects: Project[], filters: ProjectFilters, skip?: FacetKey): Project[] {
   return projects.filter(
     (project) =>
-      (!filters.project || project.project_id === filters.project) &&
-      (!filters.customer || project.customer === filters.customer) &&
-      (!filters.type || project.project_type === filters.type) &&
-      (!filters.flag || project.management_flag === filters.flag)
+      (skip === 'project' || !filters.project || project.project_id === filters.project) &&
+      (skip === 'customer' || !filters.customer || project.customer === filters.customer) &&
+      (skip === 'type' || !filters.type || project.project_type === filters.type) &&
+      (skip === 'flag' || !filters.flag || project.management_flag === filters.flag) &&
+      inDateRange(project, filters)
   );
+}
+
+// Values a dropdown can offer: those present in the projects that match every other filter.
+export function facetOptions(projects: Project[], filters: ProjectFilters, key: FacetKey): string[] {
+  const rows = filterProjects(projects, filters, key);
+  const pick = (project: Project) =>
+    key === 'customer' ? project.customer : key === 'type' ? project.project_type : key === 'flag' ? project.management_flag : project.project_id;
+  return unique(rows.map(pick));
+}
+
+// After a change, drops any selection that no longer fits the others (e.g. a
+// project outside the new date range), so the dropdowns never contradict each other.
+export function normalizeFilters(projects: Project[], filters: ProjectFilters): ProjectFilters {
+  let next = filters;
+  for (let pass = 0; pass < 4; pass += 1) {
+    let changed = false;
+    for (const key of ['project', 'customer', 'type', 'flag'] as FacetKey[]) {
+      const value = next[key];
+      if (value && !facetOptions(projects, next, key).includes(value)) {
+        next = { ...next, [key]: '' };
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return next;
 }
 
 export function filterQuery(filters: ProjectFilters): string {
@@ -139,9 +184,15 @@ export function filterQuery(filters: ProjectFilters): string {
   if (filters.customer) params.set('customer', filters.customer);
   if (filters.type) params.set('type', filters.type);
   if (filters.flag) params.set('flag', filters.flag);
+  if (filters.dateFrom) params.set('date_from', filters.dateFrom);
+  if (filters.dateTo) params.set('date_to', filters.dateTo);
   const query = params.toString();
   return query ? `?${query}` : '';
 }
+
+// "18.2%" - a value's share of a total (0 when the total is 0).
+export const sharePct = (value?: number | null, total?: number | null): string =>
+  `${total ? (((Number(value) || 0) / total) * 100).toFixed(1) : '0.0'}%`;
 
 export const unique = (values: (string | null | undefined)[]): string[] =>
   [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
