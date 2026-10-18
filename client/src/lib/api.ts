@@ -10,5 +10,5 @@ export function apiUrl(path: string): string {
 // fetch() against the API: prefixes the base URL and always sends the session
 // cookie (the frontend and API live on different origins in production).
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(apiUrl(path), { credentials: 'include', ...init });
+  return fetch(apiUrl(path), { ...init, credentials: 'include' });
 }
