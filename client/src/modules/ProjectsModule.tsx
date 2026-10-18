@@ -8,7 +8,8 @@ import ProjectsDashboard from '../pages/ProjectsDashboard';
 import AllProjects from '../pages/projects/AllProjects';
 import Financials from '../pages/projects/Financials';
 import Adjustments from '../pages/projects/Adjustments';
-import PaymentsAP from '../pages/projects/PaymentsAP';
+import Collections from '../pages/projects/Collections';
+import Payments from '../pages/projects/Payments';
 import Procurement from '../pages/projects/Procurement';
 import Retention from '../pages/projects/Retention';
 import Sales from '../pages/projects/Sales';
@@ -36,8 +37,10 @@ export default function ProjectsModule({ page, onNavigate, navFilter }: Projects
       return <Adjustments />;
     case 'project-procurement':
       return <Procurement />;
+    case 'project-collections':
+      return <Collections />;
     case 'project-payments':
-      return <PaymentsAP />;
+      return <Payments />;
     case 'project-retention':
       return <Retention />;
     // Tools shared with the other modules.

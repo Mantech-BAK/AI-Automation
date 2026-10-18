@@ -184,6 +184,23 @@ router.get('/ar-transactions', async (req, res) => {
 
 const withAmount = (row) => ({ ...row, amount_bhd: row.amount_bhd === null ? null : Number(row.amount_bhd) });
 
+// Collections: only the incoming payments (receipts) received from customers.
+router.get('/collections', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.*, p.customer
+       FROM project_ar_transactions t
+       LEFT JOIN projects p ON p.project_id = t.project_id
+       WHERE t.transaction_type = 'Incoming Payment'
+       ORDER BY t.transaction_ref, t.id`
+    );
+    return res.json(rows.map(withAmount));
+  } catch (error) {
+    console.error('Collections query failed:', error);
+    return res.status(500).json({ error: 'Failed to load collections' });
+  }
+});
+
 router.get('/procurement', async (req, res) => {
   try {
     const { rows } = await pool.query(
