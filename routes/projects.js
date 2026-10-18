@@ -37,10 +37,17 @@ const NUMERIC_COLUMNS = [
 
 // node-postgres returns NUMERIC as strings; the UI wants numbers. DATE columns are
 // already plain 'YYYY-MM-DD' strings (see the type parser in db.js).
+// The workbook (and so the database) stores these three as percent points (27.44 = 27.44%);
+// the UI works with fractions (0.2744), like completion_pct, so convert on the way out.
+const PERCENT_POINT_COLUMNS = ['forecast_margin_pct', 'billing_pct', 'collection_pct_of_invoiced'];
+
 function toNumbers(row) {
   const out = { ...row };
   for (const column of NUMERIC_COLUMNS) {
     if (out[column] !== null && out[column] !== undefined) out[column] = Number(out[column]);
+  }
+  for (const column of PERCENT_POINT_COLUMNS) {
+    if (out[column] !== null && out[column] !== undefined) out[column] = out[column] / 100;
   }
   return out;
 }

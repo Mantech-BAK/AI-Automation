@@ -716,7 +716,22 @@ async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_project_retention_project_id ON project_retention(project_id);
     `);
 
-    // Seed the 30 sample projects only into an empty table.
+    // Keep the workbook values exactly: unconstrained NUMERIC (no rounding to 2 or 4 places).
+    await pool.query(`
+      ALTER TABLE projects
+        ALTER COLUMN so_value_bhd TYPE NUMERIC, ALTER COLUMN retention_rate TYPE NUMERIC,
+        ALTER COLUMN net_invoiced_bhd TYPE NUMERIC, ALTER COLUMN collections_bhd TYPE NUMERIC,
+        ALTER COLUMN actual_cost_bhd TYPE NUMERIC, ALTER COLUMN committed_cost_bhd TYPE NUMERIC,
+        ALTER COLUMN total_cost_exposure_bhd TYPE NUMERIC, ALTER COLUMN outstanding_ar_bhd TYPE NUMERIC,
+        ALTER COLUMN unbilled_so_balance_bhd TYPE NUMERIC, ALTER COLUMN forecast_margin_bhd TYPE NUMERIC,
+        ALTER COLUMN forecast_margin_pct TYPE NUMERIC, ALTER COLUMN billing_pct TYPE NUMERIC,
+        ALTER COLUMN collection_pct_of_invoiced TYPE NUMERIC, ALTER COLUMN completion_pct TYPE NUMERIC,
+        ALTER COLUMN planned_progress_pct TYPE NUMERIC, ALTER COLUMN progress_variance_pct TYPE NUMERIC;
+      ALTER TABLE project_ar_transactions ALTER COLUMN amount_bhd TYPE NUMERIC;
+      ALTER TABLE project_retention ALTER COLUMN retention_rate TYPE NUMERIC, ALTER COLUMN retention_amount_bhd TYPE NUMERIC;
+    `);
+
+    // Seed the 30 projects from the workbook only into an empty table.
     const { rows: projectCount } = await pool.query('SELECT COUNT(*)::int AS count FROM projects');
     if (projectCount[0].count === 0) {
       const { PROJECT_COLUMNS, PROJECT_ROWS } = require('./data/projectsSeed');
@@ -803,6 +818,11 @@ async function runMigrations() {
 
       CREATE INDEX IF NOT EXISTS idx_project_procurement_project_id ON project_procurement(project_id);
       CREATE INDEX IF NOT EXISTS idx_project_adjustments_project_id ON project_adjustments(project_id);
+    `);
+
+    await pool.query(`
+      ALTER TABLE project_procurement ALTER COLUMN amount_bhd TYPE NUMERIC;
+      ALTER TABLE project_adjustments ALTER COLUMN amount_bhd TYPE NUMERIC;
     `);
 
     const ledger = require('./data/projectLedgerSeed');

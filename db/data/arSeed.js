@@ -1,4 +1,5 @@
 // Generated from BAK_SAP_B1_Project_Dashboard_POC.xlsx (real project data) - do not edit by hand.
+// Values are exactly as in the workbook (forecast_margin_pct / billing_pct / collection_pct_of_invoiced are percent points, e.g. 27.44; completion / planned / variance are fractions, e.g. 0.9174).
 // AR invoices (status Open, transaction_type 'AR Invoice') and incoming payments
 // (status Paid, transaction_type 'Incoming Payment'). The workbook has no due dates.
 const AR_COLUMNS = ["project_id","transaction_ref","so_no","transaction_type","transaction_date","amount_bhd","description","due_date","status"];

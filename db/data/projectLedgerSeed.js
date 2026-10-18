@@ -1,4 +1,5 @@
 // Generated from BAK_SAP_B1_Project_Dashboard_POC.xlsx (real project data) - do not edit by hand.
+// Values are exactly as in the workbook (forecast_margin_pct / billing_pct / collection_pct_of_invoiced are percent points, e.g. 27.44; completion / planned / variance are fractions, e.g. 0.9174).
 // Procurement documents (purchase orders = Committed, AP invoices = Actual Cost) and
 // AR adjustments (credit / debit notes).
 const PROCUREMENT_COLUMNS = ["project_id","customer","document_no","so_no","document_type","date","amount_bhd","cost_status"];
