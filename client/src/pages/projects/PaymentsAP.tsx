@@ -1,37 +1,32 @@
 import { useState } from 'react';
 import { CreditCard } from 'lucide-react';
-import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
+import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
 import { Amt, AsOfDateFilter, SkeletonBlock } from '../../components/projects/shared';
-import { AR_INVOICE, INCOMING_PAYMENT, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
+import { INCOMING_PAYMENT, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
-type Tab = 'payments' | 'invoices';
+type Tab = 'collections' | 'payments';
 
-const TABS: { id: Tab; label: string; type: string; title: string }[] = [
-  { id: 'payments', label: 'Incoming Payments', type: INCOMING_PAYMENT, title: 'Incoming Payments' },
-  { id: 'invoices', label: 'AR Invoices', type: AR_INVOICE, title: 'AR Invoices' },
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'collections', label: 'Collections' },
+  { id: 'payments', label: 'Payments' },
 ];
 
-const STATUS_STYLES: Record<string, string> = {
-  Paid: 'bg-emerald-50 text-emerald-700',
-  Open: 'bg-sky-50 text-sky-700',
-};
-
-// Payments & AP: money received from customers, and the AR invoices raised.
+// Payments & AP. Collections = the workbook's Collections sheet (incoming payments
+// received from customers). Payments (money paid out) has no source data yet, so it is empty.
 export default function PaymentsAP() {
-  const [tab, setTab] = useState<Tab>('payments');
+  const [tab, setTab] = useState<Tab>('collections');
   const [asOfDate, setAsOfDate] = useState(todayISO());
-  const active = TABS.find((item) => item.id === tab) ?? TABS[0];
-  const transactions = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(active.type)}`);
+  const collections = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(INCOMING_PAYMENT)}`);
 
   // Everything up to and including the As of Date.
-  const rows = (transactions.data ?? []).filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
+  const rows = (collections.data ?? []).filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Payments &amp; AP</h1>
-        <p className="text-slate-500 mt-1">Incoming payments received and AR invoices raised</p>
+        <p className="text-slate-500 mt-1">Collections received from customers and payments made</p>
       </div>
 
       <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
@@ -51,46 +46,47 @@ export default function PaymentsAP() {
         ))}
       </div>
 
-      <Panel title={`${active.title}${transactions.data ? ` (${rows.length})` : ''}`} icon={CreditCard}>
-        {transactions.loading ? (
-          <SkeletonBlock height="h-64" />
-        ) : transactions.error ? (
-          <ErrorState message={transactions.error} />
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-slate-500">No transactions found</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <TableHead columns={['Project ID', 'Customer', 'Document No', 'Date', 'Amount (BHD)', 'Status']} />
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-2.5 font-medium text-slate-800 whitespace-nowrap">{row.project_id}</td>
-                    <td className="px-5 py-2.5 text-slate-600">{row.customer || '-'}</td>
-                    <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{row.transaction_ref || '-'}</td>
-                    <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{formatDMY(row.transaction_date)}</td>
-                    <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap">
-                      <Amt value={row.amount_bhd} total={total} format={amount2} />
-                    </td>
-                    <td className="px-5 py-2.5">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[row.status ?? ''] ?? 'bg-slate-100 text-slate-600'}`}>
-                        {row.status || '-'}
-                      </span>
+      {tab === 'payments' ? (
+        <Panel title="Payments" icon={CreditCard}>
+          <EmptyState icon={CreditCard} message="No payments recorded" />
+        </Panel>
+      ) : (
+        <Panel title={`Collections${collections.data ? ` (${rows.length})` : ''}`} icon={CreditCard}>
+          {collections.loading ? (
+            <SkeletonBlock height="h-64" />
+          ) : collections.error ? (
+            <ErrorState message={collections.error} />
+          ) : rows.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-slate-500">No transactions found</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <TableHead columns={['Receipt No', 'Receipt Date', 'Project ID', 'Customer', 'SO No', 'Amount (BHD)']} />
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-2.5 font-medium text-slate-800 whitespace-nowrap">{row.transaction_ref || '-'}</td>
+                      <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{formatDMY(row.transaction_date)}</td>
+                      <td className="px-5 py-2.5 text-slate-700 whitespace-nowrap">{row.project_id}</td>
+                      <td className="px-5 py-2.5 text-slate-600">{row.customer || '-'}</td>
+                      <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{row.so_no || '-'}</td>
+                      <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap">
+                        <Amt value={row.amount_bhd} total={total} format={amount2} />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-teal-50">
+                    <td colSpan={5} className="px-5 py-3 text-sm font-bold text-slate-700 text-right">Total</td>
+                    <td className="px-5 py-3 text-right font-bold text-slate-900 whitespace-nowrap">
+                      <Amt value={total} total={total} format={amount2} />
                     </td>
                   </tr>
-                ))}
-                <tr className="bg-teal-50">
-                  <td colSpan={4} className="px-5 py-3 text-sm font-bold text-slate-700 text-right">Total</td>
-                  <td className="px-5 py-3 text-right font-bold text-slate-900 whitespace-nowrap">
-                    <Amt value={total} total={total} format={amount2} />
-                  </td>
-                  <td />
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }
