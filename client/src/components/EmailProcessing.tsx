@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import Modal from './Modal';
 import type { NavFilter } from '../App';
+import { apiFetch } from '../lib/api';
 
 interface EmailProcessingProps {
   onNavigate?: (page: string, filter?: NavFilter) => void;
@@ -83,7 +84,7 @@ export default function EmailProcessing({ onNavigate }: EmailProcessingProps = {
 
   async function fetchEmails() {
     try {
-      const response = await fetch('/api/dashboard/email-summaries');
+      const response = await apiFetch('/api/dashboard/email-summaries');
       if (!response.ok) {
         throw new Error(`Failed to load emails: ${response.statusText}`);
       }
@@ -104,7 +105,7 @@ export default function EmailProcessing({ onNavigate }: EmailProcessingProps = {
     setProcessing(true);
     setProcessError(null);
     try {
-      const response = await fetch('/api/email/process', {
+      const response = await apiFetch('/api/email/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -135,7 +136,7 @@ export default function EmailProcessing({ onNavigate }: EmailProcessingProps = {
   async function handleCreateTask(item: ActionItem) {
     setCreatingTaskFor(item.id);
     try {
-      const response = await fetch('/api/dashboard/tasks/create', {
+      const response = await apiFetch('/api/dashboard/tasks/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

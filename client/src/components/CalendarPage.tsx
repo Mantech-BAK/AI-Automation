@@ -9,6 +9,7 @@ import {
   MapPin,
   User,
 } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
 interface ScheduleItem {
   id: string;
@@ -74,7 +75,7 @@ export default function CalendarPage() {
       // Only pull from work_orders (via /schedules) - this way the calendar
       // shows exactly the tasks the daily check actually created, not every
       // document's expiry date regardless of whether a task exists for it.
-      const response = await fetch('/api/dashboard/schedules');
+      const response = await apiFetch('/api/dashboard/schedules');
 
       if (!response.ok) {
         throw new Error(`Failed to load schedules: ${response.statusText}`);

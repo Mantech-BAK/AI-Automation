@@ -12,6 +12,7 @@ import Modal from './Modal';
 import AssetEditModal, { EditableAsset } from './AssetEditModal';
 import VehiclesPage from './VehiclesPage';
 import ResponsiblePerson from './ResponsiblePerson';
+import { apiFetch } from '../lib/api';
 
 interface DocumentVersion {
   id: number;
@@ -188,7 +189,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
 
   async function fetchData() {
     try {
-      const response = await fetch('/api/dashboard/assets?type=Equipment');
+      const response = await apiFetch('/api/dashboard/assets?type=Equipment');
       if (!response.ok) {
         throw new Error(`Failed to load equipment: ${response.statusText}`);
       }
@@ -205,7 +206,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
 
   async function fetchDocuments() {
     try {
-      const response = await fetch('/api/dashboard/assets?type=Document');
+      const response = await apiFetch('/api/dashboard/assets?type=Document');
       if (!response.ok) {
         throw new Error(`Failed to load documents: ${response.statusText}`);
       }
@@ -244,7 +245,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
         remarks: formData.remarks || null,
       };
 
-      const response = await fetch('/api/dashboard/assets/add', {
+      const response = await apiFetch('/api/dashboard/assets/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -287,7 +288,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
   async function fetchSiteOptions() {
     setSiteOptionsLoading(true);
     try {
-      const response = await fetch('/api/dashboard/sites/list');
+      const response = await apiFetch('/api/dashboard/sites/list');
       if (!response.ok) {
         throw new Error(`Failed to load sites: ${response.statusText}`);
       }
@@ -304,9 +305,9 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     setLookupOptionsLoading(true);
     try {
       const [categoriesRes, typesRes, departmentsRes] = await Promise.all([
-        fetch('/api/dashboard/categories'),
-        fetch('/api/dashboard/asset-types'),
-        fetch('/api/dashboard/departments'),
+        apiFetch('/api/dashboard/categories'),
+        apiFetch('/api/dashboard/asset-types'),
+        apiFetch('/api/dashboard/departments'),
       ]);
       if (!categoriesRes.ok || !typesRes.ok || !departmentsRes.ok) {
         throw new Error('Failed to load lookup options');

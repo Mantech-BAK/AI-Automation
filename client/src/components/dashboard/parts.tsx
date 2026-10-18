@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Loader2, type LucideIcon } from 'lucide-react';
+import { apiFetch } from '../../lib/api';
 
 // ---------- data helpers ----------
 
@@ -18,7 +19,7 @@ export function useJson<T>(url: string): FetchState<T> {
     let cancelled = false;
     setState({ data: null, loading: true, error: null });
 
-    fetch(url)
+    apiFetch(url)
       .then(async (response) => {
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
         return (await response.json()) as T;
@@ -97,7 +98,7 @@ export function DashboardBanner({ moduleLabel, gradient }: { moduleLabel: string
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/auth/me')
+    apiFetch('/api/auth/me')
       .then((response) => (response.ok ? response.json() : null))
       .then((json) => {
         if (!cancelled) setName(json?.user?.name || null);

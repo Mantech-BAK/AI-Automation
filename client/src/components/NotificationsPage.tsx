@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { NavFilter } from '../App';
 import { moduleOfNotificationType, type ModuleId } from '../lib/modules';
+import { apiFetch } from '../lib/api';
 
 interface NotificationsPageProps {
   // When set, only this module's notifications are listed.
@@ -125,7 +126,7 @@ export default function NotificationsPage({ module, onNavigate }: NotificationsP
 
   async function fetchNotifications() {
     try {
-      const response = await fetch('/api/dashboard/notifications');
+      const response = await apiFetch('/api/dashboard/notifications');
       if (!response.ok) {
         throw new Error(`Failed to load notifications: ${response.statusText}`);
       }

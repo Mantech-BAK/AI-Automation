@@ -10,6 +10,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import type { NavFilter } from '../App';
+import { apiFetch } from '../lib/api';
 
 interface DepartmentsPageProps {
   onNavigate?: (page: string, filter?: NavFilter) => void;
@@ -66,7 +67,7 @@ export default function DepartmentsPage({ onNavigate }: DepartmentsPageProps = {
   async function fetchDepartments() {
     setLoading(true);
     try {
-      const response = await fetch('/api/dashboard/departments/list');
+      const response = await apiFetch('/api/dashboard/departments/list');
       if (!response.ok) {
         throw new Error(`Failed to load departments: ${response.statusText}`);
       }
@@ -89,7 +90,7 @@ export default function DepartmentsPage({ onNavigate }: DepartmentsPageProps = {
       return next;
     });
     try {
-      const response = await fetch(`/api/dashboard/departments/${encodeURIComponent(name)}/tasks`);
+      const response = await apiFetch(`/api/dashboard/departments/${encodeURIComponent(name)}/tasks`);
       if (!response.ok) {
         throw new Error(`Failed to load tasks: ${response.statusText}`);
       }
@@ -118,7 +119,7 @@ export default function DepartmentsPage({ onNavigate }: DepartmentsPageProps = {
   async function handleComplete(name: string, taskId: string) {
     setCompletingId(taskId);
     try {
-      const response = await fetch(`/api/workorders/${taskId}/complete`, { method: 'POST' });
+      const response = await apiFetch(`/api/workorders/${taskId}/complete`, { method: 'POST' });
       if (!response.ok) {
         throw new Error(`Failed to complete task: ${response.statusText}`);
       }

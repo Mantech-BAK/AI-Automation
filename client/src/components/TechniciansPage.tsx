@@ -16,6 +16,7 @@ import {
   Car,
 } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 interface Technician {
   id: string;
@@ -156,7 +157,7 @@ export default function TechniciansPage({ lockedTab, onViewEmployee }: Technicia
 
   async function fetchTechnicians() {
     try {
-      const response = await fetch('/api/dashboard/technicians');
+      const response = await apiFetch('/api/dashboard/technicians');
       if (!response.ok) {
         throw new Error(`Failed to load technicians: ${response.statusText}`);
       }
@@ -173,7 +174,7 @@ export default function TechniciansPage({ lockedTab, onViewEmployee }: Technicia
 
   async function fetchResponsiblePersons() {
     try {
-      const response = await fetch('/api/dashboard/documents/responsible-persons');
+      const response = await apiFetch('/api/dashboard/documents/responsible-persons');
       if (!response.ok) {
         throw new Error(`Failed to load responsible persons: ${response.statusText}`);
       }
@@ -198,7 +199,7 @@ export default function TechniciansPage({ lockedTab, onViewEmployee }: Technicia
 
   async function fetchVehicles() {
     try {
-      const response = await fetch('/api/vehicles');
+      const response = await apiFetch('/api/vehicles');
       if (!response.ok) {
         throw new Error(`Failed to load vehicles: ${response.statusText}`);
       }
@@ -221,7 +222,7 @@ export default function TechniciansPage({ lockedTab, onViewEmployee }: Technicia
     setTaskModalError(null);
     setTaskModalTasks([]);
     try {
-      const response = await fetch(`/api/dashboard/tasks?technician_id=${tech.id}`);
+      const response = await apiFetch(`/api/dashboard/tasks?technician_id=${tech.id}`);
       if (!response.ok) {
         throw new Error(`Failed to load tasks: ${response.statusText}`);
       }
@@ -251,7 +252,7 @@ export default function TechniciansPage({ lockedTab, onViewEmployee }: Technicia
         contact_number: formData.contact_number || null,
       };
 
-      const response = await fetch('/api/dashboard/technicians/add', {
+      const response = await apiFetch('/api/dashboard/technicians/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -286,8 +287,8 @@ export default function TechniciansPage({ lockedTab, onViewEmployee }: Technicia
     setLookupOptionsLoading(true);
     try {
       const [employeeTypesRes, designationsRes] = await Promise.all([
-        fetch('/api/dashboard/employee-types'),
-        fetch('/api/dashboard/designations'),
+        apiFetch('/api/dashboard/employee-types'),
+        apiFetch('/api/dashboard/designations'),
       ]);
       if (!employeeTypesRes.ok || !designationsRes.ok) {
         throw new Error('Failed to load lookup options');

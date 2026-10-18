@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Users as UsersIcon, Plus, Trash2, Loader2, ShieldCheck, User as UserIcon, KeyRound } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 interface AppUser {
   id: number;
@@ -66,7 +67,7 @@ export default function UsersPage() {
   async function fetchUsers() {
     setLoading(true);
     try {
-      const response = await fetch('/api/users');
+      const response = await apiFetch('/api/users');
       if (!response.ok) throw new Error(`Failed to load users: ${response.statusText}`);
       const json: AppUser[] = await response.json();
       setUsers(json);
@@ -83,8 +84,8 @@ export default function UsersPage() {
   async function fetchLookups() {
     try {
       const [departmentsRes, categoriesRes] = await Promise.all([
-        fetch('/api/dashboard/departments'),
-        fetch('/api/dashboard/categories'),
+        apiFetch('/api/dashboard/departments'),
+        apiFetch('/api/dashboard/categories'),
       ]);
       if (departmentsRes.ok) setDepartmentOptions(await departmentsRes.json());
       if (categoriesRes.ok) setCategoryOptions(await categoriesRes.json());
@@ -102,7 +103,7 @@ export default function UsersPage() {
     setSubmitting(true);
     setFormError(null);
     try {
-      const response = await fetch('/api/users/add', {
+      const response = await apiFetch('/api/users/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -129,7 +130,7 @@ export default function UsersPage() {
 
     setDeletingId(user.id);
     try {
-      const response = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/users/${user.id}`, { method: 'DELETE' });
       const json = await response.json();
       if (!response.ok) {
         throw new Error(json?.error || 'Failed to delete user');
@@ -146,7 +147,7 @@ export default function UsersPage() {
   async function handleRoleChange(user: AppUser, role: string) {
     setUpdatingRoleId(user.id);
     try {
-      const response = await fetch(`/api/users/${user.id}/update`, {
+      const response = await apiFetch(`/api/users/${user.id}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role }),
@@ -177,7 +178,7 @@ export default function UsersPage() {
     if (!permissionsUser) return;
     setSavingPermissions(true);
     try {
-      const response = await fetch(`/api/users/${permissionsUser.id}/update`, {
+      const response = await apiFetch(`/api/users/${permissionsUser.id}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(permissionsDraft),

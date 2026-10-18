@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, BarChart3, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
 import { MODULE_ORDER, MODULES, type ModuleId } from '../lib/modules';
+import { apiFetch } from '../lib/api';
 
 interface ModuleSelectPageProps {
   userName: string;
@@ -54,7 +55,7 @@ export default function ModuleSelectPage({ userName, accessibleModules, onSelect
   useEffect(() => {
     let cancelled = false;
 
-    fetch('/api/dashboard/summary')
+    apiFetch('/api/dashboard/summary')
       .then((response) => (response.ok ? response.json() : null))
       .then((json) => {
         if (cancelled || !json) return;

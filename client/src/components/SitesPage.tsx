@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Modal from './Modal';
 import type { NavFilter } from '../App';
+import { apiFetch } from '../lib/api';
 
 interface SitesPageProps {
   onNavigate?: (page: string, filter?: NavFilter) => void;
@@ -74,8 +75,8 @@ export default function SitesPage({ onNavigate }: SitesPageProps = {}) {
   async function fetchSites() {
     try {
       const [listRes, statsRes] = await Promise.all([
-        fetch('/api/dashboard/sites/list'),
-        fetch('/api/dashboard/sites'),
+        apiFetch('/api/dashboard/sites/list'),
+        apiFetch('/api/dashboard/sites'),
       ]);
       if (!listRes.ok) {
         throw new Error(`Failed to load sites: ${listRes.statusText}`);
@@ -100,7 +101,7 @@ export default function SitesPage({ onNavigate }: SitesPageProps = {}) {
     setSiteTasksLoading(true);
     setSiteTasksError(null);
     try {
-      const response = await fetch(`/api/dashboard/sites/tasks?date=${encodeURIComponent(date)}`);
+      const response = await apiFetch(`/api/dashboard/sites/tasks?date=${encodeURIComponent(date)}`);
       if (!response.ok) {
         throw new Error(`Failed to load site tasks: ${response.statusText}`);
       }
@@ -126,7 +127,7 @@ export default function SitesPage({ onNavigate }: SitesPageProps = {}) {
     setSaving(true);
     setAddError(null);
     try {
-      const response = await fetch('/api/dashboard/sites/add', {
+      const response = await apiFetch('/api/dashboard/sites/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -160,7 +161,7 @@ export default function SitesPage({ onNavigate }: SitesPageProps = {}) {
       return next;
     });
     try {
-      const response = await fetch(`/api/dashboard/sites/${site.id}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/dashboard/sites/${site.id}`, { method: 'DELETE' });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error || `Failed to delete site: ${response.statusText}`);

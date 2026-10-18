@@ -23,6 +23,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import type { NavFilter } from '../../App';
 import { moduleOfNotificationType, type LegacyModuleId } from '../../lib/modules';
+import { apiFetch } from '../../lib/api';
 
 interface DashboardSummary {
   overdue_tasks: number;
@@ -249,7 +250,7 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
   useEffect(() => {
     async function fetchNotificationCount() {
       try {
-        const response = await fetch('/api/dashboard/notifications');
+        const response = await apiFetch('/api/dashboard/notifications');
         if (!response.ok) return;
         const json: { notification_type: string }[] = await response.json();
         setModuleNotificationCount(json.filter((n) => moduleOfNotificationType(n.notification_type) === module).length);
@@ -264,7 +265,7 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
   useEffect(() => {
     async function fetchSummary() {
       try {
-        const response = await fetch('/api/dashboard/summary');
+        const response = await apiFetch('/api/dashboard/summary');
         if (!response.ok) throw new Error(`Summary fetch failed: ${response.statusText}`);
         const json = await response.json();
         const parsed: DashboardSummary = Object.fromEntries(

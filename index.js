@@ -31,10 +31,23 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const clientDistPath = path.join(__dirname, 'client', 'dist');
 
+// Render terminates TLS at its proxy; trust it so secure cookies and rate
+// limiting see the real protocol / client IP.
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    // Local dev, any Vercel deployment (*.vercel.app), and an optional explicit
+    // CLIENT_URL (e.g. a custom domain). Requests with no Origin (curl, health
+    // checks, same-origin) are allowed through.
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      const allowed =
+        ['http://localhost:5173', 'http://127.0.0.1:5173', process.env.CLIENT_URL].includes(origin) ||
+        /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+      return callback(null, allowed);
+    },
     credentials: true,
   })
 );
@@ -56,7 +69,10 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      // The Vercel frontend and the Render API are different sites, so the
+      // session cookie must be SameSite=None; Secure in production.
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       httpOnly: true,
     },
   })

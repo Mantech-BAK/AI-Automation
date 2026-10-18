@@ -17,6 +17,7 @@ import LoginPage from './pages/LoginPage';
 import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
 import { MODULE_ORDER, allNavItems, isModuleId, type ModuleId } from './lib/modules';
+import { apiFetch } from './lib/api';
 
 interface SessionUser {
   id: number;
@@ -177,7 +178,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch('/api/auth/me')
+    apiFetch('/api/auth/me')
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (!cancelled) {
@@ -208,7 +209,7 @@ function App() {
 
   const handleSignOut = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } finally {
       setUser(null);
       handleHome();

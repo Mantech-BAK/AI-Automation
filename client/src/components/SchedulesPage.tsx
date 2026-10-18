@@ -15,6 +15,7 @@ import {
   Ban,
 } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 interface TeamMember {
   name: string;
@@ -179,7 +180,7 @@ export default function SchedulesPage() {
     setUpcomingLoading(true);
     setUpcomingError(null);
     try {
-      const response = await fetch('/api/meetings/upcoming');
+      const response = await apiFetch('/api/meetings/upcoming');
       if (!response.ok) {
         throw new Error(`Failed to load upcoming meetings: ${response.statusText}`);
       }
@@ -201,7 +202,7 @@ export default function SchedulesPage() {
 
     setCancellingId(meeting.id);
     try {
-      const response = await fetch(`/api/meetings/${encodeURIComponent(meeting.id)}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/meetings/${encodeURIComponent(meeting.id)}`, { method: 'DELETE' });
       const json = await response.json();
       if (!response.ok) {
         throw new Error(json?.error || 'Failed to cancel meeting');
@@ -218,7 +219,7 @@ export default function SchedulesPage() {
     setTeamsLoading(true);
     setTeamsError(null);
     try {
-      const response = await fetch('/api/meetings/teams', { method: 'POST' });
+      const response = await apiFetch('/api/meetings/teams', { method: 'POST' });
       if (!response.ok) {
         throw new Error(`Failed to load teams: ${response.statusText}`);
       }
@@ -344,7 +345,7 @@ export default function SchedulesPage() {
     setMeetingError(null);
     try {
       const endTime = computeEndTime(startTimeValue, durationMinutesValue);
-      const response = await fetch('/api/meetings/check-availability', {
+      const response = await apiFetch('/api/meetings/check-availability', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -376,7 +377,7 @@ export default function SchedulesPage() {
     setMeetingError(null);
     try {
       const endTime = computeEndTime(startTime, durationMinutes);
-      const response = await fetch('/api/meetings/create', {
+      const response = await apiFetch('/api/meetings/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -428,7 +429,7 @@ export default function SchedulesPage() {
     setProcessingNotes(true);
     setNotesError(null);
     try {
-      const response = await fetch('/api/meetings/process-notes', {
+      const response = await apiFetch('/api/meetings/process-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: notesText }),

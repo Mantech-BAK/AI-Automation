@@ -21,6 +21,7 @@ import {
   Car,
 } from 'lucide-react';
 import type { NavFilter } from '../App';
+import { apiFetch } from '../lib/api';
 
 interface MaintenanceTask {
   id: string;
@@ -277,7 +278,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
 
   async function fetchVehicles() {
     try {
-      const response = await fetch('/api/vehicles');
+      const response = await apiFetch('/api/vehicles');
       if (!response.ok) throw new Error(`Failed to load vehicles: ${response.statusText}`);
       const json: Vehicle[] = await response.json();
       setVehicles(json);
@@ -292,7 +293,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
 
   async function fetchUpcomingVehicleTasks() {
     try {
-      const response = await fetch('/api/vehicles/tasks/upcoming?days=30');
+      const response = await apiFetch('/api/vehicles/tasks/upcoming?days=30');
       if (!response.ok) throw new Error(`Failed to load upcoming vehicle tasks: ${response.statusText}`);
       const json: VehicleUpcomingTask[] = await response.json();
       setUpcomingVehicleTasks(json);
@@ -305,7 +306,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
 
   async function fetchData() {
     try {
-      const response = await fetch('/api/dashboard/tasks?task_type=equipment');
+      const response = await apiFetch('/api/dashboard/tasks?task_type=equipment');
       if (!response.ok) {
         throw new Error(`Failed to load tasks: ${response.statusText}`);
       }
@@ -324,7 +325,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
     try {
       // Only documents that already have a work order (created by the daily
       // check) show up here - not every document asset in the system.
-      const response = await fetch('/api/dashboard/tasks?task_type=document');
+      const response = await apiFetch('/api/dashboard/tasks?task_type=document');
       if (!response.ok) {
         throw new Error(`Failed to load document tasks: ${response.statusText}`);
       }
@@ -343,7 +344,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const response = await fetch(`/api/dashboard/tasks/history/${assetId}`);
+      const response = await apiFetch(`/api/dashboard/tasks/history/${assetId}`);
       if (!response.ok) {
         throw new Error(`Failed to load history: ${response.statusText}`);
       }
@@ -375,7 +376,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
   async function handleCompleteTask(taskId: string) {
     setCompletingId(taskId);
     try {
-      const response = await fetch(`/api/workorders/${taskId}/complete`, {
+      const response = await apiFetch(`/api/workorders/${taskId}/complete`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -393,7 +394,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
   async function handleDocumentRenewed(taskId: string) {
     setRenewingId(taskId);
     try {
-      const response = await fetch(`/api/workorders/${taskId}/complete`, {
+      const response = await apiFetch(`/api/workorders/${taskId}/complete`, {
         method: 'POST',
       });
       if (!response.ok) {

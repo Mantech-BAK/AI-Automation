@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 export interface EditableAsset {
   id: string;
@@ -75,7 +76,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
       remarks: asset.remarks || '',
     });
 
-    fetch('/api/dashboard/categories')
+    apiFetch('/api/dashboard/categories')
       .then((res) => res.json())
       .then(setCategoryOptions)
       .catch((err) => console.error('Error fetching categories:', err));
@@ -107,7 +108,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
         remarks: formData.remarks || null,
       };
 
-      const response = await fetch(`/api/dashboard/assets/${asset.id}`, {
+      const response = await apiFetch(`/api/dashboard/assets/${asset.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface SessionUser {
   id: number;
@@ -26,7 +27,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

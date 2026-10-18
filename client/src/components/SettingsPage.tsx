@@ -19,6 +19,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 interface DepartmentEmailConfig {
   id: string;
@@ -146,8 +147,8 @@ export default function SettingsPage() {
     setNotifConfigLoading(true);
     try {
       const [departmentsRes, configsRes] = await Promise.all([
-        fetch('/api/notifications-config/departments'),
-        fetch('/api/notifications-config'),
+        apiFetch('/api/notifications-config/departments'),
+        apiFetch('/api/notifications-config'),
       ]);
       if (!departmentsRes.ok || !configsRes.ok) {
         throw new Error('Failed to load notification configuration');
@@ -172,7 +173,7 @@ export default function SettingsPage() {
 
     setNotifConfigSaving(true);
     try {
-      const response = await fetch('/api/notifications-config/add', {
+      const response = await apiFetch('/api/notifications-config/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -196,7 +197,7 @@ export default function SettingsPage() {
 
   async function handleDeleteNotificationEmail(id: string) {
     try {
-      const response = await fetch(`/api/notifications-config/${id}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/notifications-config/${id}`, { method: 'DELETE' });
       if (!response.ok) {
         throw new Error(`Failed to delete email: ${response.statusText}`);
       }
@@ -208,7 +209,7 @@ export default function SettingsPage() {
 
   async function fetchSettings() {
     try {
-      const response = await fetch('/api/settings', { credentials: 'include' });
+      const response = await apiFetch('/api/settings', { credentials: 'include' });
       if (!response.ok) {
         const txt = await response.text().catch(() => response.statusText);
         throw new Error(`Failed to load settings: ${response.status} ${response.statusText} - ${txt}`);
@@ -233,7 +234,7 @@ export default function SettingsPage() {
     setSavingSection(section);
     setSaveMessage(null);
     try {
-      const response = await fetch('/api/settings', {
+      const response = await apiFetch('/api/settings', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -273,7 +274,7 @@ export default function SettingsPage() {
     setRunningDailyCheck(true);
     setDailyCheckMessage(null);
     try {
-      const response = await fetch('/api/system/run-daily-check', {
+      const response = await apiFetch('/api/system/run-daily-check', {
         method: 'POST',
         credentials: 'include',
       });
@@ -296,7 +297,7 @@ export default function SettingsPage() {
     setRunningEmails(true);
     setEmailsMessage(null);
     try {
-      const response = await fetch('/api/system/process-emails', {
+      const response = await apiFetch('/api/system/process-emails', {
         method: 'POST',
         credentials: 'include',
       });
@@ -319,7 +320,7 @@ export default function SettingsPage() {
     setRunningDocEmails(true);
     setDocEmailsMessage(null);
     try {
-      const response = await fetch('/api/system/process-document-emails', {
+      const response = await apiFetch('/api/system/process-document-emails', {
         method: 'POST',
         credentials: 'include',
       });
@@ -351,7 +352,7 @@ export default function SettingsPage() {
     setResetting(true);
     setResetMessage(null);
     try {
-      const response = await fetch('/api/system/reset-data', {
+      const response = await apiFetch('/api/system/reset-data', {
         method: 'POST',
         credentials: 'include',
       });

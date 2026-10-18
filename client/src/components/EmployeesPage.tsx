@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 interface Employee {
   id: string;
@@ -105,7 +106,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
 
   async function fetchEmployees() {
     try {
-      const response = await fetch('/api/employees');
+      const response = await apiFetch('/api/employees');
       if (!response.ok) {
         throw new Error(`Failed to load employees: ${response.statusText}`);
       }
@@ -124,11 +125,11 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     setLookupOptionsLoading(true);
     try {
       const [designationsRes, departmentsRes, employeeTypesRes, religionsRes, employeesRes] = await Promise.all([
-        fetch('/api/dashboard/designations'),
-        fetch('/api/dashboard/departments'),
-        fetch('/api/dashboard/employee-types'),
-        fetch('/api/dashboard/religions'),
-        fetch('/api/employees'),
+        apiFetch('/api/dashboard/designations'),
+        apiFetch('/api/dashboard/departments'),
+        apiFetch('/api/dashboard/employee-types'),
+        apiFetch('/api/dashboard/religions'),
+        apiFetch('/api/employees'),
       ]);
       if (!designationsRes.ok || !departmentsRes.ok || !employeeTypesRes.ok || !religionsRes.ok || !employeesRes.ok) {
         throw new Error('Failed to load lookup options');
@@ -164,7 +165,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
         ...(formData.is_technician ? { type_of_service: formData.type_of_service.toLowerCase() } : {}),
       };
 
-      const response = await fetch('/api/employees/add', {
+      const response = await apiFetch('/api/employees/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -232,7 +233,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
         is_technician: editFormData.is_technician,
       };
 
-      const response = await fetch(`/api/employees/${editingEmployee.id}/update`, {
+      const response = await apiFetch(`/api/employees/${editingEmployee.id}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -256,7 +257,7 @@ export default function EmployeesPage({ initialSearch }: EmployeesPageProps) {
     }
 
     try {
-      const response = await fetch(`/api/employees/${emp.id}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/employees/${emp.id}`, { method: 'DELETE' });
       if (!response.ok) {
         throw new Error(`Failed to delete employee: ${response.statusText}`);
       }

@@ -11,6 +11,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import Modal from './Modal';
+import { apiFetch } from '../lib/api';
 
 // A vehicle is just an Equipment-type asset tagged with one of these
 // categories; its documents (insurance, registration, etc.) are Document-type
@@ -144,8 +145,8 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
     try {
       const categoriesParam = VEHICLE_CATEGORIES.join(',');
       const [vehiclesRes, documentsRes] = await Promise.all([
-        fetch(`/api/dashboard/assets?type=Equipment&categories=${encodeURIComponent(categoriesParam)}`),
-        fetch(`/api/dashboard/assets?type=Document&categories=${encodeURIComponent(categoriesParam)}`),
+        apiFetch(`/api/dashboard/assets?type=Equipment&categories=${encodeURIComponent(categoriesParam)}`),
+        apiFetch(`/api/dashboard/assets?type=Document&categories=${encodeURIComponent(categoriesParam)}`),
       ]);
       if (!vehiclesRes.ok) throw new Error(`Failed to load vehicles: ${vehiclesRes.statusText}`);
       if (!documentsRes.ok) throw new Error(`Failed to load vehicle documents: ${documentsRes.statusText}`);
@@ -164,10 +165,10 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
   async function fetchLookups() {
     try {
       const [categoriesRes, typesRes, departmentsRes, sitesRes] = await Promise.all([
-        fetch('/api/dashboard/categories'),
-        fetch('/api/dashboard/asset-types'),
-        fetch('/api/dashboard/departments'),
-        fetch('/api/dashboard/sites/list'),
+        apiFetch('/api/dashboard/categories'),
+        apiFetch('/api/dashboard/asset-types'),
+        apiFetch('/api/dashboard/departments'),
+        apiFetch('/api/dashboard/sites/list'),
       ]);
       setCategoryOptions(await categoriesRes.json());
       setDepartmentOptions(await departmentsRes.json());
@@ -231,12 +232,12 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
       };
 
       const response = editingVehicle
-        ? await fetch(`/api/dashboard/assets/${editingVehicle.id}`, {
+        ? await apiFetch(`/api/dashboard/assets/${editingVehicle.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           })
-        : await fetch('/api/dashboard/assets/add', {
+        : await apiFetch('/api/dashboard/assets/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -260,7 +261,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
       return;
     }
     try {
-      const response = await fetch(`/api/vehicles/${vehicle.id}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/vehicles/${vehicle.id}`, { method: 'DELETE' });
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error || 'Failed to delete vehicle');
       if (expandedVehicleId === vehicle.id) setExpandedVehicleId(null);
@@ -295,7 +296,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
         parent_asset_id: addTaskVehicleId,
       };
 
-      const response = await fetch('/api/dashboard/assets/add', {
+      const response = await apiFetch('/api/dashboard/assets/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -343,7 +344,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
         tolerance_days: Number(editTaskForm.tolerance_days) || 0,
       };
 
-      const response = await fetch(`/api/dashboard/assets/${editingTask.id}`, {
+      const response = await apiFetch(`/api/dashboard/assets/${editingTask.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -362,7 +363,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
   async function handleCompleteTask(task: Asset) {
     setBusyTaskId(task.id);
     try {
-      const response = await fetch(`/api/vehicles/tasks/${task.id}/complete`, { method: 'PUT' });
+      const response = await apiFetch(`/api/vehicles/tasks/${task.id}/complete`, { method: 'PUT' });
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error || 'Failed to renew document');
       await fetchAll();
@@ -377,7 +378,7 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
     if (!window.confirm(`Delete document "${task.equipment_name}"?`)) return;
     setBusyTaskId(task.id);
     try {
-      const response = await fetch(`/api/vehicles/tasks/${task.id}`, { method: 'DELETE' });
+      const response = await apiFetch(`/api/vehicles/tasks/${task.id}`, { method: 'DELETE' });
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error || 'Failed to delete document');
       await fetchAll();

@@ -538,6 +538,21 @@ async function runMigrations() {
       ALTER TABLE technicians DROP COLUMN IF EXISTS notification_email;
     `);
 
+    // Used by dailyCheck / statusTracker / documentEmailProcessor; previously only
+    // added lazily by dailyCheck.js.
+    await pool.query(`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS notes TEXT;`);
+
+    // HR columns that employee_details_view (below) reads. They were originally
+    // added by hand, so a brand-new database (e.g. Supabase) would otherwise
+    // fail here with "column e.gender does not exist".
+    await pool.query(`
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS nationality VARCHAR;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS company VARCHAR;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS gender VARCHAR;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS cost_center VARCHAR;
+    `);
+
     // Re-declared to source reports_to_name from the employees.reports_to
     // self-join, ahead of the DROP COLUMN below - employee_details_view
     // otherwise still depends on the free-text column and blocks the drop.
