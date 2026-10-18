@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { CreditCard } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, SkeletonBlock } from '../../components/projects/shared';
-import { AR_INVOICE, INCOMING_PAYMENT, amount2, formatDMY, type ArTransaction } from '../../lib/projects';
+import { Amt, AsOfDateFilter, SkeletonBlock } from '../../components/projects/shared';
+import { AR_INVOICE, INCOMING_PAYMENT, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
 type Tab = 'payments' | 'invoices';
 
@@ -19,10 +19,12 @@ const STATUS_STYLES: Record<string, string> = {
 // Payments & AP: money received from customers, and the AR invoices raised.
 export default function PaymentsAP() {
   const [tab, setTab] = useState<Tab>('payments');
+  const [asOfDate, setAsOfDate] = useState(todayISO());
   const active = TABS.find((item) => item.id === tab) ?? TABS[0];
   const transactions = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(active.type)}`);
 
-  const rows = transactions.data ?? [];
+  // Everything up to and including the As of Date.
+  const rows = (transactions.data ?? []).filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
@@ -31,6 +33,8 @@ export default function PaymentsAP() {
         <h1 className="text-2xl font-bold text-slate-800">Payments &amp; AP</h1>
         <p className="text-slate-500 mt-1">Incoming payments received and AR invoices raised</p>
       </div>
+
+      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
 
       <div className="flex gap-2">
         {TABS.map((item) => (

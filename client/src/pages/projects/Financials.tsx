@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { BarChart3, Table2 } from 'lucide-react';
 import type { NavFilter } from '../../App';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
-import { bhd, compact, pct, sharePct, type Project, type ProjectsSummary } from '../../lib/projects';
+import { Amt, AsOfDateFilter, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { bhd, compact, pct, sharePct, todayISO, type Project, type ProjectsSummary } from '../../lib/projects';
 
 interface Props {
   // Opens the dashboard for one project (a row click).
@@ -11,8 +12,10 @@ interface Props {
 }
 
 export default function Financials({ onNavigate }: Props) {
-  const summary = useJson<ProjectsSummary>('/api/projects/summary');
-  const projects = useJson<Project[]>('/api/projects');
+  // Projects that had started by the As of Date (their data runs from the start up to it).
+  const [asOfDate, setAsOfDate] = useState(todayISO());
+  const summary = useJson<ProjectsSummary>(`/api/projects/summary${asOfDate ? `?as_of=${asOfDate}` : ''}`);
+  const projects = useJson<Project[]>(`/api/projects${asOfDate ? `?as_of=${asOfDate}` : ''}`);
   const s = summary.data;
   const rows = projects.data ?? [];
   const sumOf = (pick: (project: Project) => number) => rows.reduce((total, project) => total + pick(project), 0);
@@ -34,6 +37,8 @@ export default function Financials({ onNavigate }: Props) {
         <h1 className="text-2xl font-bold text-slate-800">Financials</h1>
         <p className="text-slate-500 mt-1">Portfolio billing, collections and margin</p>
       </div>
+
+      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
 
       {summary.error && <ErrorState message={summary.error} />}
 

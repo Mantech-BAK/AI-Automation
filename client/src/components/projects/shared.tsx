@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { FLAG_ORDER, amount, facetOptions, flagColor, normalizeFilters, sharePct, type Project, type ProjectFilters } from '../../lib/projects';
+import { FLAG_ORDER, amount, facetOptions, flagColor, normalizeFilters, sharePct, todayISO, type Project, type ProjectFilters } from '../../lib/projects';
 
 export function FlagDot({ flag }: { flag?: string | null }) {
   return (
@@ -177,31 +177,23 @@ export function KpiTile({
   );
 }
 
-// From / To inputs for the transaction lists (Sales, Adjustments).
-export function DateRangeFilter({
-  from,
-  to,
-  onChange,
-}: {
-  from: string;
-  to: string;
-  onChange: (range: { from: string; to: string }) => void;
-}) {
-  const inputClass =
-    'w-36 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
+// Single "As of Date" input for the pages: rows from the start up to this date are shown.
+export function AsOfDateFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const today = todayISO();
   return (
     <div className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
-        From
-        <input type="date" value={from} max={to || undefined} onChange={(e) => onChange({ from: e.target.value, to })} className={inputClass} />
+        As of Date
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-36 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+        />
       </label>
-      <label className="flex flex-col text-[11px] font-medium text-slate-400 leading-tight">
-        To
-        <input type="date" value={to} min={from || undefined} onChange={(e) => onChange({ from, to: e.target.value })} className={inputClass} />
-      </label>
-      {(from || to) && (
-        <button type="button" onClick={() => onChange({ from: '', to: '' })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
-          Clear
+      {value !== today && (
+        <button type="button" onClick={() => onChange(today)} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
+          Today
         </button>
       )}
     </div>

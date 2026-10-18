@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, DateRangeFilter, SkeletonBlock } from '../../components/projects/shared';
-import { AR_INVOICE, amount2, formatDMY, type ArTransaction } from '../../lib/projects';
+import { Amt, AsOfDateFilter, SkeletonBlock } from '../../components/projects/shared';
+import { AR_INVOICE, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
 const STATUS_STYLES: Record<string, string> = {
   Paid: 'bg-emerald-50 text-emerald-700',
@@ -11,14 +11,13 @@ const STATUS_STYLES: Record<string, string> = {
   Overdue: 'bg-red-50 text-red-700',
 };
 
-// Sales: every AR invoice, filterable by transaction date.
+// Sales: every AR invoice dated up to the chosen As of Date.
 export default function Sales() {
   const transactions = useJson<ArTransaction[]>(`/api/projects/ar-transactions?type=${encodeURIComponent(AR_INVOICE)}`);
-  const [range, setRange] = useState({ from: '', to: '' });
+  const [asOfDate, setAsOfDate] = useState(todayISO());
 
-  const rows = (transactions.data ?? []).filter(
-    (row) => (!range.from || (row.transaction_date ?? '') >= range.from) && (!range.to || (row.transaction_date ?? '') <= range.to)
-  );
+  // Everything up to and including the As of Date.
+  const rows = (transactions.data ?? []).filter((row) => !asOfDate || !row.transaction_date || row.transaction_date <= asOfDate);
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
@@ -28,7 +27,7 @@ export default function Sales() {
         <p className="text-slate-500 mt-1">All invoices raised against projects</p>
       </div>
 
-      <DateRangeFilter from={range.from} to={range.to} onChange={setRange} />
+      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
 
       <Panel title={`Invoices${transactions.data ? ` (${rows.length})` : ''}`} icon={TrendingUp}>
         {transactions.loading ? (

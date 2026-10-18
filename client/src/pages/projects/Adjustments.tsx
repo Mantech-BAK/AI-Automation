@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Scale } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, DateRangeFilter, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
-import { CREDIT_TYPES, amount2, bhd, formatDMY, type AdjustmentRow } from '../../lib/projects';
+import { Amt, AsOfDateFilter, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { CREDIT_TYPES, amount2, bhd, formatDMY, todayISO, type AdjustmentRow } from '../../lib/projects';
 
 const TYPE_STYLES: Record<string, string> = {
   'Credit Note': 'bg-emerald-50 text-emerald-700',
@@ -14,11 +14,10 @@ const TYPE_STYLES: Record<string, string> = {
 // Adjustments: credit notes, discounts and write-offs (credits) against debit notes (debits).
 export default function Adjustments() {
   const adjustments = useJson<AdjustmentRow[]>('/api/projects/adjustments');
-  const [range, setRange] = useState({ from: '', to: '' });
+  const [asOfDate, setAsOfDate] = useState(todayISO());
 
-  const rows = (adjustments.data ?? []).filter(
-    (row) => (!range.from || (row.date ?? '') >= range.from) && (!range.to || (row.date ?? '') <= range.to)
-  );
+  // Everything up to and including the As of Date.
+  const rows = (adjustments.data ?? []).filter((row) => !asOfDate || !row.date || row.date <= asOfDate);
   const sumOf = (pick: (row: AdjustmentRow) => boolean) => rows.filter(pick).reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
   const credits = sumOf((row) => CREDIT_TYPES.includes(row.adjustment_type ?? ''));
   const debits = sumOf((row) => !CREDIT_TYPES.includes(row.adjustment_type ?? ''));
@@ -31,7 +30,7 @@ export default function Adjustments() {
         <p className="text-slate-500 mt-1">Credit notes, debit notes, write-offs and discounts</p>
       </div>
 
-      <DateRangeFilter from={range.from} to={range.to} onChange={setRange} />
+      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SummaryCard label="Total Credits" value={adjustments.loading ? '...' : <Amt value={credits} total={gross} format={bhd} />} tone="text-emerald-600" />
@@ -49,7 +48,7 @@ export default function Adjustments() {
         ) : adjustments.error ? (
           <ErrorState message={adjustments.error} />
         ) : rows.length === 0 ? (
-          <EmptyState icon={Scale} message="No adjustments found" hint="Try clearing the dates." />
+          <EmptyState icon={Scale} message="No adjustments found" hint="Try a later As of Date." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

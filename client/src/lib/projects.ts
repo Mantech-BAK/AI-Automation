@@ -220,6 +220,9 @@ export function filterQuery(filters: ProjectFilters): string {
   return query ? `?${query}` : '';
 }
 
+// Today as YYYY-MM-DD (the default for the "As of Date" pickers).
+export const todayISO = (): string => new Date().toISOString().split('T')[0];
+
 // "18.2%" - a value's share of a total (0 when the total is 0).
 export const sharePct = (value?: number | null, total?: number | null): string =>
   `${total ? (((Number(value) || 0) / total) * 100).toFixed(1) : '0.0'}%`;

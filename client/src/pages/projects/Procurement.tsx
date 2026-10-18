@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { PieChart as PieChartIcon, ShoppingCart } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
-import { amount2, bhd, formatDMY, sharePct, type ProcurementRow } from '../../lib/projects';
+import { Amt, AsOfDateFilter, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { amount2, bhd, formatDMY, sharePct, todayISO, type ProcurementRow } from '../../lib/projects';
 
 // Purchase orders are commitments; AP invoices are the cost actually incurred.
 const STATUS_COLORS: Record<string, string> = {
@@ -13,7 +14,9 @@ const statusColor = (status?: string | null) => (status && STATUS_COLORS[status]
 
 export default function Procurement() {
   const procurement = useJson<ProcurementRow[]>('/api/projects/procurement');
-  const rows = procurement.data ?? [];
+  const [asOfDate, setAsOfDate] = useState(todayISO());
+  // Everything up to and including the As of Date.
+  const rows = (procurement.data ?? []).filter((row) => !asOfDate || !row.date || row.date <= asOfDate);
 
   const totalOf = (status: string) => rows.filter((row) => row.cost_status === status).reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
   const committed = totalOf('Committed');
@@ -31,6 +34,8 @@ export default function Procurement() {
         <h1 className="text-2xl font-bold text-slate-800">Procurement</h1>
         <p className="text-slate-500 mt-1">Purchase orders (committed) and AP invoices (actual cost) by project</p>
       </div>
+
+      <AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SummaryCard label="Purchase Orders (Committed)" value={procurement.loading ? '...' : <Amt value={committed} total={total} format={bhd} />} tone="text-blue-600" />
