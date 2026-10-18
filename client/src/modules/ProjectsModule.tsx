@@ -6,7 +6,6 @@ import SettingsPage from '../components/SettingsPage';
 import UsersPage from '../components/UsersPage';
 import ProjectsDashboard from '../pages/ProjectsDashboard';
 import AllProjects from '../pages/projects/AllProjects';
-import ARTransactions from '../pages/projects/ARTransactions';
 import Financials from '../pages/projects/Financials';
 import Adjustments from '../pages/projects/Adjustments';
 import PaymentsAP from '../pages/projects/PaymentsAP';
@@ -37,8 +36,6 @@ export default function ProjectsModule({ page, onNavigate, navFilter }: Projects
       return <Adjustments />;
     case 'project-procurement':
       return <Procurement />;
-    case 'project-collections':
-      return <ARTransactions />;
     case 'project-payments':
       return <PaymentsAP />;
     case 'project-retention':
