@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Loader2, type LucideIcon } from 'lucide-react';
+import { Loader2, Moon, Sun, Sunset, type LucideIcon } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 
 // ---------- data helpers ----------
@@ -93,8 +93,9 @@ function dateLabel(): string {
   }).format(new Date());
 }
 
-// "Good Morning / Afternoon / Evening, <name>" (Bahrain time) as a quiet line of text.
-export function GreetingLine({ className = '' }: { className?: string }) {
+// Compact version of the dashboard greeting banner: gradient, time-of-day icon,
+// "Good Morning / Afternoon / Evening, <name>" and today's date (Bahrain time).
+export function GreetingLine({ gradient = 'from-teal-600 to-teal-800', className = '' }: { gradient?: string; className?: string }) {
   const [name, setName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -111,8 +112,22 @@ export function GreetingLine({ className = '' }: { className?: string }) {
   }, []);
 
   const hour = bahrainHour();
-  const period = hour >= 5 && hour < 12 ? 'Good Morning' : hour >= 12 && hour < 17 ? 'Good Afternoon' : 'Good Evening';
-  return <p className={`text-sm font-medium text-gray-500 ${className}`}>{name ? `${period}, ${name}` : period}</p>;
+  const morning = hour >= 5 && hour < 12;
+  const afternoon = hour >= 12 && hour < 17;
+  const period = morning ? 'Good Morning' : afternoon ? 'Good Afternoon' : 'Good Evening';
+  const Icon = morning ? Sun : afternoon ? Sunset : Moon;
+
+  return (
+    <div className={`flex items-center gap-3 rounded-xl bg-gradient-to-r ${gradient} py-3 px-4 shadow-sm ${className}`}>
+      <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+        <Icon size={20} className="text-white" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-base font-semibold text-white leading-tight truncate">{name ? `${period}, ${name}` : period}</p>
+        <p className="text-xs text-white/80 mt-0.5">Project Tracking &middot; {dateLabel()}</p>
+      </div>
+    </div>
+  );
 }
 
 export function DashboardBanner({ moduleLabel, gradient }: { moduleLabel: string; gradient: string }) {

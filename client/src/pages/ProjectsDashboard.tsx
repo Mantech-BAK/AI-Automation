@@ -202,7 +202,7 @@ export default function ProjectsDashboard({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
-      <GreetingLine className="pl-12 lg:pl-0" />
+      <GreetingLine className="pl-14 lg:pl-4" />
 
       <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} showProjectFilter showDateFilter />
 
