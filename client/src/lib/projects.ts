@@ -36,6 +36,9 @@ export interface ProjectsSummary {
   totalCostExposure: number;
   totalActualCost: number;
   retentionHeld: number;
+  // Actual cost from AP invoices (Procurement) and retention held (Retention), for the filtered projects.
+  total_procurement: number;
+  total_retention: number;
   forecastMarginPct: number;
   flagCounts: Record<string, number>;
   flagValues: Record<string, number>;

@@ -159,11 +159,14 @@ export function KpiTile({
 }) {
   return (
     <div className="h-24 min-w-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      <div className={`${band} px-4 py-2 text-xs font-semibold text-white tracking-wide truncate`}>
-        {label} <span className="text-sm font-normal text-white/70">({percent})</span>
+      {/* Fixed-height band: a long heading wraps onto a second line instead of being cut off. */}
+      <div className={`${band} h-10 px-3 flex items-center text-xs font-semibold text-white tracking-wide leading-tight`}>
+        <span>
+          {label} <span className="font-normal text-white/70">({percent})</span>
+        </span>
       </div>
-      <div className="flex-1 px-4 flex items-center">
-        {loading ? <Skeleton className="h-7 w-32" /> : <p className="text-xl font-bold text-slate-800 whitespace-nowrap">{value}</p>}
+      <div className="flex-1 px-3 flex items-center min-w-0">
+        {loading ? <Skeleton className="h-6 w-24" /> : <p className="text-sm min-[1400px]:text-base font-bold text-slate-800 whitespace-nowrap">{value}</p>}
       </div>
     </div>
   );

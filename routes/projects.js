@@ -123,6 +123,18 @@ router.get('/summary', async (req, res) => {
     }
 
     // Retention is withheld from what has been invoiced (matches the workbook's Retention sheet).
+    // Purchases (AP invoices = actual cost) and retention held, for the projects in this summary
+    // (so they follow the same filters as everything else).
+    const projectIds = rows.map((row) => row.project_id);
+    const { rows: procurementTotal } = await pool.query(
+      `SELECT COALESCE(SUM(amount_bhd), 0) AS total FROM project_procurement WHERE cost_status = 'Actual Cost' AND project_id = ANY($1)`,
+      [projectIds]
+    );
+    const { rows: retentionTotal } = await pool.query(
+      `SELECT COALESCE(SUM(retention_amount_bhd), 0) AS total FROM project_retention WHERE project_id = ANY($1)`,
+      [projectIds]
+    );
+
     const retentionHeld = rows.reduce((total, row) => total + (row.net_invoiced_bhd || 0) * (row.retention_rate || 0), 0);
 
     return res.json({
@@ -135,6 +147,8 @@ router.get('/summary', async (req, res) => {
       totalCostExposure: sum(rows, 'total_cost_exposure_bhd'),
       totalActualCost: sum(rows, 'actual_cost_bhd'),
       retentionHeld,
+      total_procurement: Number(procurementTotal[0].total),
+      total_retention: Number(retentionTotal[0].total),
       forecastMarginPct: weightedAverage(rows, 'forecast_margin_pct'),
       flagCounts,
       // Value per flag, for the status-by-value chart.
