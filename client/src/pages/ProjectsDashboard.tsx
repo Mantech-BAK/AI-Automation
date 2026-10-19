@@ -38,6 +38,12 @@ import {
   type RetentionRow,
 } from '../lib/projects';
 
+// "65.8%" / "100%": a value's share of a total, one decimal, trailing ".0" dropped.
+const kpiPct = (value?: number | null, total?: number | null): string => {
+  const share = total ? ((Number(value) || 0) / total) * 100 : 0;
+  return `${share.toFixed(1).replace(/\.0$/, '')}%`;
+};
+
 // Bar-end label "119,408 (18.2%)" with the percentage in a quieter grey.
 function AmountPctLabel({ x, y, width, height, value, total }: { x?: unknown; y?: unknown; width?: unknown; height?: unknown; value?: unknown; total: number }) {
   const left = Number(x) + Number(width) + 6;
@@ -142,6 +148,7 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
   const sumOf = (rows: Project[], pick: (project: Project) => number) => rows.reduce((total, project) => total + pick(project), 0);
 
   const totalValue = sumOf(projects, (project) => project.so_value_bhd);
+  const marginTotal = sumOf(projects, (project) => project.forecast_margin_bhd);
   const totalInvoicedShown = sumOf(projects, (project) => project.net_invoiced_bhd);
   const typeTotal = typeData.reduce((total, row) => total + row.value, 0);
 
@@ -233,14 +240,13 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
       {summary.error && <ErrorState message={summary.error} />}
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Each figure carries its share of the total project value. */}
-        <KpiTile label="Project Value" band="bg-blue-600" value={bhd(s?.totalSOValue)} percent={sharePct(s?.totalSOValue, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Invoiced" band="bg-teal-600" value={bhd(s?.totalInvoiced)} percent={sharePct(s?.totalInvoiced, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Collected" band="bg-purple-600" value={bhd(s?.totalCollected)} percent={sharePct(s?.totalCollected, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Outstanding Receivables" band="bg-orange-500" value={bhd(s?.outstandingAR)} percent={sharePct(s?.outstandingAR, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Cost / Spent" band="bg-slate-600" value={bhd(s?.totalCostExposure)} percent={sharePct(s?.totalCostExposure, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Retention Held" band="bg-rose-600" value={bhd(s?.retentionHeld)} percent={sharePct(s?.retentionHeld, s?.totalSOValue)} loading={loading} />
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+        {/* Percentages: invoiced / project value, collections and outstanding / invoiced, margin %. */}
+        <KpiTile label="Project Value" accent="border-t-blue-600" value={bhd(s?.totalSOValue)} percent={kpiPct(s?.totalSOValue, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Invoiced" accent="border-t-teal-600" value={bhd(s?.totalInvoiced)} percent={kpiPct(s?.totalInvoiced, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Collections" accent="border-t-purple-600" value={bhd(s?.totalCollected)} percent={kpiPct(s?.totalCollected, s?.totalInvoiced)} loading={loading} />
+        <KpiTile label="Outstanding AR" accent="border-t-orange-500" value={bhd(s?.outstandingAR)} percent={kpiPct(s?.outstandingAR, s?.totalInvoiced)} loading={loading} />
+        <KpiTile label="Forecast Margin" accent="border-t-emerald-600" value={bhd(marginTotal)} percent={kpiPct(s?.forecastMarginPct, 1)} loading={loading} />
       </div>
 
       {empty ? (

@@ -138,10 +138,11 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'financials', label: 'Financials', icon: CircleDollarSign, page: 'project-financials' },
       { id: 'sales', label: 'Sales', icon: TrendingUp, page: 'project-sales' },
       { id: 'collections', label: 'Collections', icon: HandCoins, page: 'project-collections' },
+      // Sidebar label only - the route (/projects/procurement), page file and API keep the old name.
+      { id: 'procurement', label: 'Purchases', icon: ShoppingCart, page: 'project-procurement' },
       { id: 'payments', label: 'Payments', icon: CreditCard, page: 'project-payments' },
-      { id: 'procurement', label: 'Procurement', icon: ShoppingCart, page: 'project-procurement' },
       { id: 'adjustments', label: 'Adjustments', icon: Scale, page: 'project-adjustments' },
-      { id: 'retention', label: 'Retention', icon: ShieldCheck, page: 'project-retention' },
+      { id: 'retention', label: 'Retentions', icon: ShieldCheck, page: 'project-retention' },
       SCHEDULE_MEETING,
       EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },

@@ -41,7 +41,7 @@ export default function Procurement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Procurement</h1>
+        <h1 className="text-2xl font-bold text-slate-800">Purchases</h1>
         <p className="text-slate-500 mt-1">Purchase orders (committed) and AP invoices (actual cost) by project</p>
       </div>
 
