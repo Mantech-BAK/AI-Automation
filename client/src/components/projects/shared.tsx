@@ -141,38 +141,30 @@ export function FilterBar({
   );
 }
 
-// Compact headline figure for the dashboard: heading with its percentage in brackets
-// (smaller, grey), the amount underneath, a coloured top edge. Fixed height so tiles line up.
+// Colour-banded headline figure (the KPI tiles on the dashboard): coloured band with the
+// heading and its percentage in brackets, the amount underneath. Compact, fixed height.
 export function KpiTile({
   label,
   value,
   percent,
-  accent,
+  band,
   loading,
 }: {
   label: string;
   value: string;
   // Share shown in the heading, e.g. "65.8%".
   percent: string;
-  // Tailwind border colour for the top edge, e.g. "border-t-teal-600".
-  accent: string;
+  band: string;
   loading?: boolean;
 }) {
   return (
-    <div className={`h-24 min-w-0 bg-white rounded-xl border border-slate-200 border-t-4 ${accent} shadow-sm px-4 py-3 flex flex-col justify-between`}>
-      {loading ? (
-        <>
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-6 w-28" />
-        </>
-      ) : (
-        <>
-          <p className="text-xs font-semibold text-slate-600 truncate">
-            {label} <span className="text-sm font-normal text-slate-400">({percent})</span>
-          </p>
-          <p className="text-lg font-bold text-slate-800 whitespace-nowrap">{value}</p>
-        </>
-      )}
+    <div className="h-24 min-w-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      <div className={`${band} px-4 py-2 text-xs font-semibold text-white tracking-wide truncate`}>
+        {label} <span className="text-sm font-normal text-white/70">({percent})</span>
+      </div>
+      <div className="flex-1 px-4 flex items-center">
+        {loading ? <Skeleton className="h-7 w-32" /> : <p className="text-xl font-bold text-slate-800 whitespace-nowrap">{value}</p>}
+      </div>
     </div>
   );
 }

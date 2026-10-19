@@ -242,11 +242,11 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
       {/* KPI tiles */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Percentages: invoiced / project value, collections and outstanding / invoiced, margin %. */}
-        <KpiTile label="Project Value" accent="border-t-blue-600" value={bhd(s?.totalSOValue)} percent={kpiPct(s?.totalSOValue, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Invoiced" accent="border-t-teal-600" value={bhd(s?.totalInvoiced)} percent={kpiPct(s?.totalInvoiced, s?.totalSOValue)} loading={loading} />
-        <KpiTile label="Collections" accent="border-t-purple-600" value={bhd(s?.totalCollected)} percent={kpiPct(s?.totalCollected, s?.totalInvoiced)} loading={loading} />
-        <KpiTile label="Outstanding AR" accent="border-t-orange-500" value={bhd(s?.outstandingAR)} percent={kpiPct(s?.outstandingAR, s?.totalInvoiced)} loading={loading} />
-        <KpiTile label="Forecast Margin" accent="border-t-emerald-600" value={bhd(marginTotal)} percent={kpiPct(s?.forecastMarginPct, 1)} loading={loading} />
+        <KpiTile label="Project Value" band="bg-blue-600" value={bhd(s?.totalSOValue)} percent={kpiPct(s?.totalSOValue, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Invoiced" band="bg-teal-600" value={bhd(s?.totalInvoiced)} percent={kpiPct(s?.totalInvoiced, s?.totalSOValue)} loading={loading} />
+        <KpiTile label="Collections" band="bg-purple-600" value={bhd(s?.totalCollected)} percent={kpiPct(s?.totalCollected, s?.totalInvoiced)} loading={loading} />
+        <KpiTile label="Outstanding AR" band="bg-orange-500" value={bhd(s?.outstandingAR)} percent={kpiPct(s?.outstandingAR, s?.totalInvoiced)} loading={loading} />
+        <KpiTile label="Forecast Margin" band="bg-emerald-600" value={bhd(marginTotal)} percent={kpiPct(s?.forecastMarginPct, 1)} loading={loading} />
       </div>
 
       {empty ? (
