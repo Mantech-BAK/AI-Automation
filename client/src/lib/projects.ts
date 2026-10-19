@@ -101,6 +101,21 @@ export interface AdjustmentRow {
   so_no?: string | null;
 }
 
+export interface VendorPayment {
+  id: number;
+  project_id: string;
+  customer: string | null;
+  payment_no: string | null;
+  so_no: string | null;
+  document_type: string | null;
+  payment_date: string | null;
+  amount_bhd: number | null;
+  applied_ap_invoice_no: string | null;
+  ap_invoice_date: string | null;
+  ap_invoice_amount_bhd: number | null;
+  payment_logic: string | null;
+}
+
 // Credit notes, discounts and write-offs reduce what a customer owes; debit notes add to it.
 export const CREDIT_TYPES = ['Credit Note', 'Discount', 'Write-off'];
 

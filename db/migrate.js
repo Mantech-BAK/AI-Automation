@@ -840,6 +840,33 @@ async function runMigrations() {
       }
     }
 
+    // Outgoing vendor payments (Payments page), from vendor payments.xlsx.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_vendor_payments (
+        id SERIAL PRIMARY KEY,
+        project_id VARCHAR(20) REFERENCES projects(project_id),
+        payment_no VARCHAR(50),
+        so_no VARCHAR(50),
+        document_type VARCHAR(50),
+        payment_date DATE,
+        amount_bhd NUMERIC,
+        applied_ap_invoice_no VARCHAR(50),
+        ap_invoice_date DATE,
+        ap_invoice_amount_bhd NUMERIC,
+        payment_logic TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_vendor_payments_project_id ON project_vendor_payments(project_id);
+    `);
+    const { rows: vendorPaymentCount } = await pool.query('SELECT COUNT(*)::int AS count FROM project_vendor_payments');
+    if (vendorPaymentCount[0].count === 0) {
+      const { VENDOR_PAYMENT_COLUMNS, VENDOR_PAYMENT_ROWS } = require('./data/vendorPaymentsSeed');
+      const placeholders = VENDOR_PAYMENT_COLUMNS.map((_, index) => `$${index + 1}`).join(', ');
+      for (const row of VENDOR_PAYMENT_ROWS) {
+        await pool.query(`INSERT INTO project_vendor_payments (${VENDOR_PAYMENT_COLUMNS.join(', ')}) VALUES (${placeholders})`, row);
+      }
+      console.log(`Seeded ${VENDOR_PAYMENT_ROWS.length} vendor payments.`);
+    }
+
     const defaultSettings = [
       ['daily_check_time', '6'],
       ['working_hours_start', '07:30'],

@@ -215,6 +215,28 @@ router.get('/collections', async (req, res) => {
   }
 });
 
+// Payments: outgoing vendor payments, each applied to one AP invoice.
+router.get('/vendor-payments', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT vp.*, p.customer
+       FROM project_vendor_payments vp
+       JOIN projects p ON vp.project_id = p.project_id
+       ORDER BY vp.payment_date, vp.project_id, vp.payment_no`
+    );
+    return res.json(
+      rows.map((row) => ({
+        ...row,
+        amount_bhd: row.amount_bhd === null ? null : Number(row.amount_bhd),
+        ap_invoice_amount_bhd: row.ap_invoice_amount_bhd === null ? null : Number(row.ap_invoice_amount_bhd),
+      }))
+    );
+  } catch (error) {
+    console.error('Vendor payments query failed:', error);
+    return res.status(500).json({ error: 'Failed to load vendor payments' });
+  }
+});
+
 router.get('/procurement', async (req, res) => {
   try {
     const { rows } = await pool.query(
