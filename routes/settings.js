@@ -18,6 +18,7 @@ const EDITABLE_KEYS = [
   'reminder_final_days',
   'escalation_days_after_due',
   'ai_model',
+  'user_name',
 ];
 
 async function upsertSetting(key, value) {
@@ -54,6 +55,7 @@ async function loadSettingsResponse() {
     reminder_final_days: Number(map.reminder_final_days ?? 1),
     escalation_days_after_due: Number(map.escalation_days_after_due ?? 0),
     ai_model: map.ai_model || 'openai/gpt-oss-20b',
+    user_name: map.user_name || '',
     ai_api_key_set: Boolean(map.ai_api_key),
     about: {
       version: packageJson.version || '1.0.0',
@@ -64,6 +66,17 @@ async function loadSettingsResponse() {
     },
   };
 }
+
+// Light endpoint for the dashboard greeting: just the saved name ('' when none).
+router.get('/display-name', async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT value FROM settings WHERE key = 'user_name'");
+    return res.json({ name: rows[0]?.value || '' });
+  } catch (error) {
+    console.error('Load display name failed:', error);
+    return res.status(500).json({ error: 'Failed to load name' });
+  }
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -81,7 +94,9 @@ router.post('/', async (req, res) => {
 
     for (const key of EDITABLE_KEYS) {
       if (Object.prototype.hasOwnProperty.call(updates, key)) {
-        await upsertSetting(key, String(updates[key]));
+        // The display name is free text: trim it and keep it a sensible length.
+        const value = key === 'user_name' ? String(updates[key] ?? '').trim().slice(0, 60) : String(updates[key]);
+        await upsertSetting(key, value);
       }
     }
 

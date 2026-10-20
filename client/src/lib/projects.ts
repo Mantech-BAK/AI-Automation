@@ -39,6 +39,8 @@ export interface ProjectsSummary {
   // Actual cost from AP invoices (Procurement) and retention held (Retention), for the filtered projects.
   total_procurement: number;
   total_retention: number;
+  // Payments made to vendors (project_vendor_payments).
+  total_payments: number;
   forecastMarginPct: number;
   flagCounts: Record<string, number>;
   flagValues: Record<string, number>;

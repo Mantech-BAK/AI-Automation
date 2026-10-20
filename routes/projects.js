@@ -135,6 +135,12 @@ router.get('/summary', async (req, res) => {
       [projectIds]
     );
 
+    // Payments made to vendors (the same table the Payments page lists).
+    const { rows: paymentsTotal } = await pool.query(
+      `SELECT COALESCE(SUM(amount_bhd), 0) AS total FROM project_vendor_payments WHERE project_id = ANY($1)`,
+      [projectIds]
+    );
+
     const retentionHeld = rows.reduce((total, row) => total + (row.net_invoiced_bhd || 0) * (row.retention_rate || 0), 0);
 
     return res.json({
@@ -149,6 +155,7 @@ router.get('/summary', async (req, res) => {
       retentionHeld,
       total_procurement: Number(procurementTotal[0].total),
       total_retention: Number(retentionTotal[0].total),
+      total_payments: Number(paymentsTotal[0].total),
       forecastMarginPct: weightedAverage(rows, 'forecast_margin_pct'),
       flagCounts,
       // Value per flag, for the status-by-value chart.

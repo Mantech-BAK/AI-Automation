@@ -4,7 +4,6 @@ import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboar
 import {
   Amt,
   AsOfDateFilter,
-  KpiTile,
   LedgerFilters,
   RowCount,
   SkeletonBlock,
@@ -12,7 +11,7 @@ import {
   emptyLedgerValues,
   type LedgerFilterDef,
 } from '../../components/projects/shared';
-import { amount2, bhd, formatDMY, sharePct, todayISO, type VendorPayment } from '../../lib/projects';
+import { amount2, formatDMY, todayISO, type VendorPayment } from '../../lib/projects';
 
 const FILTERS: LedgerFilterDef<VendorPayment>[] = [
   { key: 'customer', allLabel: 'All Customers', pick: (row) => row.customer, resets: ['project'] },
@@ -37,11 +36,6 @@ export default function Payments() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Payments</h1>
         <p className="text-slate-500 mt-1">Payments made to vendors against AP invoices</p>
-      </div>
-
-      {/* Percentage = share of the AP invoices these payments are applied to. */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-5 gap-2">
-        <KpiTile label="Total Payments" band="bg-slate-600" value={bhd(total)} percent={sharePct(total, invoiceTotal)} loading={payments.loading} />
       </div>
 
       <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />

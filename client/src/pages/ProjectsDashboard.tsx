@@ -240,13 +240,15 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
       {summary.error && <ErrorState message={summary.error} />}
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 min-[1180px]:grid-cols-7 gap-2">
-        {/* Percentages: invoiced and purchases / project value; collections, outstanding AR and retention / invoiced; margin %. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 min-[1200px]:grid-cols-8 gap-2">
+        {/* Percentages: invoiced and purchases / project value; collections, outstanding AR and retention / invoiced; payments / purchases; margin %. */}
         <KpiTile label="Project Value" band="bg-blue-600" value={bhd(s?.totalSOValue)} percent={kpiPct(s?.totalSOValue, s?.totalSOValue)} loading={loading} />
         <KpiTile label="Invoiced" band="bg-teal-600" value={bhd(s?.totalInvoiced)} percent={kpiPct(s?.totalInvoiced, s?.totalSOValue)} loading={loading} />
         <KpiTile label="Collections" band="bg-purple-600" value={bhd(s?.totalCollected)} percent={kpiPct(s?.totalCollected, s?.totalInvoiced)} loading={loading} />
-        <KpiTile label="Purchases" band="bg-slate-600" value={bhd(s?.total_procurement)} percent={kpiPct(s?.total_procurement, s?.totalSOValue)} loading={loading} />
         <KpiTile label="Outstanding AR" band="bg-orange-500" value={bhd(s?.outstandingAR)} percent={kpiPct(s?.outstandingAR, s?.totalInvoiced)} loading={loading} />
+        <KpiTile label="Purchases" band="bg-slate-600" value={bhd(s?.total_procurement)} percent={kpiPct(s?.total_procurement, s?.totalSOValue)} loading={loading} />
+        {/* Payments: from project_vendor_payments (the table the Payments page lists); % = share of the purchases (AP invoices) paid. */}
+        <KpiTile label="Payments" band="bg-lime-700" value={bhd(s?.total_payments)} percent={kpiPct(s?.total_payments, s?.total_procurement)} loading={loading} />
         <KpiTile label="Forecast Margin" band="bg-emerald-600" value={bhd(marginTotal)} percent={kpiPct(s?.forecastMarginPct, 1)} loading={loading} />
         <KpiTile label="Retention Held" band="bg-rose-600" value={bhd(s?.total_retention)} percent={kpiPct(s?.total_retention, s?.totalInvoiced)} loading={loading} />
       </div>

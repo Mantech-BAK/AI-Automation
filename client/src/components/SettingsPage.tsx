@@ -47,6 +47,7 @@ interface SettingsData {
   escalation_days_after_due: number;
   ai_model: string;
   ai_api_key_set: boolean;
+  user_name: string;
   about: {
     version: string;
     last_daily_check_run: string | null;
@@ -71,6 +72,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   escalation_days_after_due: 0,
   ai_model: 'openai/gpt-oss-20b',
   ai_api_key_set: false,
+  user_name: '',
   about: {
     version: '1.0.0',
     last_daily_check_run: null,
@@ -113,6 +115,7 @@ export default function SettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('system');
   const [aiApiKeyInput, setAiApiKeyInput] = useState('');
+  const [userNameInput, setUserNameInput] = useState('');
 
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<{ section: string; error: boolean; text: string } | null>(null);
@@ -221,6 +224,7 @@ export default function SettingsPage() {
       }
       const json: SettingsData = await response.json();
       setSettings(json);
+      setUserNameInput(json.user_name || '');
     } catch (fetchError) {
       const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
       console.error('Error fetching settings:', fetchError);
@@ -453,6 +457,33 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1">
+          {activeTab === 'system' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-1">Your Name</h2>
+              <p className="text-sm text-slate-500 mb-4">Shown in the greeting at the top of the dashboards, e.g. &ldquo;Good afternoon, Umesh&rdquo;.</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  value={userNameInput}
+                  onChange={(e) => setUserNameInput(e.target.value)}
+                  maxLength={60}
+                  placeholder="Your name"
+                  aria-label="Your Name"
+                  className="flex-1 min-w-[12rem] max-w-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+                <button
+                  onClick={() => saveSection('profile', { user_name: userNameInput })}
+                  disabled={savingSection === 'profile'}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow disabled:opacity-50"
+                >
+                  {savingSection === 'profile' ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                  {savingSection === 'profile' ? 'Saving...' : 'Save'}
+                </button>
+                <SaveFeedback section="profile" />
+              </div>
+            </div>
+          )}
+
           {activeTab === 'system' && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold text-slate-800 mb-6">System Settings</h2>

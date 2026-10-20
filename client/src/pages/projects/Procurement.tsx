@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { PieChart as PieChartIcon, ShoppingCart } from 'lucide-react';
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { ShoppingCart } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
 import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, SummaryCard, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
-import { amount2, bhd, formatDMY, sharePct, todayISO, type ProcurementRow } from '../../lib/projects';
+import { amount2, bhd, formatDMY, todayISO, type ProcurementRow } from '../../lib/projects';
 
 // Purchase orders are commitments; AP invoices are the cost actually incurred.
 const STATUS_COLORS: Record<string, string> = {
@@ -33,11 +32,6 @@ export default function Procurement() {
   const actual = totalOf('Actual Cost');
   const total = committed + actual;
 
-  const slices = [
-    { name: 'Committed', value: committed },
-    { name: 'Actual Cost', value: actual },
-  ].filter((slice) => slice.value > 0);
-
   return (
     <div className="space-y-6">
       <div>
@@ -54,7 +48,7 @@ export default function Procurement() {
         <SummaryCard label="Documents" value={procurement.loading ? '...' : rows.length} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[3fr_1.2fr] gap-6 items-start">
+      <div>
         <Panel title={`Procurement Documents${procurement.data ? ` (${rows.length})` : ''}`} icon={ShoppingCart}>
           {procurement.loading ? (
             <SkeletonBlock height="h-72" />
@@ -87,42 +81,6 @@ export default function Procurement() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="Committed vs Actual Cost" icon={PieChartIcon}>
-          {procurement.loading ? (
-            <SkeletonBlock height="h-64" />
-          ) : slices.length === 0 ? (
-            <EmptyState icon={PieChartIcon} message="No spend to show" />
-          ) : (
-            <div className="px-5 py-4">
-              <div className="h-52">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={slices} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="58%" outerRadius="88%" paddingAngle={2} stroke="none">
-                      {slices.map((item) => (
-                        <Cell key={item.name} fill={statusColor(item.name)} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value, name) => [`${bhd(Number(value))} (${sharePct(Number(value), total)})`, String(name)]} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-3 space-y-1.5">
-                {slices.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-2 text-slate-600">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: statusColor(item.name) }} />
-                      {item.name}
-                    </span>
-                    <span className="font-semibold text-slate-800">
-                      <Amt value={item.value} total={total} />
-                    </span>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
         </Panel>

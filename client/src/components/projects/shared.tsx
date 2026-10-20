@@ -160,13 +160,13 @@ export function KpiTile({
   return (
     <div className="h-24 min-w-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
       {/* Fixed-height band: a long heading wraps onto a second line instead of being cut off. */}
-      <div className={`${band} h-10 px-3 flex items-center text-xs font-semibold text-white tracking-wide leading-tight`}>
+      <div className={`${band} h-10 px-2 min-[1500px]:px-3 flex items-center text-xs font-semibold text-white leading-tight`}>
         <span>
           {label} <span className="font-normal text-white/70">({percent})</span>
         </span>
       </div>
-      <div className="flex-1 px-3 flex items-center min-w-0">
-        {loading ? <Skeleton className="h-6 w-24" /> : <p className="text-sm min-[1400px]:text-base font-bold text-slate-800 whitespace-nowrap">{value}</p>}
+      <div className="flex-1 px-2 min-[1500px]:px-3 flex items-center min-w-0">
+        {loading ? <Skeleton className="h-6 w-24" /> : <p className="text-xs min-[1360px]:text-sm min-[1560px]:text-base font-bold text-slate-800 whitespace-nowrap">{value}</p>}
       </div>
     </div>
   );

@@ -77,10 +77,36 @@ function bahrainHour(): number {
   return Number.isFinite(hour) ? hour % 24 : new Date().getHours();
 }
 
-function greeting(name: string): string {
+// 05:00-11:59 morning, 12:00-16:59 afternoon, 17:00-04:59 evening (Bahrain time).
+function greetingPeriod(): 'Good morning' | 'Good afternoon' | 'Good evening' {
   const hour = bahrainHour();
-  const period = hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening';
-  return `${period}, ${name}`;
+  return hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+// "Good afternoon, Umesh" - or just "Good afternoon" when no name has been saved.
+function greeting(name?: string | null): string {
+  const period = greetingPeriod();
+  return name ? `${period}, ${name}` : period;
+}
+
+// The name saved in Settings -> "Your Name" ('' = none saved).
+function useSavedName(): string {
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/settings/display-name')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json) => {
+        if (!cancelled) setName(typeof json?.name === 'string' ? json.name : '');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return name;
 }
 
 function dateLabel(): string {
@@ -94,28 +120,12 @@ function dateLabel(): string {
 }
 
 // Compact version of the dashboard greeting banner: gradient, time-of-day icon,
-// "Good Morning / Afternoon / Evening, <name>" and today's date (Bahrain time).
+// "Good morning / afternoon / evening, <name>" and today's date (Bahrain time).
 export function GreetingLine({ gradient = 'from-teal-600 to-teal-800', className = '' }: { gradient?: string; className?: string }) {
-  const [name, setName] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch('/api/auth/me')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (!cancelled) setName(json?.user?.name || null);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const name = useSavedName();
 
   const hour = bahrainHour();
-  const morning = hour >= 5 && hour < 12;
-  const afternoon = hour >= 12 && hour < 17;
-  const period = morning ? 'Good Morning' : afternoon ? 'Good Afternoon' : 'Good Evening';
-  const Icon = morning ? Sun : afternoon ? Sunset : Moon;
+  const Icon = hour >= 5 && hour < 12 ? Sun : hour >= 12 && hour < 17 ? Sunset : Moon;
 
   return (
     <div className={`flex items-center gap-3 rounded-xl bg-gradient-to-r ${gradient} py-3 px-4 shadow-sm ${className}`}>
@@ -123,7 +133,7 @@ export function GreetingLine({ gradient = 'from-teal-600 to-teal-800', className
         <Icon size={20} className="text-white" />
       </div>
       <div className="min-w-0">
-        <p className="text-base font-semibold text-white leading-tight truncate">{name ? `${period}, ${name}` : period}</p>
+        <p className="text-base font-semibold text-white leading-tight truncate">{greeting(name)}</p>
         <p className="text-xs text-white/80 mt-0.5">Project Tracking &middot; {dateLabel()}</p>
       </div>
     </div>
@@ -131,24 +141,11 @@ export function GreetingLine({ gradient = 'from-teal-600 to-teal-800', className
 }
 
 export function DashboardBanner({ moduleLabel, gradient }: { moduleLabel: string; gradient: string }) {
-  const [name, setName] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch('/api/auth/me')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (!cancelled) setName(json?.user?.name || null);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const name = useSavedName();
 
   return (
     <div className={`rounded-2xl bg-gradient-to-r ${gradient} px-6 py-7 shadow-md`}>
-      <h1 className="text-2xl lg:text-3xl font-bold text-white">{greeting(name || 'there')}</h1>
+      <h1 className="text-2xl lg:text-3xl font-bold text-white">{greeting(name)}</h1>
       <p className="text-white/80 mt-1.5">
         {moduleLabel} &middot; {dateLabel()}
       </p>
