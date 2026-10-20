@@ -62,6 +62,8 @@ ALTER TABLE public.project_adjustments ALTER COLUMN amount_bhd TYPE NUMERIC;
 ALTER TABLE public.project_retention ALTER COLUMN retention_rate TYPE NUMERIC;
 ALTER TABLE public.project_retention ALTER COLUMN retention_amount_bhd TYPE NUMERIC;
 
+ALTER TABLE public.project_retention ADD COLUMN IF NOT EXISTS retained_date DATE;
+
 -- Hard delete everything in the project tables (including retention) and restart the ids.
 TRUNCATE public.project_adjustments, public.project_retention, public.project_procurement, public.project_ar_transactions, public.projects RESTART IDENTITY CASCADE;
 
@@ -130,6 +132,9 @@ INSERT INTO public.project_retention (project_id, so_no, retention_rate, retenti
 ('P-028', 'SO-20260028', 0.1, 10429.57, 'Held until contractual release condition', 'Not included in Collections until released'),
 ('P-029', 'SO-20260029', 0.05, 12435.59, 'Held until contractual release condition', 'Not included in Collections until released'),
 ('P-030', 'SO-20260030', 0.1, 8062.38, 'Held until contractual release condition', 'Not included in Collections until released');
+
+-- Retained date = the project's Start_Date (the workbook has no retention date)
+UPDATE public.project_retention r SET retained_date = p.start_date FROM public.projects p WHERE p.project_id = r.project_id;
 
 -- AR INVOICES (60, status Open)
 INSERT INTO public.project_ar_transactions (project_id, transaction_ref, so_no, transaction_type, transaction_date, amount_bhd, description, due_date, status) VALUES

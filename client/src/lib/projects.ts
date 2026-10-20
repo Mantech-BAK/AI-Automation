@@ -53,6 +53,8 @@ export interface RetentionRow {
   project_id: string;
   customer: string | null;
   so_no: string | null;
+  // The project's start date (the workbook has no separate retention date).
+  retained_date: string | null;
   so_value_bhd: number | null;
   retention_rate: number | null;
   retention_amount_bhd: number | null;

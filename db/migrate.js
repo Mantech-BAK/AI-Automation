@@ -756,6 +756,13 @@ async function runMigrations() {
       console.log(`Seeded ${RETENTION_ROWS.length} retention rows.`);
     }
 
+    // Retained date: the workbook has no date for retention, so it is the project's start date.
+    await pool.query(`
+      ALTER TABLE project_retention ADD COLUMN IF NOT EXISTS retained_date DATE;
+      UPDATE project_retention r SET retained_date = p.start_date
+      FROM projects p WHERE p.project_id = r.project_id AND r.retained_date IS NULL;
+    `);
+
     // Fallback: one retention row per project that has none yet: amount = invoiced x rate.
     await pool.query(`
       INSERT INTO project_retention (project_id, so_no, retention_rate, retention_amount_bhd, release_rule, collection_treatment)

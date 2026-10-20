@@ -268,7 +268,8 @@ router.get('/adjustments', async (req, res) => {
 router.get('/retention', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT r.*, p.customer, p.so_value_bhd
+      `SELECT r.id, r.project_id, r.so_no, r.retained_date, r.retention_rate, r.retention_amount_bhd,
+              r.release_rule, r.collection_treatment, p.customer, p.so_value_bhd
        FROM project_retention r
        LEFT JOIN projects p ON p.project_id = r.project_id
        ORDER BY r.project_id`

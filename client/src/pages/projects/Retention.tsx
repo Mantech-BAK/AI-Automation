@@ -1,7 +1,7 @@
 import { ShieldCheck } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
 import { Amt, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
-import { amount2, bhd, pct, type RetentionRow } from '../../lib/projects';
+import { amount2, bhd, formatDMY, pct, type RetentionRow } from '../../lib/projects';
 
 export default function Retention() {
   const retention = useJson<RetentionRow[]>('/api/projects/retention');
@@ -32,13 +32,14 @@ export default function Retention() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <TableHead columns={['Project ID', 'Customer', 'SO No', 'SO Value', 'Retention Rate', 'Retention Amount', 'Release Rule', 'Collection Treatment']} />
+              <TableHead columns={['Project ID', 'Customer', 'SO No', 'Retained Date', 'SO Value', 'Retention Rate', 'Retention Amount', 'Release Rule', 'Collection Treatment']} />
               <tbody className="divide-y divide-slate-100">
                 {rows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50">
                     <td className="px-5 py-2.5 font-medium text-slate-800">{row.project_id}</td>
                     <td className="px-5 py-2.5 text-slate-600">{row.customer || '-'}</td>
                     <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{row.so_no || '-'}</td>
+                    <td className="px-5 py-2.5 text-slate-600 whitespace-nowrap">{formatDMY(row.retained_date)}</td>
                     <td className="px-5 py-2.5 text-slate-700 text-right whitespace-nowrap"><Amt value={row.so_value_bhd} total={soTotal} /></td>
                     <td className="px-5 py-2.5 text-slate-700 text-right">{pct(row.retention_rate, 0)}</td>
                     <td className="px-5 py-2.5 text-slate-800 text-right font-medium whitespace-nowrap"><Amt value={row.retention_amount_bhd} total={total} format={amount2} /></td>
