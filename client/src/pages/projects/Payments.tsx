@@ -1,16 +1,7 @@
 import { useState } from 'react';
 import { CreditCard } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import {
-  Amt,
-  AsOfDateFilter,
-  LedgerFilters,
-  RowCount,
-  SkeletonBlock,
-  applyLedgerFilters,
-  emptyLedgerValues,
-  type LedgerFilterDef,
-} from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, PageShell, PANEL_FILL, SkeletonBlock, TABLE_SCROLL, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
 import { amount2, formatDMY, todayISO, type VendorPayment } from '../../lib/projects';
 
 const FILTERS: LedgerFilterDef<VendorPayment>[] = [
@@ -32,15 +23,11 @@ export default function Payments() {
   const invoiceTotal = rows.reduce((sum, row) => sum + (row.ap_invoice_amount_bhd ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Payments</h1>
-        <p className="text-slate-500 mt-1">Payments made to vendors against AP invoices</p>
-      </div>
-
+    <PageShell title="Payments" subtitle="Payments made to vendors against AP invoices" header={<>
       <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
       {payments.data && <RowCount shown={rows.length} total={all.length} />}
 
+      </>}>
       <Panel title={`Payments${payments.data ? ` (${rows.length})` : ''}`} icon={CreditCard}>
         {payments.loading ? (
           <SkeletonBlock height="h-64" />
@@ -49,7 +36,7 @@ export default function Payments() {
         ) : rows.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-500">No payments found</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className={TABLE_SCROLL}>
             <table className="w-full text-sm">
               <TableHead columns={['Payment No', 'Project', 'Customer', 'Date', 'Amount (BHD)', 'Applied AP Invoice', 'AP Invoice Amount (BHD)']} />
               <tbody className="divide-y divide-slate-100">
@@ -83,6 +70,6 @@ export default function Payments() {
           </div>
         )}
       </Panel>
-    </div>
+    </PageShell>
   );
 }

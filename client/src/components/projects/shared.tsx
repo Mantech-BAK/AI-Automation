@@ -390,3 +390,26 @@ export function RateDonut({
     </div>
   );
 }
+
+// Shared layout for the Project Tracking sidebar pages: the title + filters (+ summary cards) stay
+// frozen at the top and only the data below scrolls. Fills the viewport under the 4rem topbar and
+// the main-area padding (1rem on small screens, 2rem on large). Pair the body with `ScrollBody`
+// (or a Panel + `PANEL_FILL`/`TABLE_SCROLL` classes) so the table header row freezes as well.
+export function PageShell({ title, subtitle, header, children }: { title: string; subtitle?: ReactNode; header?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-4 h-[calc(100vh-6rem)] lg:h-[calc(100vh-8rem)] min-h-[26rem]">
+      <div className="shrink-0 space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
+          {subtitle && <p className="text-slate-500 mt-1">{subtitle}</p>}
+        </div>
+        {header}
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col gap-4">{children}</div>
+    </div>
+  );
+}
+
+// Panel fills the rest of the page; the table wrapper inside scrolls and its <thead> sticks to the top of it.
+export const PANEL_FILL = 'flex-1 min-h-0';
+export const TABLE_SCROLL = 'flex-1 min-h-0 overflow-auto';

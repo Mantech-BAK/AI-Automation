@@ -3,7 +3,7 @@ import { BarChart3, Table2 } from 'lucide-react';
 import type { NavFilter } from '../../App';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, FilterBar, RowCount, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { Amt, FilterBar, RowCount, SkeletonBlock, SummaryCard, PageShell } from '../../components/projects/shared';
 import { NO_FILTERS, bhd, compact, filterProjects, pct, sharePct, todayISO, type Project, type ProjectFilters } from '../../lib/projects';
 
 interface Props {
@@ -42,12 +42,10 @@ export default function Financials({ onNavigate }: Props) {
   const loading = projects.loading;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Financials</h1>
-        <p className="text-slate-500 mt-1">Portfolio billing, collections and margin</p>
-      </div>
-
+    <PageShell
+      title="Financials"
+      subtitle="Portfolio billing, collections and margin"
+      header={<>
       <FilterBar projects={all} filters={filters} onChange={setFilters} showProjectFilter showDateFilter />
       {projects.data && <RowCount shown={rows.length} total={all.length} noun="projects" />}
 
@@ -60,7 +58,9 @@ export default function Financials({ onNavigate }: Props) {
         <SummaryCard label="Outstanding AR" value={loading ? '...' : <Amt value={totals.ar} total={totals.so} format={bhd} />} tone="text-orange-600" />
         <SummaryCard label="Forecast Margin" value={loading ? '...' : pct(forecastMarginPct)} tone="text-emerald-600" />
       </div>
-
+      </>}
+    >
+      <div className="flex-1 min-h-0 overflow-auto space-y-4">
       <Panel title="SO Value vs Invoiced vs Collected by Customer" icon={BarChart3}>
         {loading ? (
           <SkeletonBlock height="h-80" />
@@ -84,7 +84,7 @@ export default function Financials({ onNavigate }: Props) {
         )}
       </Panel>
 
-      <Panel title="Project Financials" icon={Table2}>
+      <Panel title="Project Financials" icon={Table2} className="!overflow-visible">
         {projects.loading ? (
           <SkeletonBlock height="h-80" />
         ) : projects.error ? (
@@ -92,7 +92,7 @@ export default function Financials({ onNavigate }: Props) {
         ) : (projects.data ?? []).length === 0 ? (
           <EmptyState icon={Table2} message="No projects found" />
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full text-sm">
               <TableHead
                 columns={['Project ID', 'Customer', 'SO Value', 'Invoiced', 'Collected', 'Outstanding AR', 'Actual Cost', 'Cost Exposure', 'Forecast Margin', 'Margin %']}
@@ -122,6 +122,7 @@ export default function Financials({ onNavigate }: Props) {
           </div>
         )}
       </Panel>
-    </div>
+      </div>
+    </PageShell>
   );
 }

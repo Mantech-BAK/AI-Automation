@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Scale } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, SummaryCard, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, SummaryCard, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef, PageShell, PANEL_FILL, TABLE_SCROLL } from '../../components/projects/shared';
 import { CREDIT_TYPES, amount2, bhd, formatDMY, todayISO, type AdjustmentRow } from '../../lib/projects';
 
 const TYPE_STYLES: Record<string, string> = {
@@ -33,12 +33,7 @@ export default function Adjustments() {
   const gross = credits + debits;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Adjustments</h1>
-        <p className="text-slate-500 mt-1">Credit notes, debit notes, write-offs and discounts</p>
-      </div>
-
+    <PageShell title="Adjustments" subtitle="Credit notes, debit notes, write-offs and discounts" header={<>
       <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
       {adjustments.data && <RowCount shown={rows.length} total={all.length} />}
 
@@ -52,6 +47,7 @@ export default function Adjustments() {
         />
       </div>
 
+      </>}>
       <Panel title={`Adjustments${adjustments.data ? ` (${rows.length})` : ''}`} icon={Scale}>
         {adjustments.loading ? (
           <SkeletonBlock height="h-64" />
@@ -60,7 +56,7 @@ export default function Adjustments() {
         ) : rows.length === 0 ? (
           <EmptyState icon={Scale} message="No adjustments found" hint="Try clearing the filters." />
         ) : (
-          <div className="overflow-x-auto">
+          <div className={TABLE_SCROLL}>
             <table className="w-full text-sm">
               <TableHead columns={['Date', 'Project ID', 'Customer', 'Reference', 'Type', 'Description', 'Amount (BHD)']} />
               <tbody className="divide-y divide-slate-100">
@@ -86,6 +82,6 @@ export default function Adjustments() {
           </div>
         )}
       </Panel>
-    </div>
+    </PageShell>
   );
 }

@@ -133,14 +133,12 @@ export function GreetingLine({ gradient = 'from-teal-600 to-teal-800', className
   const Icon = hour >= 5 && hour < 12 ? Sun : hour >= 12 && hour < 17 ? Sunset : Moon;
 
   return (
-    <div className={`flex items-center gap-3 rounded-xl bg-gradient-to-r ${gradient} py-3 px-4 shadow-sm ${className}`}>
-      <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
-        <Icon size={20} className="text-white" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-base font-semibold text-white leading-tight truncate">{greeting(name)}</p>
-        <p className="text-xs text-white/80 mt-0.5">Project Tracking &middot; {dateLabel()}</p>
-      </div>
+    <div className={`flex items-center gap-2.5 rounded-lg bg-gradient-to-r ${gradient} py-1.5 px-3 shadow-sm ${className}`}>
+      <Icon size={18} className="text-white flex-shrink-0" />
+      <p className="min-w-0 truncate text-white leading-tight">
+        <span className="text-lg font-semibold">{greeting(name)}</span>
+        <span className="text-xs text-white/80"> &nbsp;&middot;&nbsp; Project Tracking &middot; {dateLabel()}</span>
+      </p>
     </div>
   );
 }
@@ -271,7 +269,7 @@ export function TableHead({ columns }: { columns: string[] }) {
     <thead>
       <tr className="bg-slate-50 border-b border-slate-200">
         {columns.map((column) => (
-          <th key={column} className="text-left px-5 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+          <th key={column} className="sticky top-0 z-10 bg-slate-50 text-left px-5 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
             {column}
           </th>
         ))}

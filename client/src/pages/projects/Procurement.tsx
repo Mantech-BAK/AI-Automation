@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ShoppingCart } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, SummaryCard, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, SummaryCard, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef, PageShell, PANEL_FILL, TABLE_SCROLL } from '../../components/projects/shared';
 import { amount2, bhd, formatDMY, todayISO, type ProcurementRow } from '../../lib/projects';
 
 // Purchase orders are commitments; AP invoices are the cost actually incurred.
@@ -33,12 +33,7 @@ export default function Procurement() {
   const total = committed + actual;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Purchases</h1>
-        <p className="text-slate-500 mt-1">Purchase orders (committed) and AP invoices (actual cost) by project</p>
-      </div>
-
+    <PageShell title="Purchases" subtitle="Purchase orders (committed) and AP invoices (actual cost) by project" header={<>
       <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
       {procurement.data && <RowCount shown={rows.length} total={all.length} />}
 
@@ -48,7 +43,8 @@ export default function Procurement() {
         <SummaryCard label="Documents" value={procurement.loading ? '...' : rows.length} />
       </div>
 
-      <div>
+      </>}>
+      <>
         <Panel title={`Procurement Documents${procurement.data ? ` (${rows.length})` : ''}`} icon={ShoppingCart}>
           {procurement.loading ? (
             <SkeletonBlock height="h-72" />
@@ -57,7 +53,7 @@ export default function Procurement() {
           ) : rows.length === 0 ? (
             <EmptyState icon={ShoppingCart} message="No procurement records" hint="Purchase orders and AP invoices will be listed here once they are recorded." />
           ) : (
-            <div className="overflow-x-auto max-h-[36rem] overflow-y-auto">
+            <div className={TABLE_SCROLL}>
               <table className="w-full text-sm">
                 <TableHead columns={['Date', 'Project ID', 'Customer', 'Document No', 'Type', 'Cost Status', 'Amount (BHD)']} />
                 <tbody className="divide-y divide-slate-100">
@@ -84,7 +80,7 @@ export default function Procurement() {
             </div>
           )}
         </Panel>
-      </div>
-    </div>
+      </>
+    </PageShell>
   );
 }

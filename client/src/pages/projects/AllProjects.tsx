@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, FolderOpen, X } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, useJson } from '../../components/dashboard/parts';
-import { Amt, FilterBar, FlagBadge, SkeletonBlock } from '../../components/projects/shared';
+import { Amt, FilterBar, FlagBadge, SkeletonBlock, PageShell, PANEL_FILL, TABLE_SCROLL } from '../../components/projects/shared';
 import { NO_FILTERS, amount2, filterProjects, formatDMY, pct, type Project, type ProjectFilters } from '../../lib/projects';
 
 type SortKey = keyof Project;
@@ -125,17 +125,16 @@ export default function AllProjects() {
     setSort((current) => (current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">All Projects</h1>
-        <p className="text-slate-500 mt-1">
+    <PageShell
+      title="All Projects"
+      subtitle={
+        <>
           {projects.data ? `${rows.length} of ${projects.data.length} projects` : 'Every project in the portfolio'} &middot; click a row for full details
-        </p>
-      </div>
-
-      <FilterBar projects={projects.data ?? []} filters={filters} onChange={setFilters} />
-
-      <Panel title="Projects" icon={FolderOpen}>
+        </>
+      }
+      header={<FilterBar projects={projects.data ?? []} filters={filters} onChange={setFilters} />}
+    >
+      <Panel title="Projects" icon={FolderOpen} className={PANEL_FILL}>
         {projects.loading ? (
           <SkeletonBlock height="h-96" />
         ) : projects.error ? (
@@ -143,7 +142,7 @@ export default function AllProjects() {
         ) : rows.length === 0 ? (
           <EmptyState icon={FolderOpen} message="No projects found" hint="Try clearing the filters." />
         ) : (
-          <div className="overflow-x-auto">
+          <div className={TABLE_SCROLL}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -151,7 +150,7 @@ export default function AllProjects() {
                     <th
                       key={column.key}
                       onClick={() => toggleSort(column.key)}
-                      className={`px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-slate-800 ${column.align === 'right' ? 'text-right' : 'text-left'}`}
+                      className={`sticky top-0 z-10 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-slate-800 ${column.align === 'right' ? 'text-right' : 'text-left'}`}
                     >
                       <span className="inline-flex items-center gap-1">
                         {column.label}
@@ -178,6 +177,6 @@ export default function AllProjects() {
       </Panel>
 
       {selected && <ProjectPanel row={selected} onClose={() => setSelected(null)} />}
-    </div>
+    </PageShell>
   );
 }

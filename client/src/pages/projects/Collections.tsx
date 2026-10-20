@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { HandCoins } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef, PageShell, PANEL_FILL, TABLE_SCROLL } from '../../components/projects/shared';
 import { amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
 const FILTERS: LedgerFilterDef<ArTransaction>[] = [
@@ -23,15 +23,11 @@ export default function Collections() {
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Collections</h1>
-        <p className="text-slate-500 mt-1">Payments received from customers</p>
-      </div>
-
+    <PageShell title="Collections" subtitle="Payments received from customers" header={<>
       <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
       {collections.data && <RowCount shown={rows.length} total={all.length} />}
 
+      </>}>
       <Panel title={`Collections${collections.data ? ` (${rows.length})` : ''}`} icon={HandCoins}>
         {collections.loading ? (
           <SkeletonBlock height="h-64" />
@@ -40,7 +36,7 @@ export default function Collections() {
         ) : rows.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-500">No transactions found</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className={TABLE_SCROLL}>
             <table className="w-full text-sm">
               <TableHead columns={['Receipt No', 'Project', 'Customer', 'Date', 'Amount (BHD)']} />
               <tbody className="divide-y divide-slate-100">
@@ -66,6 +62,6 @@ export default function Collections() {
           </div>
         )}
       </Panel>
-    </div>
+    </PageShell>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef } from '../../components/projects/shared';
+import { Amt, AsOfDateFilter, LedgerFilters, RowCount, SkeletonBlock, applyLedgerFilters, emptyLedgerValues, type LedgerFilterDef, PageShell, PANEL_FILL, TABLE_SCROLL } from '../../components/projects/shared';
 import { AR_INVOICE, amount2, formatDMY, todayISO, type ArTransaction } from '../../lib/projects';
 
 const STATUS_STYLES: Record<string, string> = {
@@ -30,15 +30,11 @@ export default function Sales() {
   const total = rows.reduce((sum, row) => sum + (row.amount_bhd ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Sales</h1>
-        <p className="text-slate-500 mt-1">All invoices raised against projects</p>
-      </div>
-
+    <PageShell title="Sales" subtitle="All invoices raised against projects" header={<>
       <LedgerFilters rows={dated} defs={FILTERS} values={filters} onChange={setFilters} extra={<AsOfDateFilter value={asOfDate} onChange={setAsOfDate} />} />
       {transactions.data && <RowCount shown={rows.length} total={all.length} />}
 
+      </>}>
       <Panel title={`Invoices${transactions.data ? ` (${rows.length})` : ''}`} icon={TrendingUp}>
         {transactions.loading ? (
           <SkeletonBlock height="h-64" />
@@ -47,7 +43,7 @@ export default function Sales() {
         ) : rows.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-500">No transactions found</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className={TABLE_SCROLL}>
             <table className="w-full text-sm">
               <TableHead columns={['Project ID', 'Customer', 'Invoice No', 'Transaction Date', 'Amount (BHD)', 'Due Date', 'Status']} />
               <tbody className="divide-y divide-slate-100">
@@ -80,6 +76,6 @@ export default function Sales() {
           </div>
         )}
       </Panel>
-    </div>
+    </PageShell>
   );
 }

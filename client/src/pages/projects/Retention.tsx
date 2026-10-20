@@ -1,6 +1,6 @@
 import { ShieldCheck } from 'lucide-react';
 import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../../components/dashboard/parts';
-import { Amt, SkeletonBlock, SummaryCard } from '../../components/projects/shared';
+import { Amt, SkeletonBlock, SummaryCard, PageShell, PANEL_FILL, TABLE_SCROLL } from '../../components/projects/shared';
 import { amount2, bhd, formatDMY, pct, type RetentionRow } from '../../lib/projects';
 
 export default function Retention() {
@@ -10,19 +10,15 @@ export default function Retention() {
   const soTotal = rows.reduce((sum, row) => sum + (row.so_value_bhd ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Retention</h1>
-        <p className="text-slate-500 mt-1">Amounts withheld by customers until the release conditions are met</p>
-      </div>
-
+    <PageShell title="Retention" subtitle="Amounts withheld by customers until the release conditions are met" header={<>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SummaryCard label="Total Retained" value={retention.loading ? '...' : <Amt value={total} total={soTotal} format={bhd} />} tone="text-rose-600" />
         <SummaryCard label="Projects With Retention" value={retention.loading ? '...' : rows.filter((row) => (row.retention_amount_bhd ?? 0) > 0).length} />
         <SummaryCard label="Projects Tracked" value={retention.loading ? '...' : rows.length} />
       </div>
 
-      <Panel title="Retention by Project" icon={ShieldCheck}>
+      </>}>
+      <Panel title="Retention by Project" icon={ShieldCheck} className={PANEL_FILL}>
         {retention.loading ? (
           <SkeletonBlock height="h-72" />
         ) : retention.error ? (
@@ -30,7 +26,7 @@ export default function Retention() {
         ) : rows.length === 0 ? (
           <EmptyState icon={ShieldCheck} message="No retention records" />
         ) : (
-          <div className="overflow-x-auto">
+          <div className={TABLE_SCROLL}>
             <table className="w-full text-sm">
               <TableHead columns={['Project ID', 'Customer', 'SO No', 'Retained Date', 'SO Value', 'Retention Rate', 'Retention Amount', 'Release Rule', 'Collection Treatment']} />
               <tbody className="divide-y divide-slate-100">
@@ -52,6 +48,6 @@ export default function Retention() {
           </div>
         )}
       </Panel>
-    </div>
+    </PageShell>
   );
 }
