@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, BarChart3, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
 import { MODULE_ORDER, MODULES, type ModuleId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
+import { useGreeting } from '../components/dashboard/parts';
 
 interface ModuleSelectPageProps {
-  userName: string;
   // Modules the signed-in user may open (based on their allowed item types).
   accessibleModules: ModuleId[];
   onSelectModule: (module: ModuleId) => void;
@@ -48,7 +48,8 @@ interface StatTile {
   module: ModuleId;
 }
 
-export default function ModuleSelectPage({ userName, accessibleModules, onSelectModule, onSignOut }: ModuleSelectPageProps) {
+export default function ModuleSelectPage({ accessibleModules, onSelectModule, onSignOut }: ModuleSelectPageProps) {
+  const greetingText = useGreeting();
   const [summary, setSummary] = useState<SummaryNumbers | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
 
@@ -118,7 +119,7 @@ export default function ModuleSelectPage({ userName, accessibleModules, onSelect
 
           <div className="pt-10 pb-24">
             <h1 className="text-3xl lg:text-4xl font-bold tracking-tight">
-              Welcome back{userName ? `, ${userName}` : ''}
+              {greetingText}
             </h1>
             <p className="text-slate-300 mt-2">{bahrainDateLabel()}</p>
           </div>

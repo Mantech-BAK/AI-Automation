@@ -245,7 +245,6 @@ function App() {
           </div>
         )}
         <ModuleSelectPage
-          userName={user.name}
           accessibleModules={accessibleModules}
           onSelectModule={handleSelectModule}
           onSignOut={handleSignOut}

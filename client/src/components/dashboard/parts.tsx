@@ -84,13 +84,13 @@ function greetingPeriod(): 'Good morning' | 'Good afternoon' | 'Good evening' {
 }
 
 // "Good afternoon, Umesh" - or just "Good afternoon" when no name has been saved.
-function greeting(name?: string | null): string {
+export function greeting(name?: string | null): string {
   const period = greetingPeriod();
   return name ? `${period}, ${name}` : period;
 }
 
 // The name saved in Settings -> "Your Name" ('' = none saved).
-function useSavedName(): string {
+export function useSavedName(): string {
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -107,6 +107,11 @@ function useSavedName(): string {
   }, []);
 
   return name;
+}
+
+// One shared hook: "Good afternoon, Umesh" from the Settings name + Bahrain time.
+export function useGreeting(): string {
+  return greeting(useSavedName());
 }
 
 function dateLabel(): string {
