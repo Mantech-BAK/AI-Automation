@@ -47,7 +47,7 @@ export interface ProjectsSummary {
   byType: { type: string; soValue: number; invoiced: number; forecastMarginPct: number }[];
   byCustomer: { customer: string; soValue: number; invoiced: number; collected: number }[];
   // Set when the summary was requested for a single project (?project_id=).
-  project?: { project_id: string; customer: string | null; project_type: string | null } | null;
+  project?: { project_id: string; customer: string | null; project_type: string | null; start_date?: string | null; expected_end_date?: string | null } | null;
 }
 
 export interface RetentionRow {

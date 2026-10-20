@@ -113,7 +113,7 @@ router.get('/summary', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     const project = projectId
-      ? { project_id: rows[0].project_id, customer: rows[0].customer, project_type: rows[0].project_type }
+      ? { project_id: rows[0].project_id, customer: rows[0].customer, project_type: rows[0].project_type, start_date: rows[0].start_date, expected_end_date: rows[0].expected_end_date }
       : null;
 
     const flagCounts = Object.fromEntries(FLAG_NAMES.map((name) => [name, 0]));

@@ -29,6 +29,7 @@ import {
   filterProjects,
   filterQuery,
   flagColor,
+  formatDMY,
   pct,
   sharePct,
   typeColor,
@@ -95,7 +96,7 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
   // The selected project: from the API once loaded, otherwise from the list so
   // the badge appears immediately.
   const selectedProject = filters.project
-    ? s?.project ?? (all.data ?? []).find((project) => project.project_id === filters.project) ?? { project_id: filters.project, customer: null, project_type: null }
+    ? s?.project ?? (all.data ?? []).find((project) => project.project_id === filters.project) ?? { project_id: filters.project, customer: null, project_type: null, start_date: null, expected_end_date: null }
     : null;
 
   // ---------- derived data ----------
@@ -222,11 +223,18 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
 
       {selectedProject && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3">
-          <p className="text-sm text-teal-900">
-            <span className="font-semibold">Single-project view:</span>{' '}
-            {selectedProject.project_id} — {selectedProject.customer}
-            {selectedProject.project_type && <span className="text-teal-700"> &middot; {selectedProject.project_type}</span>}
-          </p>
+          <div>
+            <p className="text-sm text-teal-900">
+              <span className="font-semibold">Single-project view:</span>{' '}
+              {selectedProject.project_id} — {selectedProject.customer}
+              {selectedProject.project_type && <span className="text-teal-700"> &middot; {selectedProject.project_type}</span>}
+            </p>
+            <p className="text-xs text-teal-700 mt-0.5">
+              Start Date: {selectedProject.start_date ? formatDMY(selectedProject.start_date) : '—'}
+              {'  |  '}
+              End Date: {selectedProject.expected_end_date ? formatDMY(selectedProject.expected_end_date) : '—'}
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setFilters(NO_FILTERS)}
