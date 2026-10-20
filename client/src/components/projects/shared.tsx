@@ -60,7 +60,7 @@ export function FilterBar({
   onChange: (filters: ProjectFilters) => void;
   // Adds the "All Projects" single-project dropdown (used by the dashboard).
   showProjectFilter?: boolean;
-  // Adds the single "As of Date" input and its Clear button (used by the dashboard).
+  // Adds the single "As of Date" input and its reset-to-today button (used by the dashboard).
   showDateFilter?: boolean;
 }) {
   const selectClass =
@@ -120,9 +120,9 @@ export function FilterBar({
             As of Date
             <input type="date" value={filters.asOf || ''} onChange={(e) => change({ asOf: e.target.value })} className={inputClass} />
           </label>
-          {filters.asOf && (
-            <button type="button" onClick={() => change({ asOf: '' })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
-              Clear
+          {filters.asOf !== todayISO() && (
+            <button type="button" onClick={() => change({ asOf: todayISO() })} className="pb-2 text-sm font-medium text-teal-600 hover:underline">
+              Reset to today
             </button>
           )}
         </>

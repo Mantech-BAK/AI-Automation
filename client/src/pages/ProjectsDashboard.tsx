@@ -32,6 +32,7 @@ import {
   formatDMY,
   pct,
   sharePct,
+  todayISO,
   typeColor,
   type Project,
   type ProjectFilters,
@@ -81,6 +82,7 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
   // A project can be preselected by the page that opened the dashboard, or by a ?project=P-001 link.
   const [filters, setFilters] = useState<ProjectFilters>(() => ({
     ...NO_FILTERS,
+    asOf: todayISO(),
     project: initialProject || new URLSearchParams(window.location.search).get('project') || '',
   }));
   const [typeMetric, setTypeMetric] = useState<'value' | 'invoiced'>('value');
@@ -237,7 +239,7 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
             </p>
             <button
               type="button"
-              onClick={() => setFilters(NO_FILTERS)}
+              onClick={() => setFilters({ ...NO_FILTERS, asOf: todayISO() })}
               className="text-sm font-medium text-teal-700 hover:underline"
             >
               Back to all projects
