@@ -20,6 +20,9 @@ const SYSTEM_PROMPT =
   'Include all fields you find such as document name, owner name, company name, document type, document number, issuing authority, registration number, ' +
   'address, contact details, validity period, conditions, fees, reference numbers, stamp details, signatures, categories, and any other field present in the document. ' +
   'Also always include these specific fields if found: document_name (string), registration_date (string in YYYY-MM-DD format or null), expiry_date (string in YYYY-MM-DD format or null). ' +
+  'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
+  'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
+  'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
   'Return ONLY a valid JSON object with no markdown or extra text. Every field name should be snake_case.';
 
 // Fields that describe dates change between renewals, so they are ignored when
@@ -480,7 +483,22 @@ function compareExtractedData(newData, existingData) {
   return 1 + (ownerSame ? 1 : 0);
 }
 
-async function findExistingDocument(extractedData) {
+async function findExistingDocument(extractedData, documentName, responsiblePerson) {
+  // Primary rule: the same document name (taken from the attachment filename, so it is stable between
+  // runs) from the same responsible person (the sender) is the same document. The AI names and
+  // spells identifiers differently on every run, so they can't be used to say "different certificate".
+  if (documentName && responsiblePerson) {
+    const { rows: byName } = await pool.query(
+      `SELECT id, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at
+       FROM assets
+       WHERE extracted_data IS NOT NULL AND LOWER(TRIM(equipment_name)) = LOWER(TRIM($1))
+         AND LOWER(TRIM(responsible_person)) = LOWER(TRIM($2))
+       ORDER BY id LIMIT 1`,
+      [documentName, responsiblePerson]
+    );
+    if (byName.length > 0) return { id: byName[0].id, expiryDate: byName[0].expiry_date, processedAt: byName[0].processed_at, score: 99 };
+  }
+
   const { rows } = await pool.query(
     `SELECT id, extracted_data, onedrive_url, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at FROM assets WHERE extracted_data IS NOT NULL`
   );
@@ -619,7 +637,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   // Documents handled earlier in this same run are already in the database
   // (each record is committed before the next PDF is checked), so this also
   // catches the same PDF attached twice, or sent in several emails.
-  const existing = await findExistingDocument(doc.extracted_data);
+  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person);
 
   // Already stored with the very same expiry - nothing new to record.
   if (existing && existing.expiryDate === doc.expiry_date) {
