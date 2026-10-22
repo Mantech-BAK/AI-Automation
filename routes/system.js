@@ -14,6 +14,18 @@ async function upsertSetting(key, value) {
   );
 }
 
+// Re-runs the idempotent Documents schema step (cr_no / license_no / processed_at + backfill) and reports the outcome.
+router.post('/ensure-document-columns', async (req, res) => {
+  if (req.session?.user?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  try {
+    const changed = await require('../db/documentColumns').ensureDocumentColumns(pool);
+    return res.json({ ok: true, rowsBackfilled: changed });
+  } catch (error) {
+    console.error('ensure-document-columns failed:', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.post('/run-daily-check', async (req, res) => {
   try {
     const result = await runDailyCheck();
