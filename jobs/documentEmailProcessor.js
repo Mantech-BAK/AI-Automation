@@ -12,7 +12,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const MAX_TEXT_CHARS = 3000;
+const MAX_TEXT_CHARS = 6000;
 const ONEDRIVE_FOLDER = 'Maintenance Documents';
 
 const SYSTEM_PROMPT =
@@ -23,6 +23,8 @@ const SYSTEM_PROMPT =
   'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
   'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
   'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
+  'If the PDF contains more than one separate document (for example a CR certificate AND a licence on the same file), return {"documents": [ {...}, {...} ]} ' +
+  'with one object per document, each with its own document_name, cr_no, license_no, registration_date, expiry_date and the other fields; otherwise return a single object. ' +
   'Return ONLY a valid JSON object with no markdown or extra text. Every field name should be snake_case.';
 
 // Fields that describe dates change between renewals, so they are ignored when
@@ -483,7 +485,24 @@ function compareExtractedData(newData, existingData) {
   return 1 + (ownerSame ? 1 : 0);
 }
 
-async function findExistingDocument(extractedData, documentName, responsiblePerson) {
+async function findExistingDocument(extractedData, documentName, responsiblePerson, doc = {}) {
+  // Per-document identifier rule: a document with a licence number is the same document as a stored one
+  // with that licence number; one with only a CR number matches a stored CR-only record (a licence record
+  // also carries the CR number, so it must not count as a duplicate of the CR certificate).
+  const identifier = doc.license_no
+    ? { sql: 'LOWER(TRIM(license_no)) = LOWER(TRIM($1))', value: doc.license_no }
+    : doc.cr_no
+    ? { sql: 'LOWER(TRIM(cr_no)) = LOWER(TRIM($1)) AND license_no IS NULL', value: doc.cr_no }
+    : null;
+  if (identifier) {
+    const { rows: byId } = await pool.query(
+      `SELECT id, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at
+       FROM assets WHERE extracted_data IS NOT NULL AND ${identifier.sql} ORDER BY id LIMIT 1`,
+      [identifier.value]
+    );
+    if (byId.length > 0) return { id: byId[0].id, expiryDate: byId[0].expiry_date, processedAt: byId[0].processed_at, score: 100 };
+  }
+
   // Primary rule: the same document name (taken from the attachment filename, so it is stable between
   // runs) from the same responsible person (the sender) is the same document. The AI names and
   // spells identifiers differently on every run, so they can't be used to say "different certificate".
@@ -546,6 +565,18 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// A PDF with several documents comes back as { documents: [ {...}, {...} ] }; anything else is one document.
+// Shared top-level fields (e.g. company_name) are inherited by each document unless it has its own.
+function splitDocuments(aiResult) {
+  const list = Array.isArray(aiResult?.documents)
+    ? aiResult.documents.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+  if (list.length === 0) return [aiResult];
+  if (list.length === 1 && Object.keys(aiResult).length === 1) return list;
+  const { documents, ...shared } = aiResult;
+  return list.map((item) => ({ ...shared, ...item }));
+}
+
 // Result: { status: 'updated' | 'created' | 'duplicate' | 'failed', fileName, documentName?, expiry?, reason?, reasonCode? }
 // reasonCode ('scanned' | 'invalid_json' | 'no_expiry') picks the wording of the summary email.
 async function processPdf(messageId, attachment, senderName, senderAddress) {
@@ -555,7 +586,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   const full = await graphRequest('GET', attachmentUrl, null, 'app');
 
   if (!full.contentBytes) {
-    return fail('attachment has no content');
+    return [fail('attachment has no content')];
   }
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
@@ -568,21 +599,56 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
     if (!converted || converted.trim().length < MIN_TEXT_CHARS) {
       console.warn(`Failed — scanned image PDF — Microsoft could not extract text — please use a text-based PDF ("${attachment.name}")`);
-      return fail('scanned image PDF — Microsoft could not extract text — please use a text-based PDF', 'scanned');
+      return [fail('scanned image PDF — Microsoft could not extract text — please use a text-based PDF', 'scanned')];
     }
     text = converted;
   }
 
-  let raw;
+  let aiResult;
   try {
-    raw = await extractDocumentData(text);
+    aiResult = await extractDocumentData(text);
   } catch (error) {
     if (error instanceof InvalidAiJsonError) {
       console.error(`AI returned invalid JSON for "${attachment.name}":`, error.message);
-      return fail(error.message, 'invalid_json');
+      return [fail(error.message, 'invalid_json')];
     }
     throw error;
   }
+
+  // One PDF can hold several documents (e.g. a CR certificate and a licence): each becomes its own record,
+  // all linked to the same PDF file.
+  const items = splitDocuments(aiResult);
+  const baseName =
+    documentNameFromFilename(attachment.name) || String(attachment.name || '').replace(/\.pdf$/i, '').trim();
+  if (items.length > 1) console.log(`"${attachment.name}" contains ${items.length} documents`);
+
+  // The PDF is uploaded once (when the first document that needs it is saved) and the link is shared.
+  const shared = { uploaded: false, url: null };
+  const getOneDriveUrl = async (doc) => {
+    if (!shared.uploaded) {
+      shared.uploaded = true;
+      shared.url = await uploadToOneDrive(pdfBuffer, doc.owner_name, items.length > 1 ? baseName : doc.document_name, doc.expiry_date);
+    }
+    return shared.url;
+  };
+
+  const results = [];
+  const usedNames = new Set();
+  for (let index = 0; index < items.length; index++) {
+    try {
+      results.push(await processExtractedDocument({ raw: items[index], index, total: items.length, attachment, baseName, usedNames, senderName, senderAddress, getOneDriveUrl }));
+    } catch (error) {
+      console.error(`Failed to save document ${index + 1} of "${attachment.name}":`, error.message);
+      results.push({ status: 'failed', fileName: attachment.name, reason: error.message });
+    }
+  }
+  return results;
+}
+
+// Result for ONE document found in a PDF. Duplicates are checked per document (by licence / CR number, then by
+// name + responsible person), never per file.
+async function processExtractedDocument({ raw, index, total, attachment, baseName, usedNames, senderName, senderAddress, getOneDriveUrl }) {
+  const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode });
 
   // The PDF's own printed date is not when we processed it (that is processed_at), so it is not kept.
   stripPrintedFields(raw);
@@ -595,17 +661,20 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
     return null;
   };
 
+  // Single document: the attachment filename is the name everywhere (Groq's extracted name varies from run
+  // to run). Several documents in one PDF share that filename, so each uses the name the AI found for it.
+  let documentName = baseName || firstString('document_name') || String(attachment.name || '').replace(/\.pdf$/i, '').trim();
+  if (total > 1) {
+    documentName = firstString('document_name', 'document_type') || `${baseName} (${index + 1})`;
+    if (usedNames.has(documentName.toLowerCase())) documentName = `${documentName} (${index + 1})`;
+  }
+  usedNames.add(documentName.toLowerCase());
+
   // The whole AI response is kept as extracted_data; a few well-known keys are
   // also copied into dedicated columns.
   const doc = {
     extracted_data: raw,
-    // The attachment filename is the document name everywhere (database,
-    // OneDrive filename, UI). Groq's extracted name varies from run to run, so
-    // it is only a fallback when the filename has nothing usable in it.
-    document_name:
-      documentNameFromFilename(attachment.name) ||
-      firstString('document_name') ||
-      String(attachment.name || '').replace(/\.pdf$/i, '').trim(),
+    document_name: documentName,
     registration_date: cleanDate(raw.registration_date) || cleanDate(raw.issue_date) || cleanDate(raw.date_of_issue),
     expiry_date: cleanDate(raw.expiry_date),
     owner_name: firstString('company_name', 'owner_name', 'owner', 'company'),
@@ -628,20 +697,20 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   raw.document_name = doc.document_name;
 
   if (!doc.expiry_date) {
-    console.warn(`Cannot process PDF — no expiry date found ("${attachment.name}")`);
-    return fail('could not extract expiry date', 'no_expiry');
+    console.warn(`Cannot process document "${doc.document_name}" - no expiry date found ("${attachment.name}")`);
+    return { ...fail('could not extract expiry date', 'no_expiry'), documentName: doc.document_name };
   }
 
   const base = { fileName: attachment.name, documentName: doc.document_name, expiry: doc.expiry_date };
 
   // Documents handled earlier in this same run are already in the database
-  // (each record is committed before the next PDF is checked), so this also
-  // catches the same PDF attached twice, or sent in several emails.
-  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person);
+  // (each record is committed before the next one is checked), so this also
+  // catches the same document attached twice, or sent in several emails.
+  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person, doc);
 
   // Already stored with the very same expiry - nothing new to record.
   if (existing && existing.expiryDate === doc.expiry_date) {
-    console.log(`Duplicate PDF skipped (already in system with same expiry): ${doc.document_name}`);
+    console.log(`Duplicate document skipped (already in system with same expiry): ${doc.document_name}`);
     return {
       ...base,
       status: 'duplicate',
@@ -650,7 +719,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
     };
   }
 
-  const oneDriveUrl = await uploadToOneDrive(pdfBuffer, doc.owner_name, doc.document_name, doc.expiry_date);
+  const oneDriveUrl = await getOneDriveUrl(doc);
 
   if (existing) {
     await updateExistingDocument(existing.id, doc, oneDriveUrl);
@@ -660,7 +729,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
   const status = existing ? 'updated' : 'created';
   console.log(
-    `Processed PDF: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${status} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
+    `Processed document: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${status} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
   );
   return { ...base, status };
 }
@@ -874,13 +943,15 @@ async function processDocumentEmails() {
         const senderAddress = message.from?.emailAddress?.address || null;
 
         for (const attachment of pdfs) {
-          let result;
+          let results;
           try {
-            result = await processPdf(message.id, attachment, message.from?.emailAddress?.name || message.from?.emailAddress?.address || null, message.from?.emailAddress?.address || null);
+            results = await processPdf(message.id, attachment, message.from?.emailAddress?.name || message.from?.emailAddress?.address || null, message.from?.emailAddress?.address || null);
           } catch (error) {
             console.error(`Failed to process PDF "${attachment.name}" in "${message.subject}":`, error.message);
-            result = { status: 'failed', fileName: attachment.name, reason: error.message };
+            results = [{ status: 'failed', fileName: attachment.name, reason: error.message }];
           }
+
+          for (const result of results) {
 
           if (result.status === 'duplicate') {
             // Rejected: nothing was saved. The submitter gets a dedicated failure email instead of a summary line.
@@ -903,6 +974,7 @@ async function processDocumentEmails() {
           else if (result.status === 'created') summary.documentsCreated++;
           else if (result.status === 'duplicate') summary.duplicates++;
           else summary.failed++;
+          }
         }
 
         await graphRequest('PATCH', `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}`, { isRead: true }, 'app');
@@ -928,4 +1000,4 @@ async function processDocumentEmails() {
   return summary;
 }
 
-module.exports = { DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
+module.exports = { splitDocuments, DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
