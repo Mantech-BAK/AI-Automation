@@ -99,6 +99,23 @@ function serviceAccount() {
   return encodeURIComponent(email);
 }
 
+// Runs fn up to `attempts` times (1 try + retries), logging the exact error of every failed attempt.
+// "Could not read document content" is the AI returning unparseable JSON, which is intermittent for the
+// very same PDF - a retry usually succeeds.
+async function withRetries(label, fn, attempts = 3, delayMs = 2000) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      console.warn(`${label} failed (attempt ${attempt}/${attempts}): ${error.name || 'Error'}: ${error.message}${error.status ? ` [HTTP ${error.status}]` : ''}`);
+      if (attempt < attempts) await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
 function cleanString(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
@@ -151,7 +168,11 @@ async function extractDocumentData(text) {
     completion = await groq.chat.completions.create({ messages, model: 'openai/gpt-oss-20b' });
   }
 
-  return parseJsonObject(completion.choices[0].message.content);
+  const choice = completion.choices?.[0];
+  if (choice?.finish_reason === 'length') {
+    console.warn('Groq response was cut off (finish_reason=length) - the JSON will be incomplete');
+  }
+  return parseJsonObject(choice?.message?.content);
 }
 
 const MIN_TEXT_CHARS = 100;
@@ -590,7 +611,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   }
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
-  let { text } = await pdfParse(pdfBuffer);
+  let { text } = await withRetries(`PDF text extraction for "${attachment.name}"`, () => pdfParse(pdfBuffer));
 
   // Scanned PDFs have little or no text layer - try Microsoft's conversion.
   if (!text || text.trim().length < MIN_TEXT_CHARS) {
@@ -606,7 +627,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
   let aiResult;
   try {
-    aiResult = await extractDocumentData(text);
+    aiResult = await withRetries(`AI extraction for "${attachment.name}"`, () => extractDocumentData(text));
   } catch (error) {
     if (error instanceof InvalidAiJsonError) {
       console.error(`AI returned invalid JSON for "${attachment.name}":`, error.message);
