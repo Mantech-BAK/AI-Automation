@@ -102,7 +102,7 @@ app.use(
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT NOW()');
-    return res.json({ success: true, databaseConnected: true });
+    return res.json({ success: true, databaseConnected: true, commit: (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7) });
   } catch (error) {
     console.error('Database health check failed', error);
     return res.status(503).json({ success: false, databaseConnected: false });
