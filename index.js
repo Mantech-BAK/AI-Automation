@@ -133,6 +133,10 @@ app.use((req, res) => {
 });
 
 startStatusTracker();
+// Documents module columns (cr_no, license_no, processed_at) - idempotent; then the duplicate clean-up.
+require('./db/documentColumns')
+  .ensureDocumentColumns(pool)
+  .catch((error) => console.error('Document column setup failed:', error.message));
 removeDuplicateDocuments().catch((error) => {
   console.error('Duplicate document clean-up failed:', error.message);
 });

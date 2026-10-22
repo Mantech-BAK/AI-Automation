@@ -6,6 +6,7 @@ const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
 const { toTitleCase } = require('../utils/text');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
+const { sendDuplicateEmail, DUPLICATE_UI_MESSAGE } = require('../jobs/documentEmailProcessor');
 
 // Non-admin users are scoped to their allowed departments/item types/
 // categories (see users.allowed_departments/allowed_item_types/
@@ -907,7 +908,42 @@ router.post('/assets/add', async (req, res) => {
       responsible_person,
       remarks,
       parent_asset_id,
+      cr_no,
+      license_no,
+      document_number,
     } = req.body;
+
+    // Documents: refuse a second record for the same document (same name + same CR / licence / document number).
+    // Nothing is saved; the submitter is emailed and the UI shows DUPLICATE_UI_MESSAGE.
+    const crNo = String(cr_no ?? '').trim() || null;
+    const licenseNo = String(license_no ?? '').trim() || null;
+    const documentNo = String(document_number ?? '').trim() || null;
+    const { rows: typeRows } = type_id
+      ? await pool.query('SELECT name FROM asset_types WHERE id = $1', [type_id])
+      : { rows: [] };
+    const isDocument = typeRows[0]?.name === 'Document';
+
+    if (isDocument && (crNo || licenseNo || documentNo)) {
+      const { rows: duplicates } = await pool.query(
+        `SELECT a.id, a.expiry_date, COALESCE(a.processed_at, a.last_received_at) AS processed_at
+         FROM assets a JOIN asset_types t ON t.id = a.type_id
+         WHERE t.name = 'Document' AND LOWER(TRIM(a.equipment_name)) = LOWER(TRIM($1))
+           AND (($2::text IS NOT NULL AND LOWER(TRIM(a.cr_no)) = LOWER($2))
+             OR ($3::text IS NOT NULL AND LOWER(TRIM(a.license_no)) = LOWER($3))
+             OR ($4::text IS NOT NULL AND LOWER(TRIM(a.document_number)) = LOWER($4)))
+         LIMIT 1`,
+        [equipment_name || '', crNo, licenseNo, documentNo]
+      );
+      if (duplicates.length > 0) {
+        const notified = await sendDuplicateEmail(req.session?.user?.email, [], {
+          documentName: equipment_name,
+          identifier: licenseNo || crNo || documentNo,
+          expiry: expiry_date || duplicates[0].expiry_date,
+          processedAt: duplicates[0].processed_at,
+        });
+        return res.status(409).json({ error: DUPLICATE_UI_MESSAGE, duplicate: true, notified });
+      }
+    }
 
     const next_due_date = last_completed_date
       ? (() => {
@@ -937,8 +973,13 @@ router.post('/assets/add', async (req, res) => {
          tolerance_days,
          responsible_person,
          remarks,
-         parent_asset_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         parent_asset_id,
+         cr_no,
+         license_no,
+         document_number,
+         processed_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                 CASE WHEN $22::boolean THEN NOW() END)
        RETURNING *`,
       [
         equipment_name,
@@ -959,6 +1000,10 @@ router.post('/assets/add', async (req, res) => {
         responsible_person || null,
         remarks || null,
         parent_asset_id || null,
+        crNo,
+        licenseNo,
+        documentNo,
+        isDocument,
       ]
     );
 
@@ -990,6 +1035,8 @@ router.put('/assets/:id', async (req, res) => {
       responsible_person,
       remarks,
       parent_asset_id,
+      cr_no,
+      license_no,
     } = req.body;
 
     const { rows } = await pool.query(
@@ -1011,6 +1058,8 @@ router.put('/assets/:id', async (req, res) => {
          responsible_person = $15,
          remarks = $16,
          parent_asset_id = $17,
+         cr_no = CASE WHEN $20::boolean THEN $21 ELSE cr_no END,
+         license_no = CASE WHEN $20::boolean THEN $22 ELSE license_no END,
          updated_at = NOW()
        WHERE id = $18
        RETURNING *`,
@@ -1034,6 +1083,9 @@ router.put('/assets/:id', async (req, res) => {
         parent_asset_id || null,
         id,
         frequency_days !== undefined,
+        cr_no !== undefined || license_no !== undefined,
+        String(cr_no ?? '').trim() || null,
+        String(license_no ?? '').trim() || null,
       ]
     );
 

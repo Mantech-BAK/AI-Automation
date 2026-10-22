@@ -50,6 +50,9 @@ interface Equipment {
   issuing_authority?: string | null;
   onedrive_url?: string | null;
   last_received_at?: string | null;
+  cr_no?: string | null;
+  license_no?: string | null;
+  processed_at?: string | null;
   versions?: DocumentVersion[];
   extracted_data?: Record<string, unknown> | null;
 }
@@ -111,6 +114,28 @@ function getDocumentExpiryColorClass(dateStr?: string | null): string {
   if (days < 0) return 'text-red-600 font-medium';
   if (days <= 30) return 'text-orange-600 font-medium';
   return 'text-emerald-600 font-medium';
+}
+
+// Full timestamp in Bahrain time: DD/MM/YYYY HH:mm.
+function formatDateTimeDMY(value?: string | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bahrain', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`;
+}
+
+// Extracted fields that have their own labelled row (CR No, License No, Processed Date) are not repeated in the generic list.
+const CR_KEY = /^(c_?r)(_?(no|number|num))?$|^commercial_?(registration|reg)(_?(no|number|num))?$/;
+const LICENSE_KEY = /^licen[cs]e(_?(no|number|num))?$/;
+const PRINTED_KEY = /^print(ed)?(_|$)/;
+function isDedicatedField(key: string): boolean {
+  const lower = key.toLowerCase().trim();
+  return CR_KEY.test(lower) || LICENSE_KEY.test(lower) || PRINTED_KEY.test(lower);
 }
 
 function formatFieldName(key: string): string {
@@ -180,7 +205,12 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     tolerance_days: '0',
     responsible_person: '',
     remarks: '',
+    cr_no: '',
+    license_no: '',
+    document_number: '',
   });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const isDocumentType = typeOptions.find((option) => String(option.id) === formData.type_id)?.name === 'Document';
 
   useEffect(() => {
     fetchData();
@@ -243,14 +273,24 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
         tolerance_days: formData.tolerance_days ? Number(formData.tolerance_days) : 0,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
+        cr_no: isDocumentType ? formData.cr_no || null : null,
+        license_no: isDocumentType ? formData.license_no || null : null,
+        document_number: isDocumentType ? formData.document_number || null : null,
       };
 
+      setSaveError(null);
       const response = await apiFetch('/api/dashboard/assets/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
       if (!response.ok) {
+        // 409 = duplicate document: the server already emailed the submitter; show its message.
+        const body = await response.json().catch(() => null);
+        if (response.status === 409 && body?.error) {
+          setSaveError(body.error);
+          return;
+        }
         throw new Error(`Failed to save equipment: ${response.statusText}`);
       }
 
@@ -282,7 +322,11 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
       tolerance_days: '0',
       responsible_person: '',
       remarks: '',
+      cr_no: '',
+      license_no: '',
+      document_number: '',
     });
+    setSaveError(null);
   }
 
   async function fetchSiteOptions() {
@@ -527,8 +571,11 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Interval (days)</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Completed</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Next Due</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">CR No</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">License No</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processed Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -652,7 +699,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
@@ -678,10 +725,13 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                                 Details
                               </button>
                             </td>
+                            <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{item.cr_no || '-'}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{item.license_no || '-'}</td>
                             <td className="px-6 py-4 text-sm text-slate-600">{formatDateDMY(item.registration_date)}</td>
                             <td className={`px-6 py-4 text-sm ${getDocumentExpiryColorClass(item.expiry_date)}`}>
                               {formatDateDMY(item.expiry_date)}
                             </td>
+                            <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateTimeDMY(item.processed_at)}</td>
                             <td className="px-6 py-4 text-sm text-slate-600">
                               <ResponsiblePerson value={item.responsible_person} resolvedName={item.resolved_responsible_name} showEmail />
                             </td>
@@ -911,6 +961,37 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                 placeholder="e.g., Yasir Ismail"
               />
             </div>
+            {isDocumentType && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">CR No</label>
+                  <input
+                    type="text"
+                    value={formData.cr_no}
+                    onChange={(e) => setFormData({ ...formData, cr_no: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">License No</label>
+                  <input
+                    type="text"
+                    value={formData.license_no}
+                    onChange={(e) => setFormData({ ...formData, license_no: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Document No</label>
+                  <input
+                    type="text"
+                    value={formData.document_number}
+                    onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  />
+                </div>
+              </>
+            )}
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
               <textarea
@@ -922,6 +1003,9 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               />
             </div>
           </div>
+          {saveError && (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{saveError}</div>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <button
               onClick={() => setAddModalOpen(false)}
@@ -968,7 +1052,19 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                 <ResponsiblePerson value={detailsDoc.responsible_person} resolvedName={detailsDoc.resolved_responsible_name} showEmail />
               </dd>
             </div>
-            {Object.entries(detailsDoc.extracted_data || {}).map(([key, value]) => (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">CR No:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.cr_no || '-'}</dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">License No:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.license_no || '-'}</dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Processed Date:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatDateTimeDMY(detailsDoc.processed_at)}</dd>
+            </div>
+            {Object.entries(detailsDoc.extracted_data || {}).filter(([key]) => !isDedicatedField(key)).map(([key, value]) => (
               <div key={key} className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
                 <dt className="text-sm font-medium text-slate-500">{formatFieldName(key)}:</dt>
                 <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatFieldValue(value)}</dd>

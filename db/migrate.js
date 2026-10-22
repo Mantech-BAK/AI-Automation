@@ -658,6 +658,9 @@ async function runMigrations() {
       ALTER TABLE assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
     `);
 
+    // Documents: dedicated cr_no / license_no columns and the processed_at timestamp.
+    await require('./documentColumns').ensureDocumentColumns(pool);
+
     // Project Tracking module: projects, AR transactions and retention.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS projects (

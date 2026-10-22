@@ -22,6 +22,8 @@ export interface EditableAsset {
   responsible_person?: string | null;
   remarks?: string | null;
   type_name?: string | null;
+  cr_no?: string | null;
+  license_no?: string | null;
 }
 
 interface CategoryOption {
@@ -54,6 +56,8 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
     tolerance_days: '',
     responsible_person: '',
     remarks: '',
+    cr_no: '',
+    license_no: '',
   });
 
   useEffect(() => {
@@ -74,6 +78,8 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
       tolerance_days: asset.tolerance_days != null ? String(asset.tolerance_days) : '0',
       responsible_person: asset.responsible_person || '',
       remarks: asset.remarks || '',
+      cr_no: asset.cr_no || '',
+      license_no: asset.license_no || '',
     });
 
     apiFetch('/api/dashboard/categories')
@@ -106,6 +112,7 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
         tolerance_days: formData.tolerance_days ? Number(formData.tolerance_days) : 0,
         responsible_person: formData.responsible_person || null,
         remarks: formData.remarks || null,
+        ...(isDocument ? { cr_no: formData.cr_no || null, license_no: formData.license_no || null } : {}),
       };
 
       const response = await apiFetch(`/api/dashboard/assets/${asset.id}`, {
@@ -198,6 +205,28 @@ export default function AssetEditModal({ asset, onClose, onSaved }: AssetEditMod
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
           </div>
+          {isDocument && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">CR No</label>
+                <input
+                  type="text"
+                  value={formData.cr_no}
+                  onChange={(e) => setFormData({ ...formData, cr_no: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">License No</label>
+                <input
+                  type="text"
+                  value={formData.license_no}
+                  onChange={(e) => setFormData({ ...formData, license_no: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+              </div>
+            </>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Registration Date</label>
             <input

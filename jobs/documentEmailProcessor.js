@@ -6,6 +6,7 @@ const Groq = require('groq-sdk');
 const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const { pool } = require('../db');
 const { graphRequest, getAppOnlyToken } = require('../graph/client');
+const { findCrNo, findLicenseNo, stripPrintedFields } = require('../utils/documentFields');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -313,10 +314,13 @@ async function updateExistingDocument(assetId, doc, oneDriveUrl) {
          registration_date = $2,
          extracted_data = $3::jsonb,
          last_received_at = NOW(),
+         processed_at = NOW(),
          updated_at = NOW(),
-         onedrive_url = COALESCE($4, onedrive_url)
+         onedrive_url = COALESCE($4, onedrive_url),
+         cr_no = COALESCE($6, cr_no),
+         license_no = COALESCE($7, license_no)
        WHERE id = $5`,
-      [doc.expiry_date, doc.registration_date, JSON.stringify(doc.extracted_data), oneDriveUrl, assetId]
+      [doc.expiry_date, doc.registration_date, JSON.stringify(doc.extracted_data), oneDriveUrl, assetId, doc.cr_no, doc.license_no]
     );
 
     if (oneDriveUrl) {
@@ -362,17 +366,19 @@ async function createNewDocument(doc, oneDriveUrl) {
        equipment_name, company_name, type_of_service, document_number, issuing_authority,
        expiry_date, next_due_date, registration_date, last_received_at,
        reminder_days, maintenance_interval_days, frequency_days, onedrive_url,
-       type_id, responsible_person, site_location, estimated_duration_hours, extracted_data
+       type_id, responsible_person, site_location, estimated_duration_hours, extracted_data,
+       cr_no, license_no, processed_at
      ) VALUES (
        $1, $2, $3, $4, $5,
        $6, $6, $7, NOW(),
        30, 365, NULL, $8,
-       (SELECT id FROM asset_types WHERE name = 'Document' LIMIT 1), $9, 'Unassigned', 0, $10::jsonb
+       (SELECT id FROM asset_types WHERE name = 'Document' LIMIT 1), $9, 'Unassigned', 0, $10::jsonb,
+       $11, $12, NOW()
      ) RETURNING id`,
     [
       doc.document_name, doc.owner_name, doc.document_type, doc.document_number, doc.issuing_authority,
       doc.expiry_date, doc.registration_date, oneDriveUrl, doc.responsible_person,
-      JSON.stringify(doc.extracted_data),
+      JSON.stringify(doc.extracted_data), doc.cr_no, doc.license_no,
     ]
   );
 
@@ -476,14 +482,14 @@ function compareExtractedData(newData, existingData) {
 
 async function findExistingDocument(extractedData) {
   const { rows } = await pool.query(
-    `SELECT id, extracted_data, onedrive_url, expiry_date FROM assets WHERE extracted_data IS NOT NULL`
+    `SELECT id, extracted_data, onedrive_url, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at FROM assets WHERE extracted_data IS NOT NULL`
   );
 
   let best = null;
   for (const row of rows) {
     const score = compareExtractedData(extractedData, row.extracted_data);
     if (score !== null && (!best || score > best.score)) {
-      best = { id: row.id, expiryDate: row.expiry_date, score };
+      best = { id: row.id, expiryDate: row.expiry_date, processedAt: row.processed_at, score };
     }
   }
   return best;
@@ -560,6 +566,9 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
     throw error;
   }
 
+  // The PDF's own printed date is not when we processed it (that is processed_at), so it is not kept.
+  stripPrintedFields(raw);
+
   const firstString = (...keys) => {
     for (const key of keys) {
       const value = cleanString(typeof raw[key] === 'object' ? null : raw[key]);
@@ -583,6 +592,8 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
     expiry_date: cleanDate(raw.expiry_date),
     owner_name: firstString('company_name', 'owner_name', 'owner', 'company'),
     document_type: firstString('document_type') || 'general',
+    cr_no: findCrNo(raw),
+    license_no: findLicenseNo(raw),
     document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number'),
     issuing_authority: firstString('issuing_authority'),
     // Whoever sent the document is responsible for it.
@@ -613,7 +624,12 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   // Already stored with the very same expiry - nothing new to record.
   if (existing && existing.expiryDate === doc.expiry_date) {
     console.log(`Duplicate PDF skipped (already in system with same expiry): ${doc.document_name}`);
-    return { ...base, status: 'duplicate' };
+    return {
+      ...base,
+      status: 'duplicate',
+      identifier: doc.license_no || doc.cr_no || doc.document_number || null,
+      processedAt: existing.processedAt || null,
+    };
   }
 
   const oneDriveUrl = await uploadToOneDrive(pdfBuffer, doc.owner_name, doc.document_name, doc.expiry_date);
@@ -650,6 +666,69 @@ function describeResult(result) {
         default:
           return `${result.fileName} — Failed: ${result.reason}`;
       }
+  }
+}
+
+const DUPLICATE_SUBJECT = 'Document Processing Failed – Duplicate Document';
+// Shown in the UI when a manually submitted document is rejected as a duplicate.
+const DUPLICATE_UI_MESSAGE = 'This document has already been processed. A notification has been sent.';
+
+function formatDMYHM(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bahrain', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`;
+}
+
+function buildDuplicateEmail({ documentName, fileName, identifier, expiry, processedAt }) {
+  const details = [
+    `<li>Document: <b>${escapeHtml(documentName || fileName || 'Unknown document')}</b></li>`,
+    fileName ? `<li>File: ${escapeHtml(fileName)}</li>` : '',
+    identifier ? `<li>Reference / licence number: ${escapeHtml(identifier)}</li>` : '',
+    expiry ? `<li>Expiry date: ${escapeHtml(formatDMY(expiry))}</li>` : '',
+    formatDMYHM(processedAt) ? `<li>Already processed on: ${escapeHtml(formatDMYHM(processedAt))} (Bahrain time)</li>` : '',
+  ].join('');
+  return {
+    subject: DUPLICATE_SUBJECT,
+    content:
+      `<p>The document you submitted could not be processed because <b>this document has already been processed</b> and is in the system with the same details.</p>` +
+      `<ul>${details}</ul>` +
+      `<p>Nothing was saved. If this is a renewal, please send the new document showing its updated expiry date.</p>`,
+  };
+}
+
+// Emails the submitter that their document is a duplicate. Never throws; returns true when sent.
+async function sendDuplicateEmail(toAddress, ccAddresses, info) {
+  const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
+  if (!toAddress || toAddress.toLowerCase() === ownAddress) return false;
+
+  const { subject, content } = buildDuplicateEmail(info);
+  const cc = [...new Set((ccAddresses || []).filter((a) => a && a.toLowerCase() !== ownAddress && a.toLowerCase() !== toAddress.toLowerCase()))];
+  try {
+    await graphRequest(
+      'POST',
+      `/users/${serviceAccount()}/sendMail`,
+      {
+        message: {
+          subject,
+          body: { contentType: 'HTML', content },
+          toRecipients: [{ emailAddress: { address: toAddress } }],
+          ccRecipients: cc.map((address) => ({ emailAddress: { address } })),
+        },
+        saveToSentItems: 'true',
+      },
+      'app'
+    );
+    console.log(`Duplicate-document email sent to ${toAddress} (${info.documentName || info.fileName})`);
+    return true;
+  } catch (error) {
+    console.warn(`Could not send duplicate-document email to ${toAddress}: ${error.message}`);
+    return false;
   }
 }
 
@@ -785,7 +864,14 @@ async function processDocumentEmails() {
             result = { status: 'failed', fileName: attachment.name, reason: error.message };
           }
 
-          if (senderAddress) {
+          if (result.status === 'duplicate') {
+            // Rejected: nothing was saved. The submitter gets a dedicated failure email instead of a summary line.
+            await sendDuplicateEmail(
+              senderAddress,
+              (message.ccRecipients || []).map((r) => r.emailAddress?.address).filter(Boolean),
+              result
+            );
+          } else if (senderAddress) {
             if (!entriesBySender.has(senderAddress)) entriesBySender.set(senderAddress, []);
             entriesBySender.get(senderAddress).push({
               subject: message.subject,
@@ -824,4 +910,4 @@ async function processDocumentEmails() {
   return summary;
 }
 
-module.exports = { documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
+module.exports = { DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
