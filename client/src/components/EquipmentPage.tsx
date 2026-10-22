@@ -287,8 +287,8 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
       if (!response.ok) {
         // 409 = duplicate document: the server already emailed the submitter; show its message.
         const body = await response.json().catch(() => null);
-        if (response.status === 409 && body?.error) {
-          setSaveError(body.error);
+        if (response.status === 409 && body?.duplicate) {
+          setSaveError(body.notified ? 'Document already exists. A duplicate submission email has been sent.' : 'Document already exists.');
           return;
         }
         throw new Error(`Failed to save equipment: ${response.statusText}`);
@@ -571,11 +571,8 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Interval (days)</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Completed</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Next Due</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">CR No</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">License No</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processed Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -689,8 +686,11 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Document Name</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Details</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">CR No</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">License No</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processed Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Doc</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Docs</th>

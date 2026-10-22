@@ -6,7 +6,10 @@ const { pool } = require('../db');
 const { graphRequest } = require('../graph/client');
 const { toTitleCase } = require('../utils/text');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
-const { sendDuplicateEmail, DUPLICATE_UI_MESSAGE } = require('../jobs/documentEmailProcessor');
+const { sendDuplicateEmail } = require('../jobs/documentEmailProcessor');
+
+const DUPLICATE_UI_MESSAGE = 'This document already exists.';
+const escapeHtml = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // Non-admin users are scoped to their allowed departments/item types/
 // categories (see users.allowed_departments/allowed_item_types/
@@ -913,8 +916,9 @@ router.post('/assets/add', async (req, res) => {
       document_number,
     } = req.body;
 
-    // Documents: refuse a second record for the same document (same name + same CR / licence / document number).
-    // Nothing is saved; the submitter is emailed and the UI shows DUPLICATE_UI_MESSAGE.
+    // Documents: refuse a second record for the same document - same name AND same responsible person,
+    // or same name AND a matching CR / licence / document number. Nothing is saved; the submitter is
+    // emailed and the UI shows the duplicate message.
     const crNo = String(cr_no ?? '').trim() || null;
     const licenseNo = String(license_no ?? '').trim() || null;
     const documentNo = String(document_number ?? '').trim() || null;
@@ -923,23 +927,23 @@ router.post('/assets/add', async (req, res) => {
       : { rows: [] };
     const isDocument = typeRows[0]?.name === 'Document';
 
-    if (isDocument && (crNo || licenseNo || documentNo)) {
+    if (isDocument) {
       const { rows: duplicates } = await pool.query(
         `SELECT a.id, a.expiry_date, COALESCE(a.processed_at, a.last_received_at) AS processed_at
          FROM assets a JOIN asset_types t ON t.id = a.type_id
          WHERE t.name = 'Document' AND LOWER(TRIM(a.equipment_name)) = LOWER(TRIM($1))
-           AND (($2::text IS NOT NULL AND LOWER(TRIM(a.cr_no)) = LOWER($2))
+           AND (COALESCE(LOWER(TRIM(a.responsible_person)), '') = COALESCE(LOWER(TRIM($5::text)), '')
+             OR ($2::text IS NOT NULL AND LOWER(TRIM(a.cr_no)) = LOWER($2))
              OR ($3::text IS NOT NULL AND LOWER(TRIM(a.license_no)) = LOWER($3))
              OR ($4::text IS NOT NULL AND LOWER(TRIM(a.document_number)) = LOWER($4)))
          LIMIT 1`,
-        [equipment_name || '', crNo, licenseNo, documentNo]
+        [equipment_name || '', crNo, licenseNo, documentNo, responsible_person || null]
       );
       if (duplicates.length > 0) {
-        const notified = await sendDuplicateEmail(req.session?.user?.email, [], {
-          documentName: equipment_name,
-          identifier: licenseNo || crNo || documentNo,
-          expiry: expiry_date || duplicates[0].expiry_date,
-          processedAt: duplicates[0].processed_at,
+        const name = String(equipment_name || '');
+        const notified = await sendDuplicateEmail(req.session?.user?.email, [], { documentName: name }, {
+          subject: 'Duplicate Document Submission – Not Processed',
+          content: `<p>Your document '${escapeHtml(name)}' was not processed because it already exists in the system. If you believe this is an error, please contact the administrator.</p>`,
         });
         return res.status(409).json({ error: DUPLICATE_UI_MESSAGE, duplicate: true, notified });
       }

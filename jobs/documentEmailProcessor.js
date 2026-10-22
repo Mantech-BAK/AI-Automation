@@ -703,11 +703,11 @@ function buildDuplicateEmail({ documentName, fileName, identifier, expiry, proce
 }
 
 // Emails the submitter that their document is a duplicate. Never throws; returns true when sent.
-async function sendDuplicateEmail(toAddress, ccAddresses, info) {
+async function sendDuplicateEmail(toAddress, ccAddresses, info, override = null) {
   const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
   if (!toAddress || toAddress.toLowerCase() === ownAddress) return false;
 
-  const { subject, content } = buildDuplicateEmail(info);
+  const { subject, content } = override || buildDuplicateEmail(info);
   const cc = [...new Set((ccAddresses || []).filter((a) => a && a.toLowerCase() !== ownAddress && a.toLowerCase() !== toAddress.toLowerCase()))];
   try {
     await graphRequest(
