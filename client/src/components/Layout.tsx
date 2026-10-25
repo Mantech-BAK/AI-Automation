@@ -26,7 +26,11 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
   // The Project Tracking dashboard opens with a greeting instead of a title bar.
   const hideTopbar = module === 'projects' && activeNavId === 'dashboard';
 
-  const pageTitle = [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
+  // Project Tracking shows just the module name in the top header on every page (the sidebar keeps the page labels).
+  const pageTitle =
+    module === 'projects'
+      ? definition.label
+      : [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
 
   const renderItem = (item: ModuleNavItem) => {
     const Icon = item.icon;
