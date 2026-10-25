@@ -23,14 +23,10 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
   // Users is admin-only; Settings is open to everyone, as before.
   const systemItems = SYSTEM_NAV.filter((item) => item.id !== 'users' || role === 'admin');
 
-  // The Project Tracking dashboard opens with a greeting instead of a title bar.
-  const hideTopbar = module === 'projects' && activeNavId === 'dashboard';
+  // Project Tracking has no title bar on any page (the dashboard opens with a greeting instead).
+  const hideTopbar = module === 'projects';
 
-  // Project Tracking shows just the module name in the top header on every page (the sidebar keeps the page labels).
-  const pageTitle =
-    module === 'projects'
-      ? definition.label
-      : [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
+  const pageTitle = [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
 
   const renderItem = (item: ModuleNavItem) => {
     const Icon = item.icon;
@@ -154,7 +150,7 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
         )}
 
         <div
-          className="flex-1 p-4 lg:p-8"
+          className={`flex-1 p-4 lg:p-8 ${hideTopbar && activeNavId === 'settings' ? 'pt-16 lg:pt-8' : ''}`}
           style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)' }}
         >
           {children}
