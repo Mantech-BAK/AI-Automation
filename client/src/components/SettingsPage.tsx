@@ -455,7 +455,7 @@ export default function SettingsPage() {
           {activeTab === 'system' && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
               <h2 className="text-lg font-semibold text-slate-800 mb-1">Your Name</h2>
-              <p className="text-sm text-slate-500 mb-4">Your display name.</p>
+              <p className="text-sm text-slate-500 mb-4">Shown in the greeting at the top of the dashboards, e.g. &ldquo;Good afternoon, Umesh&rdquo;.</p>
               <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="text"

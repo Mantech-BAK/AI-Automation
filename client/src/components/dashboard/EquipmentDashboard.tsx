@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import type { NavFilter } from '../../App';
 import ModuleOverview from './ModuleOverview';
 import {
+  DashboardBanner,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -75,6 +76,7 @@ export default function EquipmentDashboard({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
+      <DashboardBanner moduleLabel="Equipment Maintenance" gradient="from-blue-500 to-indigo-600" />
 
       {/* Original donut chart and stat tiles */}
       <ModuleOverview module="equipment" onNavigate={onNavigate} />
