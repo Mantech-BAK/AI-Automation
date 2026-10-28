@@ -16,6 +16,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // cannot push the later pages out. Long inputs make the model's answer long enough to be cut off mid-JSON.
 const MAX_TEXT_CHARS = 24000;
 const MAX_PAGE_CHARS = 6000;
+// false: a re-sent document that already exists is always a duplicate (even with a new expiry date).
+const AUTO_RENEW_ON_NEWER_EXPIRY = false;
 const ONEDRIVE_FOLDER = 'Maintenance Documents';
 
 const SYSTEM_PROMPT =
@@ -544,53 +546,40 @@ function compareExtractedData(newData, existingData) {
   return 1 + (ownerSame ? 1 : 0);
 }
 
+// Looks for a stored document (assets row of type "Document" - manual and e-mailed ones alike) that is the same
+// as the incoming one. Checked against the live database, in priority order:
+//   1. same licence number          2. same CR number (CR-only records)          3. same name AND same responsible person
+// Records already created/matched by an earlier document of this same PDF (excludeIds) are skipped.
+// Returns { id, expiryDate, processedAt, matchedBy, matchedValue, name } or null.
 async function findExistingDocument(extractedData, documentName, responsiblePerson, doc = {}, excludeIds = new Set()) {
   const exclude = [...excludeIds];
-  // Per-document identifier rule: a document with a licence number is the same document as a stored one
-  // with that licence number; one with only a CR number matches a stored CR-only record (a licence record
-  // also carries the CR number, so it must not count as a duplicate of the CR certificate).
-  const identifier = doc.license_no
-    ? { sql: 'LOWER(TRIM(license_no)) = LOWER(TRIM($1))', value: doc.license_no }
-    : doc.cr_no
-    ? { sql: 'LOWER(TRIM(cr_no)) = LOWER(TRIM($1)) AND license_no IS NULL', value: doc.cr_no }
-    : null;
-  if (identifier) {
-    const { rows: byId } = await pool.query(
-      `SELECT id, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at
-       FROM assets WHERE extracted_data IS NOT NULL AND ${identifier.sql} AND id <> ALL($2::int[]) ORDER BY id LIMIT 1`,
-      [identifier.value, exclude]
-    );
-    if (byId.length > 0) return { id: byId[0].id, expiryDate: byId[0].expiry_date, processedAt: byId[0].processed_at, score: 100 };
+  const base = `SELECT a.id, a.equipment_name, a.expiry_date, COALESCE(a.processed_at, a.last_received_at) AS processed_at
+                FROM assets a JOIN asset_types t ON t.id = a.type_id
+                WHERE t.name = 'Document' AND a.id <> ALL($1::int[])`;
+  const found = (row, matchedBy, matchedValue) => ({
+    id: row.id, name: row.equipment_name, expiryDate: row.expiry_date, processedAt: row.processed_at, matchedBy, matchedValue,
+  });
+
+  if (doc.license_no) {
+    const { rows } = await pool.query(`${base} AND LOWER(TRIM(a.license_no)) = LOWER(TRIM($2)) ORDER BY a.id LIMIT 1`, [exclude, doc.license_no]);
+    if (rows.length > 0) return found(rows[0], 'license_no', doc.license_no);
+  } else if (doc.cr_no) {
+    // A licence record also carries the CR number, so only CR-only records count as the same CR certificate.
+    const { rows } = await pool.query(`${base} AND LOWER(TRIM(a.cr_no)) = LOWER(TRIM($2)) AND a.license_no IS NULL ORDER BY a.id LIMIT 1`, [exclude, doc.cr_no]);
+    if (rows.length > 0) return found(rows[0], 'cr_no', doc.cr_no);
   }
 
-  // Primary rule: the same document name (taken from the attachment filename, so it is stable between
-  // runs) from the same responsible person (the sender) is the same document. The AI names and
-  // spells identifiers differently on every run, so they can't be used to say "different certificate".
+  // Same name from the same person. The name comes from the attachment filename, so it is stable between runs
+  // (the AI spells identifiers differently on every run, so identifiers alone cannot catch a re-sent file).
   if (documentName && responsiblePerson) {
-    const { rows: byName } = await pool.query(
-      `SELECT id, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at
-       FROM assets
-       WHERE extracted_data IS NOT NULL AND LOWER(TRIM(equipment_name)) = LOWER(TRIM($1))
-         AND LOWER(TRIM(responsible_person)) = LOWER(TRIM($2)) AND id <> ALL($3::int[])
-       ORDER BY id LIMIT 1`,
-      [documentName, responsiblePerson, exclude]
+    const { rows } = await pool.query(
+      `${base} AND LOWER(TRIM(a.equipment_name)) = LOWER(TRIM($2)) AND LOWER(TRIM(a.responsible_person)) = LOWER(TRIM($3)) ORDER BY a.id LIMIT 1`,
+      [exclude, documentName, responsiblePerson]
     );
-    if (byName.length > 0) return { id: byName[0].id, expiryDate: byName[0].expiry_date, processedAt: byName[0].processed_at, score: 99 };
+    if (rows.length > 0) return found(rows[0], 'name + responsible person', `${documentName} / ${responsiblePerson}`);
   }
 
-  const { rows } = await pool.query(
-    `SELECT id, extracted_data, onedrive_url, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at FROM assets WHERE extracted_data IS NOT NULL`
-  );
-
-  let best = null;
-  for (const row of rows) {
-    if (excludeIds.has(row.id)) continue;
-    const score = compareExtractedData(extractedData, row.extracted_data);
-    if (score !== null && (!best || score > best.score)) {
-      best = { id: row.id, expiryDate: row.expiry_date, processedAt: row.processed_at, score };
-    }
-  }
-  return best;
+  return null;
 }
 
 // Startup clean-up: keeps the oldest record of each group of documents that
@@ -798,9 +787,12 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person, doc, claimedIds);
   if (existing) claimedIds.add(existing.id);
 
-  // Already stored with the very same expiry - nothing new to record.
-  if (existing && existing.expiryDate === doc.expiry_date) {
-    console.log(`Duplicate document skipped (already in system with same expiry): ${doc.document_name}`);
+  // Already in the system: nothing is saved and the sender is told (renewals go through the administrator).
+  // AUTO_RENEW_ON_NEWER_EXPIRY lets a re-sent document with a different expiry date update the stored record instead.
+  if (existing && !(AUTO_RENEW_ON_NEWER_EXPIRY && existing.expiryDate !== doc.expiry_date)) {
+    console.log(
+      `Duplicate document detected: "${doc.document_name}" matches existing document #${existing.id} "${existing.name}" by ${existing.matchedBy} (${existing.matchedValue}) - not saved`
+    );
     return {
       ...base,
       status: 'duplicate',
@@ -862,20 +854,13 @@ function formatDMYHM(value) {
   return `${parts.day}/${parts.month}/${parts.year} ${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`;
 }
 
-function buildDuplicateEmail({ documentName, fileName, identifier, expiry, processedAt }) {
-  const details = [
-    `<li>Document: <b>${escapeHtml(documentName || fileName || 'Unknown document')}</b></li>`,
-    fileName ? `<li>File: ${escapeHtml(fileName)}</li>` : '',
-    identifier ? `<li>Reference / licence number: ${escapeHtml(identifier)}</li>` : '',
-    expiry ? `<li>Expiry date: ${escapeHtml(formatDMY(expiry))}</li>` : '',
-    formatDMYHM(processedAt) ? `<li>Already processed on: ${escapeHtml(formatDMYHM(processedAt))} (Bahrain time)</li>` : '',
-  ].join('');
+function buildDuplicateEmail({ documentName, fileName }) {
+  const name = documentName || fileName || 'Unknown document';
   return {
     subject: DUPLICATE_SUBJECT,
     content:
-      `<p>The document you submitted could not be processed because <b>this document has already been processed</b> and is in the system with the same details.</p>` +
-      `<ul>${details}</ul>` +
-      `<p>Nothing was saved. If this is a renewal, please send the new document showing its updated expiry date.</p>`,
+      `<p>This document <b>${escapeHtml(name)}</b> already exists in the system. ` +
+      `If this is a renewal or update, please contact the administrator.</p>`,
   };
 }
 
