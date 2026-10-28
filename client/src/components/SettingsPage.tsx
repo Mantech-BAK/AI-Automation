@@ -420,11 +420,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
-        <p className="text-slate-500 mt-1">Manage your application preferences</p>
-      </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Sidebar */}

@@ -153,11 +153,6 @@ export default function DepartmentsPage({ onNavigate }: DepartmentsPageProps = {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Departments</h1>
-        <p className="text-slate-500 mt-1">Equipment and document tasks grouped by department</p>
-      </div>
 
       {/* Departments List */}
       <div className="space-y-3">

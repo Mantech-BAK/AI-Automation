@@ -395,16 +395,11 @@ export function RateDonut({
 // frozen at the top and only the data below scrolls. Fills the viewport minus the main-area padding
 // (1rem on small screens, 2rem on large); there is no title bar in this module. Pair the body with `ScrollBody`
 // (or a Panel + `PANEL_FILL`/`TABLE_SCROLL` classes) so the table header row freezes as well.
-export function PageShell({ title, subtitle, header, children }: { title: string; subtitle?: ReactNode; header?: ReactNode; children: ReactNode }) {
+// `title` / `subtitle` are still accepted from callers but not drawn: pages open straight with their filters.
+export function PageShell({ header, children }: { title?: string; subtitle?: ReactNode; header?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-2rem)] lg:h-[calc(100vh-4rem)] min-h-[26rem]">
-      <div className="shrink-0 space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 pl-14 lg:pl-0">{title}</h1>
-          {subtitle && <p className="text-slate-500 mt-1">{subtitle}</p>}
-        </div>
-        {header}
-      </div>
+      {header && <div className="shrink-0 space-y-4 pt-10 lg:pt-0">{header}</div>}
       <div className="flex-1 min-h-0 flex flex-col gap-4">{children}</div>
     </div>
   );

@@ -186,11 +186,7 @@ export default function EmailProcessing({ onNavigate }: EmailProcessingProps = {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Email Processing</h1>
-          <p className="text-slate-500 mt-1">AI-powered email parsing and categorization</p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 empty:hidden">
         <button
           onClick={() => {
             setProcessError(null);

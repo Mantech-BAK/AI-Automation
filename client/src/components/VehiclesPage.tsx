@@ -449,21 +449,17 @@ export default function VehiclesPage({ initialSelectedVehicleId, readOnly = fals
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Vehicles</h1>
-          <p className="text-slate-500 mt-1">Track vehicle documents, insurance, and service renewals</p>
-        </div>
-        {!readOnly && (
-          <button
-            onClick={openAddVehicle}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
-          >
-            <Plus size={18} />
-            Add Vehicle
-          </button>
-        )}
+      {!readOnly && (
+      <div className="flex justify-end">
+        <button
+          onClick={openAddVehicle}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
+        >
+          <Plus size={18} />
+          Add Vehicle
+        </button>
       </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">

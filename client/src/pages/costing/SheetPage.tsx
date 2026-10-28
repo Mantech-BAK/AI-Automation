@@ -326,6 +326,7 @@ export default function SheetPage({ mode, me, sheetId, enquiryId, onNavigate }: 
           <ArrowLeft size={14} /> {enquiry.enquiry_no}
         </button>
         <PageHeader
+          keepTitle
           title={
             <>
               Costing Sheet

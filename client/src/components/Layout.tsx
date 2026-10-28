@@ -156,7 +156,7 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
         </header>
         )}
         {/* Project Tracking has no top bar, so its Sign Out floats in the top-right corner. */}
-        {hideTopbar && <div className="fixed top-3 right-4 z-30">{signOutButton}</div>}
+        {hideTopbar && <div className="fixed top-1 right-3 z-30 [&>button]:py-1 [&>button]:text-xs">{signOutButton}</div>}
 
         <div
           className={`flex-1 p-4 lg:p-8 ${hideTopbar && activeNavId === 'settings' ? 'pt-16 lg:pt-8' : ''}`}

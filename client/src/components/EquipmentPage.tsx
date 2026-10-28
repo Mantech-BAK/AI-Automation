@@ -451,37 +451,22 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            {lockedTab === 'documents' ? 'Documents' : lockedTab === 'vehicles' ? 'Vehicles' : 'Equipment'}
-          </h1>
-          <p className="text-slate-500 mt-1">
-            {lockedTab === 'documents'
-              ? 'Track documents, expiry dates and renewals'
-              : lockedTab === 'vehicles'
-              ? 'Manage your vehicles'
-              : 'Manage your equipment and assets'}
-          </p>
-        </div>
-        {activeTab === 'equipment' && (
-          <div className="flex gap-3">
-            <button
-              onClick={() => {
-                resetForm();
-                setAddModalOpen(true);
-                fetchSiteOptions();
-                fetchLookupOptions();
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
-            >
-              <Plus size={18} />
-              Add Equipment
-            </button>
-          </div>
-        )}
+      {activeTab === 'equipment' && (
+      <div className="flex justify-end">
+        <button
+          onClick={() => {
+            resetForm();
+            setAddModalOpen(true);
+            fetchSiteOptions();
+            fetchLookupOptions();
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg transition-shadow"
+        >
+          <Plus size={18} />
+          Add Equipment
+        </button>
       </div>
+      )}
 
       {/* Tab Switcher (hidden when a module pins this page to a single tab) */}
       {!lockedTab && (

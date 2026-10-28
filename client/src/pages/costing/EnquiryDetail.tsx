@@ -104,6 +104,7 @@ export default function EnquiryDetail({ me, enquiryId, onNavigate }: { me: MasUs
           <ArrowLeft size={14} /> Enquiries
         </button>
         <PageHeader
+          keepTitle
           title={
             <>
               {enquiry.enquiry_no} <Badge status={enquiry.status} />

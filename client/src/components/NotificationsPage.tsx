@@ -205,13 +205,6 @@ export default function NotificationsPage({ module, onNavigate }: NotificationsP
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Notifications</h1>
-        <p className="text-slate-500 mt-1">
-          {notifications.length > 0 ? `${notifications.length} notifications today` : 'No notifications today'}
-        </p>
-      </div>
 
       {/* Notifications List */}
       <div className="space-y-3">

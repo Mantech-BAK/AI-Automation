@@ -231,11 +231,7 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Users</h1>
-          <p className="text-slate-500 mt-1">Manage who can log in to the software</p>
-        </div>
+      <div className="flex items-center justify-end empty:hidden">
         <button
           onClick={() => {
             setForm(emptyForm);

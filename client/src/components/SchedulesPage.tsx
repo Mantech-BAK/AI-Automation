@@ -452,11 +452,7 @@ export default function SchedulesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Schedules</h1>
-          <p className="text-slate-500 mt-1">Upcoming meetings and review scheduling</p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 empty:hidden">
         <div className="flex gap-3">
           <button
             onClick={openNotesModal}

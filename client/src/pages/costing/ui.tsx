@@ -16,13 +16,21 @@ export function Badge({ status }: { status: string }) {
   );
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
+// The page title is shown in the top bar, so pages do not repeat it: this row holds just the page actions.
+// `keepTitle` (record pages only) adds a compact identity line - the enquiry / quotation number and its status -
+// because that is not shown anywhere else.
+export function PageHeader({ title, subtitle, actions, keepTitle }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; keepTitle?: boolean }) {
+  if (!actions && !keepTitle) return null;
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-bold text-slate-800 flex flex-wrap items-center gap-2">{title}</h1>
-        {subtitle && <p className="text-slate-500 mt-1 text-sm">{subtitle}</p>}
-      </div>
+      {keepTitle ? (
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-slate-800 flex flex-wrap items-center gap-2">{title}</h1>
+          {subtitle && <p className="text-slate-500 text-xs mt-0.5">{subtitle}</p>}
+        </div>
+      ) : (
+        <div />
+      )}
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );

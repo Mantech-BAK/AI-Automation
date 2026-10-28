@@ -512,19 +512,6 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">
-          {lockedTab === 'documents' ? 'Document Tasks' : lockedTab === 'vehicles' ? 'Vehicle Tasks' : 'Maintenance Tasks'}
-        </h1>
-        <p className="text-slate-500 mt-1">
-          {lockedTab === 'documents'
-            ? 'View document renewal tasks'
-            : lockedTab === 'vehicles'
-            ? 'View vehicle renewals and maintenance'
-            : 'View work orders, documents, and project activities'}
-        </p>
-      </div>
 
       {/* Tab Switcher (hidden when a module pins this page to a single tab) */}
       {!lockedTab && (
