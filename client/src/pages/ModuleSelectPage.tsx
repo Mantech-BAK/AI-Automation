@@ -22,15 +22,17 @@ interface HomeStats {
   approvedThisMonth: number | null;
 }
 
-// Per-card visuals: a distinct accent for each module, matching the colours
-// the module dashboards already use (blue / orange / purple).
-const CARD_STYLE: Record<ModuleId, { accentText: string; accentBg: string; ring: string }> = {
-  equipment: { accentText: 'text-blue-600', accentBg: 'bg-blue-50', ring: 'hover:shadow-blue-200/70' },
-  vehicles: { accentText: 'text-orange-600', accentBg: 'bg-orange-50', ring: 'hover:shadow-orange-200/70' },
-  documents: { accentText: 'text-purple-600', accentBg: 'bg-purple-50', ring: 'hover:shadow-purple-200/70' },
-  projects: { accentText: 'text-teal-600', accentBg: 'bg-teal-50', ring: 'hover:shadow-teal-200/70' },
-  costing: { accentText: 'text-indigo-600', accentBg: 'bg-indigo-50', ring: 'hover:shadow-indigo-200/70' },
+// Per-module icon colours (solid chip behind the icon) and hover glow.
+const CARD_STYLE: Record<ModuleId, { chip: string; ring: string }> = {
+  equipment: { chip: 'bg-blue-500', ring: 'hover:shadow-blue-200' },
+  vehicles: { chip: 'bg-green-500', ring: 'hover:shadow-green-200' },
+  documents: { chip: 'bg-purple-500', ring: 'hover:shadow-purple-200' },
+  projects: { chip: 'bg-orange-500', ring: 'hover:shadow-orange-200' },
+  costing: { chip: 'bg-teal-500', ring: 'hover:shadow-teal-200' },
 };
+
+// One card look shared by the module tiles and the stat tiles.
+const CARD = 'bg-white rounded-2xl border shadow-md';
 
 function bahrainDateLabel(): string {
   return new Intl.DateTimeFormat('en-US', {
@@ -52,11 +54,11 @@ interface StatTile {
 }
 
 const TONES = {
-  equipment: { chip: 'bg-blue-100 text-blue-600', border: 'border-blue-200' },
-  vehicles: { chip: 'bg-orange-100 text-orange-600', border: 'border-orange-200' },
-  documents: { chip: 'bg-green-100 text-green-600', border: 'border-green-200' },
-  costing: { chip: 'bg-indigo-100 text-indigo-600', border: 'border-indigo-200' },
-  amber: { chip: 'bg-amber-100 text-amber-600', border: 'border-amber-200' },
+  equipment: { chip: 'bg-blue-100 text-blue-600', border: 'border-blue-300' },
+  vehicles: { chip: 'bg-green-100 text-green-600', border: 'border-green-300' },
+  documents: { chip: 'bg-purple-100 text-purple-600', border: 'border-purple-300' },
+  costing: { chip: 'bg-teal-100 text-teal-600', border: 'border-teal-300' },
+  amber: { chip: 'bg-orange-100 text-orange-600', border: 'border-orange-300' },
 };
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -112,25 +114,25 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
   const row2: StatTile[] = [
     { key: 'tasks', label: 'My pending tasks', value: stats?.myPendingTasks ?? null, icon: ListChecks, tone: TONES.costing },
     { key: 'approval', label: 'Costing sheets awaiting approval', value: stats?.awaitingApproval ?? null, icon: ClipboardList, tone: TONES.amber },
-    { key: 'approved', label: 'Approved this month', value: stats?.approvedThisMonth ?? null, icon: CheckCircle2, tone: TONES.documents },
+    { key: 'approved', label: 'Approved this month', value: stats?.approvedThisMonth ?? null, icon: CheckCircle2, tone: TONES.vehicles },
   ];
 
   const statTile = (tile: StatTile) => {
     const Icon = tile.icon;
     return (
-      <div key={tile.key} className={`flex items-center gap-4 bg-white rounded-xl border ${tile.tone.border} shadow-sm px-5 py-4`}>
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${tile.tone.chip}`}>
-          <Icon size={24} />
+      <div key={tile.key} className={`flex items-center gap-4 ${CARD} ${tile.tone.border} px-5 py-5`}>
+        <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${tile.tone.chip}`}>
+          <Icon size={28} />
         </div>
         <div className="min-w-0">
           {stats === null ? (
-            <div className="h-8 w-12 rounded bg-slate-200 animate-pulse" />
+            <div className="h-9 w-14 rounded bg-slate-200 animate-pulse" />
           ) : (
-            <p className="text-3xl font-bold text-slate-800 leading-tight" title={tile.value === null ? 'Could not be loaded' : undefined}>
+            <p className="text-4xl font-bold text-slate-800 leading-none" title={tile.value === null ? 'Could not be loaded' : undefined}>
               {tile.value === null ? '–' : tile.value}
             </p>
           )}
-          <p className="text-xs text-slate-500 leading-tight mt-1">{tile.label}</p>
+          <p className="text-sm text-slate-500 leading-tight mt-2">{tile.label}</p>
         </div>
       </div>
     );
@@ -164,9 +166,9 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
         </div>
       </div>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-6 lg:px-8 -mt-16 pb-12">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-6 lg:px-8 -mt-16 pb-14">
         {/* Module cards */}
-        <div className="flex flex-nowrap justify-center gap-3 sm:gap-4">
+        <div className="grid grid-cols-5 gap-3 sm:gap-5">
           {MODULE_ORDER.map((id) => {
             const module = MODULES[id];
             const style = CARD_STYLE[id];
@@ -180,30 +182,26 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
                 disabled={!allowed}
                 onClick={() => onSelectModule(id)}
                 title={allowed ? module.label : `${module.label} - no access`}
-                className={`group relative flex-1 min-w-0 max-w-[10rem] rounded-xl overflow-hidden bg-white border border-slate-200 shadow-md transition-all duration-200 ${
-                  allowed ? `hover:-translate-y-1 hover:shadow-xl ${style.ring}` : 'opacity-60 cursor-not-allowed'
+                className={`relative h-40 sm:h-44 min-w-0 flex flex-col items-center justify-center gap-3 sm:gap-4 px-2 border-slate-200 ${CARD} transition-all duration-200 ${
+                  allowed ? `hover:scale-[1.04] hover:shadow-xl ${style.ring}` : 'opacity-60 cursor-not-allowed'
                 }`}
               >
-                <div className={`relative bg-gradient-to-br ${module.gradient} py-4 flex items-center justify-center`}>
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <Icon size={22} className="text-white" />
-                  </div>
-                  {!allowed && <Lock size={14} className="absolute top-2 right-2 text-white/80" />}
+                <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shadow-sm ${style.chip}`}>
+                  <Icon size={30} className="text-white" />
                 </div>
-                <div className="px-2 py-2.5">
-                  <h2 className="text-xs sm:text-sm font-semibold text-slate-800 text-center leading-tight">{module.label}</h2>
-                </div>
+                <h2 className="text-sm sm:text-base font-semibold text-slate-800 text-center leading-tight">{module.label}</h2>
+                {!allowed && <Lock size={14} className="absolute top-3 right-3 text-slate-400" />}
               </button>
             );
           })}
         </div>
 
         {/* Live summary */}
-        <section className="mt-10 space-y-4">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">At a glance</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{row1.map(statTile)}</div>
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide pt-2">Costing snapshot</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{row2.map(statTile)}</div>
+        <section className="mt-12 pt-10 border-t border-slate-200 space-y-5">
+          <h2 className="text-base font-bold text-slate-700 uppercase tracking-wider">At a glance</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">{row1.map(statTile)}</div>
+          <h2 className="text-base font-bold text-slate-700 uppercase tracking-wider pt-5">Costing snapshot</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">{row2.map(statTile)}</div>
         </section>
       </main>
     </div>
