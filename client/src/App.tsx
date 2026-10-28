@@ -17,6 +17,8 @@ import LoginPage from './pages/LoginPage';
 import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
 import CostingModule from './modules/CostingModule';
+import NotificationBell from './pages/costing/NotificationBell';
+import { costingApi, type MasUser } from './lib/costing';
 import { MODULE_ORDER, allNavItems, isModuleId, type ModuleId } from './lib/modules';
 import { apiFetch } from './lib/api';
 
@@ -71,8 +73,8 @@ function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
   if (user.role === 'admin') return true;
   // Project financials are opt-in: the user needs the 'Project' item type, an empty list is not enough.
   if (module === 'projects') return (user.allowed_item_types || []).includes('Project');
-  // Costing sheets hold selling prices and margins, so they are opt-in too: the 'Costing' item type.
-  if (module === 'costing') return (user.allowed_item_types || []).includes('Costing');
+  // Costing Sheet has its own user picker and role-based access (Director / GM / Manager / staff), so every MAS user can open it.
+  if (module === 'costing') return true;
   const allowedItemTypes = user.allowed_item_types || [];
   if (allowedItemTypes.length === 0) return true;
   return allowedItemTypes.includes(module === 'documents' ? 'Document' : 'Equipment');
@@ -89,10 +91,9 @@ function hasPageAccess(page: string, user: SessionUser): boolean {
 function parsePath(pathname: string): { module: ModuleId | null; navId: string } {
   const [first, second] = pathname.split('/').filter(Boolean);
   if (!isModuleId(first)) return { module: null, navId: 'dashboard' };
-  // /costing/sheet/:id and /costing/quotation/:id are detail pages under the Costing Sheets / Quotations items.
-  if (first === 'costing' && (second === 'sheet' || second === 'quotation')) {
-    return { module: first, navId: second === 'sheet' ? 'sheets' : 'quotations' };
-  }
+  // /costing/sheet/... belongs to Enquiries in the sidebar; /costing/login is the user picker.
+  if (first === 'costing' && second === 'sheet') return { module: first, navId: 'enquiries' };
+  if (first === 'costing' && second === 'login') return { module: first, navId: 'dashboard' };
   const known = allNavItems(first).some((item) => item.id === second);
   return { module: first, navId: known ? second : 'dashboard' };
 }
@@ -113,6 +114,8 @@ function App() {
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
   // Bumped on every Costing Sheet URL change so the page re-renders (and remounts) even when nothing else in state changed.
   const [, setRouteTick] = useState(0);
+  // The Costing Sheet module's own user (picked on /costing/login). undefined = not checked yet, null = nobody picked.
+  const [masUser, setMasUser] = useState<MasUser | null | undefined>(undefined);
 
   const currentItem = activeModule ? allNavItems(activeModule).find((item) => item.id === activeNavId) : undefined;
   const currentPage = currentItem?.page ?? activeNavId;
@@ -198,6 +201,14 @@ function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // Costing Sheet: find out who is selected (the session remembers the pick across refreshes).
+  useEffect(() => {
+    if (activeModule !== 'costing' || !user || masUser !== undefined) return;
+    costingApi<{ user: MasUser }>('/me')
+      .then((result) => setMasUser(result.user))
+      .catch(() => setMasUser(null));
+  }, [activeModule, user, masUser]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -235,6 +246,7 @@ function App() {
       await apiFetch('/api/auth/logout', { method: 'POST' });
     } finally {
       setUser(null);
+      setMasUser(undefined);
       handleHome();
     }
   };
@@ -282,7 +294,7 @@ function App() {
     }
 
     if (activeModule === 'costing' && currentPage !== 'settings' && currentPage !== 'users') {
-      return <CostingModule onNavigate={goToCostingPath} />;
+      return <CostingModule me={masUser} onLogin={setMasUser} onNavigate={goToCostingPath} />;
     }
 
     // The other modules share the asset / task / document pages below.
@@ -334,6 +346,8 @@ function App() {
       onHome={handleHome}
       onSignOut={handleSignOut}
       role={user.role}
+      costingLevel={masUser?.role_level}
+      topbarExtra={activeModule === 'costing' && masUser ? <NotificationBell me={masUser} onNavigate={goToCostingPath} /> : undefined}
     >
       {accessDeniedMessage && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

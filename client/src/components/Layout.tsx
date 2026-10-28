@@ -11,15 +11,18 @@ interface LayoutProps {
   onHome: () => void;
   onSignOut?: () => void;
   role?: string;
+  // Costing Sheet: the selected costing user's role level (filters the sidebar) and content for the right of the top bar (bell).
+  costingLevel?: number;
+  topbarExtra?: ReactNode;
 }
 
-export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, role }: LayoutProps) {
+export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, role, costingLevel, topbarExtra }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const definition = MODULES[module];
   const ModuleIcon = definition.icon;
 
-  const moduleItems = definition.nav;
+  const moduleItems = definition.nav.filter((item) => !item.minRoleLevel || (costingLevel ?? 0) >= item.minRoleLevel);
   // Users is admin-only; Settings is open to everyone, as before.
   const systemItems = SYSTEM_NAV.filter((item) => item.id !== 'users' || role === 'admin');
 
@@ -146,6 +149,7 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
           {module !== 'projects' && (
             <span className="hidden sm:inline text-xs font-medium text-slate-400 uppercase tracking-wide">{definition.label}</span>
           )}
+          {topbarExtra && <div className="ml-auto">{topbarExtra}</div>}
         </header>
         )}
 

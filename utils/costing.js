@@ -1,80 +1,71 @@
 // Costing sheet maths - the single source of truth for what is stored. The React form mirrors these
 // formulas (client/src/lib/costing.ts) for live totals while typing; the server recomputes on every save.
 //
-// Sections:
-//   ST1 foreign materials   EXW -> supplier discount -> BD (rate) -> + shipping & duty % -> landing cost -> + margin %
-//   ST2 local materials / subcontract   unit cost BD -> total cost -> + margin %
-//   ST3 installation / labour   nos x (months*30 + days) x per-day rate (salary / 30); overhead % on top
-//   ST4 bank charges   amount, taken at cost
-// Margin is a mark-up on cost. Profit % is reported both on cost and on selling.
+//   ST1 foreign materials   unit rate BD = EXW x conversion rate x (1 - supplier discount %)
+//                           total cost BD = qty x unit rate BD;  landing = total cost x (1 + shipping & duty %)
+//                           selling rate = landing rate per unit x (1 + margin %);  selling total = rate x qty
+//   ST2 local materials     total cost = qty x unit cost BD;  selling total = total cost x (1 + margin %)
+//   ST3 installation/labour per day = salary / 26;  total = nos x days x per day x (1 + OH %)
+//                           (days = months x 26 + days)
+//   ST4 bank charges        amount, taken at cost
+// Margin is a mark-up on cost. ST3 and ST4 carry no margin, so they are quoted at cost (ST3 including its OH).
 
 const DEFAULT_RATES = { BD: 1, USD: 0.376, EUR: 0.41 };
 const DEFAULT_OH_PCT = 35;
-const DAYS_PER_MONTH = 30;
+const WORKING_DAYS_PER_MONTH = 26;
 
 const num = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 };
 
-function defaultRate(currency) {
-  return DEFAULT_RATES[String(currency || 'BD').toUpperCase()] ?? 1;
-}
+const defaultRate = (currency) => DEFAULT_RATES[String(currency || 'BD').toUpperCase()] ?? 1;
 
-// Returns the derived fields of one line plus `cost` (what it costs us) and `selling` (what we charge).
+// Derived fields of one line plus `cost` (what it costs us), `selling` (what we charge) and, for ST3, `oh`.
 function calcLine(section, line) {
   const qty = num(line.qty);
 
   if (section === 'ST1') {
-    const exw = num(line.unit_cost_exw);
-    const unitDiscounted = exw * (1 - num(line.supplier_discount_pct) / 100);
     const rate = num(line.bd_conversion_rate) || defaultRate(line.currency);
-    const unitBd = unitDiscounted * rate;
-    const totalCostBd = qty * unitBd;
-    const unitWithCf = unitBd * (1 + num(line.shipping_duty) / 100);
-    const landing = qty * unitWithCf;
+    const discounted = num(line.unit_cost_exw) * (1 - num(line.supplier_discount_pct) / 100);
+    const unitBd = num(line.unit_cost_exw) * rate * (1 - num(line.supplier_discount_pct) / 100);
+    const totalCost = qty * unitBd;
+    const unitWithCf = unitBd * (1 + num(line.shipping_duty_pct) / 100);
+    const landing = totalCost * (1 + num(line.shipping_duty_pct) / 100);
     const unitSelling = unitWithCf * (1 + num(line.margin_pct) / 100);
-    const sellingTotal = qty * unitSelling;
+    const sellingTotal = unitSelling * qty;
     return {
-      unit_rate_discounted: unitDiscounted,
+      unit_rate_discounted: discounted,
       bd_conversion_rate: rate,
       unit_rate_bd: unitBd,
-      total_cost_bd: totalCostBd,
+      total_cost_bd: totalCost,
       unit_rate_with_cf: unitWithCf,
       total_landing_cost_bd: landing,
       unit_rate_selling: unitSelling,
       selling_total_bd: sellingTotal,
       cost: landing,
       selling: sellingTotal,
+      oh: 0,
     };
   }
 
   if (section === 'ST2') {
-    const unitCost = num(line.unit_rate_bd);
-    const total = qty * unitCost;
-    const sellingTotal = total * (1 + num(line.margin_pct) / 100);
-    return {
-      total_cost_bd: total,
-      total_landing_cost_bd: total,
-      unit_rate_selling: qty ? sellingTotal / qty : 0,
-      selling_total_bd: sellingTotal,
-      cost: total,
-      selling: sellingTotal,
-    };
+    const total = qty * num(line.unit_cost_bd);
+    const selling = total * (1 + num(line.margin_pct) / 100);
+    return { total_cost_bd: total, selling_total_bd: selling, cost: total, selling, oh: 0 };
   }
 
   if (section === 'ST3') {
-    const perDay = num(line.salary_per_month) / DAYS_PER_MONTH;
-    const days = num(line.months) * DAYS_PER_MONTH + num(line.days);
-    const total = qty * perDay * days;
+    const perDay = num(line.salary_per_month) / WORKING_DAYS_PER_MONTH;
+    const days = num(line.months) * WORKING_DAYS_PER_MONTH + num(line.days);
+    const base = num(line.nos) * days * perDay;
     const ohPct = line.oh_pct === null || line.oh_pct === undefined || line.oh_pct === '' ? DEFAULT_OH_PCT : num(line.oh_pct);
-    const oh = (total * ohPct) / 100;
-    return { per_day_rate: perDay, total_cost_bd: total, oh, cost: total, selling: total + oh };
+    const oh = (base * ohPct) / 100;
+    return { per_day_rate: perDay, total_cost: base + oh, cost: base, selling: base + oh, oh };
   }
 
-  // ST4 - bank charges (free text + amount)
   const amount = num(line.amount);
-  return { total_cost_bd: amount, cost: amount, selling: amount };
+  return { cost: amount, selling: amount, oh: 0 };
 }
 
 // lines: [{ section, ...fields }] -> per-line results (same order) and the summary block.
@@ -88,26 +79,23 @@ function calcSheet(lines) {
       sums[line.section].cost += result.cost;
       sums[line.section].selling += result.selling;
     }
-    if (line.section === 'ST3') oh += result.oh;
+    oh += result.oh;
     return result;
   });
 
-  const materialCost = sums.ST1.cost;
-  const localCost = sums.ST2.cost;
-  const installationCost = sums.ST3.cost;
-  const bankCharges = sums.ST4.cost;
-  const totalNetCost = materialCost + localCost + installationCost + oh + bankCharges;
+  const totalNetCost = sums.ST1.cost + sums.ST2.cost + sums.ST3.cost + oh + sums.ST4.cost;
+  // ST3's selling figure already includes its OH, so OH is not added to the selling side a second time.
   const totalSelling = sums.ST1.selling + sums.ST2.selling + sums.ST3.selling + sums.ST4.selling;
   const profit = totalSelling - totalNetCost;
 
   return {
     results,
     summary: {
-      material_cost: materialCost,
-      local_materials: localCost,
-      installation_cost: installationCost,
+      st1_total_landing_cost: sums.ST1.cost,
+      st2_total_cost: sums.ST2.cost,
+      st3_total_cost: sums.ST3.cost,
       oh_charges: oh,
-      bank_charges: bankCharges,
+      st4_bank_charges: sums.ST4.cost,
       total_net_cost: totalNetCost,
       total_selling_amount: totalSelling,
       profit_pct_on_cost: totalNetCost ? (profit / totalNetCost) * 100 : 0,
@@ -124,4 +112,4 @@ function formatQuotationRef(department, year, number) {
 // "MCS/ELV/26-824-R2" -> "MCS/ELV/26-824"
 const baseQuotationRef = (ref) => String(ref || '').replace(/-R\d+$/i, '');
 
-module.exports = { DEFAULT_RATES, DEFAULT_OH_PCT, defaultRate, calcLine, calcSheet, formatQuotationRef, baseQuotationRef };
+module.exports = { DEFAULT_RATES, DEFAULT_OH_PCT, WORKING_DAYS_PER_MONTH, defaultRate, calcLine, calcSheet, formatQuotationRef, baseQuotationRef };

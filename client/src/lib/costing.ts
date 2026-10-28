@@ -2,11 +2,9 @@ import { apiFetch } from './api';
 
 // Costing Sheet: types, live calculation (mirrors utils/costing.js - the server recomputes on save) and helpers.
 
-export const DEPARTMENTS = ['ELV', 'ELC', 'FS', 'MECH', 'IT'] as const;
-export const ENQUIRY_STATUSES = ['draft', 'submitted', 'approved', 'rejected'] as const;
 export const CURRENCY_RATES: Record<string, number> = { BD: 1, USD: 0.376, EUR: 0.41 };
 export const DEFAULT_OH_PCT = 35;
-const DAYS_PER_MONTH = 30;
+const WORKING_DAYS_PER_MONTH = 26;
 
 export type Section = 'ST1' | 'ST2' | 'ST3' | 'ST4';
 export const SECTION_TITLES: Record<Section, string> = {
@@ -16,19 +14,121 @@ export const SECTION_TITLES: Record<Section, string> = {
   ST4: 'ST4 - Bank Charges',
 };
 
+export const ENQUIRY_STATUS_LABELS: Record<string, string> = {
+  open: 'Open',
+  in_progress: 'In Progress',
+  costing_done: 'Costing Done',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  closed: 'Closed',
+};
+export const ENQUIRY_STATUSES = Object.keys(ENQUIRY_STATUS_LABELS);
+
+export const STATUS_STYLES: Record<string, string> = {
+  open: 'bg-slate-100 text-slate-700',
+  in_progress: 'bg-blue-100 text-blue-700',
+  costing_done: 'bg-violet-100 text-violet-700',
+  approved: 'bg-emerald-100 text-emerald-700',
+  rejected: 'bg-red-100 text-red-700',
+  closed: 'bg-slate-200 text-slate-600',
+  draft: 'bg-slate-100 text-slate-700',
+  submitted: 'bg-amber-100 text-amber-800',
+  pending: 'bg-slate-100 text-slate-700',
+  completed: 'bg-emerald-100 text-emerald-700',
+};
+
+export const statusLabel = (status: string): string =>
+  ENQUIRY_STATUS_LABELS[status] ?? status.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+
+export interface MasUser {
+  id: number;
+  name: string;
+  email: string | null;
+  role_id: number;
+  department_id: number | null;
+  manager_id: number | null;
+  is_active: boolean;
+  role_name: string;
+  role_level: number;
+  department_name: string | null;
+  manager_name: string | null;
+}
+
+export interface Department {
+  id: number;
+  name: string;
+}
+
 export interface Enquiry {
   id: number;
   enquiry_no: string;
-  customer_name: string;
+  client_name: string;
   project_name: string;
+  project_location: string | null;
+  consultant: string | null;
+  main_contractor: string | null;
+  department_id: number | null;
+  department_name: string | null;
+  assigned_to: number | null;
+  assigned_to_name: string | null;
+  salesman_id: number | null;
+  salesman_name: string | null;
+  submission_date: string | null;
+  estimated_value: number | string | null;
+  status: string;
+  notes: string | null;
+  created_by_name: string | null;
+  latest_sheet_id: number | null;
+  latest_sheet_status: string | null;
+}
+
+export interface Task {
+  id: number;
+  enquiry_id: number;
+  enquiry_no: string;
+  project_name: string;
+  client_name: string;
+  assigned_to: number | null;
+  assigned_to_name: string | null;
+  task_title: string;
+  description: string | null;
+  due_date: string | null;
+  status: string;
+}
+
+export interface Sheet {
+  id: number;
+  enquiry_id: number;
+  enquiry_no: string;
+  quotation_ref_no: string;
+  revision_no: number;
+  is_latest: boolean;
+  project_name: string | null;
   client: string | null;
   consultant: string | null;
   main_contractor: string | null;
-  department: string;
   date: string;
+  department_id: number | null;
+  department_name: string | null;
+  prepared_by: number | null;
+  prepared_by_name: string | null;
+  preparer_manager_name: string | null;
   status: string;
-  created_by: string | null;
-  latest_sheet_id: number | null;
+  rejection_comment: string | null;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  total_net_cost: number | string;
+  total_selling_amount: number | string;
+  can_edit: boolean;
+  can_review: boolean;
+}
+
+export interface Revision {
+  id: number;
+  quotation_ref_no: string;
+  revision_no: number;
+  status: string;
+  is_latest: boolean;
 }
 
 // Form values are strings while typing; numbers are parsed on calculation.
@@ -41,81 +141,18 @@ export interface LineItem {
   description: string;
   unit_cost_exw: string;
   currency: string;
-  supplier_discount_pct: string;
   bd_conversion_rate: string;
-  unit_rate_bd: string;
-  shipping_duty: string;
+  supplier_discount_pct: string;
+  shipping_duty_pct: string;
   margin_pct: string;
+  unit_cost_bd: string;
+  nos: string;
   months: string;
   days: string;
-  role: string;
+  role_name: string;
   salary_per_month: string;
   oh_pct: string;
   amount: string;
-}
-
-export interface SheetHeader {
-  id: number;
-  enquiry_id: number;
-  enquiry_no: string;
-  quotation_ref_no: string;
-  revision_no: number;
-  is_latest: boolean;
-  locked: boolean;
-  department: string;
-  project_name: string | null;
-  client: string | null;
-  consultant: string | null;
-  main_contractor: string | null;
-  date: string;
-  status: string;
-  prepared_by: string | null;
-  reviewed_by: string | null;
-  approved_by_gm: string | null;
-  approved_by_gm_at: string | null;
-  approved_by_director: string | null;
-  approved_by_director_at: string | null;
-  total_net_cost: number | string;
-  total_selling_amount: number | string;
-  payment_terms: string | null;
-  validity: string | null;
-  delivery_time: string | null;
-  warranty: string | null;
-  terms_notes: string | null;
-  customer_name: string;
-}
-
-export interface LinkedDocument {
-  link_id: number;
-  document_id: number;
-  document_name: string;
-  document_type: string | null;
-  company_name: string | null;
-  expiry_date: string | null;
-  onedrive_url: string | null;
-}
-
-export interface SheetFile {
-  id: number;
-  file_name: string;
-  size_bytes: number;
-  uploaded_by: string | null;
-}
-
-export interface Revision {
-  id: number;
-  quotation_ref_no: string;
-  revision_no: number;
-  status: string;
-  is_latest: boolean;
-}
-
-export interface SheetData {
-  sheet: SheetHeader;
-  lines: Record<string, unknown>[];
-  documents: LinkedDocument[];
-  files: SheetFile[];
-  revisions: Revision[];
 }
 
 const num = (value: unknown): number => {
@@ -124,66 +161,54 @@ const num = (value: unknown): number => {
 };
 
 export interface LineResult {
-  unit_rate_discounted?: number;
   unit_rate_bd?: number;
-  total_cost_bd: number;
-  unit_rate_with_cf?: number;
+  total_cost_bd?: number;
   total_landing_cost_bd?: number;
   unit_rate_selling?: number;
   selling_total_bd?: number;
   per_day_rate?: number;
-  oh?: number;
+  total_cost?: number;
   cost: number;
   selling: number;
+  oh: number;
 }
 
 export function calcLine(line: LineItem): LineResult {
   const qty = num(line.qty);
 
   if (line.section === 'ST1') {
-    const discounted = num(line.unit_cost_exw) * (1 - num(line.supplier_discount_pct) / 100);
     const rate = num(line.bd_conversion_rate) || CURRENCY_RATES[line.currency] || 1;
-    const unitBd = discounted * rate;
-    const withCf = unitBd * (1 + num(line.shipping_duty) / 100);
-    const landing = qty * withCf;
-    const unitSelling = withCf * (1 + num(line.margin_pct) / 100);
-    return {
-      unit_rate_discounted: discounted,
-      unit_rate_bd: unitBd,
-      total_cost_bd: qty * unitBd,
-      unit_rate_with_cf: withCf,
-      total_landing_cost_bd: landing,
-      unit_rate_selling: unitSelling,
-      selling_total_bd: qty * unitSelling,
-      cost: landing,
-      selling: qty * unitSelling,
-    };
+    const unitBd = num(line.unit_cost_exw) * rate * (1 - num(line.supplier_discount_pct) / 100);
+    const totalCost = qty * unitBd;
+    const landing = totalCost * (1 + num(line.shipping_duty_pct) / 100);
+    const unitSelling = unitBd * (1 + num(line.shipping_duty_pct) / 100) * (1 + num(line.margin_pct) / 100);
+    return { unit_rate_bd: unitBd, total_cost_bd: totalCost, total_landing_cost_bd: landing, unit_rate_selling: unitSelling, selling_total_bd: unitSelling * qty, cost: landing, selling: unitSelling * qty, oh: 0 };
   }
 
   if (line.section === 'ST2') {
-    const total = qty * num(line.unit_rate_bd);
+    const total = qty * num(line.unit_cost_bd);
     const selling = total * (1 + num(line.margin_pct) / 100);
-    return { total_cost_bd: total, total_landing_cost_bd: total, unit_rate_selling: qty ? selling / qty : 0, selling_total_bd: selling, cost: total, selling };
+    return { total_cost_bd: total, selling_total_bd: selling, cost: total, selling, oh: 0 };
   }
 
   if (line.section === 'ST3') {
-    const perDay = num(line.salary_per_month) / DAYS_PER_MONTH;
-    const total = qty * perDay * (num(line.months) * DAYS_PER_MONTH + num(line.days));
+    const perDay = num(line.salary_per_month) / WORKING_DAYS_PER_MONTH;
+    const base = num(line.nos) * (num(line.months) * WORKING_DAYS_PER_MONTH + num(line.days)) * perDay;
     const ohPct = line.oh_pct === '' ? DEFAULT_OH_PCT : num(line.oh_pct);
-    const oh = (total * ohPct) / 100;
-    return { per_day_rate: perDay, total_cost_bd: total, oh, cost: total, selling: total + oh };
+    const oh = (base * ohPct) / 100;
+    return { per_day_rate: perDay, total_cost: base + oh, cost: base, selling: base + oh, oh };
   }
 
   const amount = num(line.amount);
-  return { total_cost_bd: amount, cost: amount, selling: amount };
+  return { cost: amount, selling: amount, oh: 0 };
 }
 
 export interface Summary {
-  material_cost: number;
-  local_materials: number;
-  installation_cost: number;
+  st1_total_landing_cost: number;
+  st2_total_cost: number;
+  st3_total_cost: number;
   oh_charges: number;
-  bank_charges: number;
+  st4_bank_charges: number;
   total_net_cost: number;
   total_selling_amount: number;
   profit_pct_on_cost: number;
@@ -202,7 +227,7 @@ export function calcSheet(lines: LineItem[]): { results: LineResult[]; summary: 
     const result = calcLine(line);
     sums[line.section].cost += result.cost;
     sums[line.section].selling += result.selling;
-    if (line.section === 'ST3') oh += result.oh ?? 0;
+    oh += result.oh;
     return result;
   });
 
@@ -212,11 +237,11 @@ export function calcSheet(lines: LineItem[]): { results: LineResult[]; summary: 
   return {
     results,
     summary: {
-      material_cost: sums.ST1.cost,
-      local_materials: sums.ST2.cost,
-      installation_cost: sums.ST3.cost,
+      st1_total_landing_cost: sums.ST1.cost,
+      st2_total_cost: sums.ST2.cost,
+      st3_total_cost: sums.ST3.cost,
       oh_charges: oh,
-      bank_charges: sums.ST4.cost,
+      st4_bank_charges: sums.ST4.cost,
       total_net_cost: net,
       total_selling_amount: selling,
       profit_pct_on_cost: net ? (profit / net) * 100 : 0,
@@ -233,19 +258,20 @@ export function emptyLine(section: Section): LineItem {
     key: newKey(),
     section,
     qty: '1',
-    unit: section === 'ST3' ? '' : 'nos',
+    unit: section === 'ST3' || section === 'ST4' ? '' : 'nos',
     model_no: '',
     description: '',
     unit_cost_exw: '',
     currency: 'USD',
-    supplier_discount_pct: '0',
     bd_conversion_rate: '',
-    unit_rate_bd: '',
-    shipping_duty: '0',
+    supplier_discount_pct: '0',
+    shipping_duty_pct: '0',
     margin_pct: '0',
+    unit_cost_bd: '',
+    nos: '1',
     months: '0',
     days: '0',
-    role: '',
+    role_name: '',
     salary_per_month: '',
     oh_pct: String(DEFAULT_OH_PCT),
     amount: '',
@@ -255,30 +281,31 @@ export function emptyLine(section: Section): LineItem {
 const text = (value: unknown) => (value === null || value === undefined ? '' : String(value));
 
 export function lineFromRow(row: Record<string, unknown>): LineItem {
+  const blank = emptyLine(row.section as Section);
   return {
-    key: newKey(),
-    section: row.section as Section,
+    ...blank,
     qty: text(row.qty),
     unit: text(row.unit),
     model_no: text(row.model_no),
     description: text(row.description),
     unit_cost_exw: text(row.unit_cost_exw),
     currency: text(row.currency) || 'USD',
+    // Only keep a conversion rate that was typed in; the currency default is applied by the calculation.
+    bd_conversion_rate: Number(row.bd_conversion_rate) === (CURRENCY_RATES[text(row.currency)] ?? 1) ? '' : text(row.bd_conversion_rate),
     supplier_discount_pct: text(row.supplier_discount_pct),
-    bd_conversion_rate: text(row.bd_conversion_rate),
-    unit_rate_bd: row.section === 'ST2' ? text(row.unit_rate_bd) : '',
-    shipping_duty: text(row.shipping_duty),
+    shipping_duty_pct: text(row.shipping_duty_pct),
     margin_pct: text(row.margin_pct),
+    unit_cost_bd: text(row.unit_cost_bd),
+    nos: text(row.nos),
     months: text(row.months),
     days: text(row.days),
-    role: text(row.role),
+    role_name: text(row.role_name),
     salary_per_month: text(row.salary_per_month),
     oh_pct: text(row.oh_pct),
     amount: text(row.amount),
   };
 }
 
-// What the server expects: section + the typed inputs (derived columns are recomputed there).
 export function lineToPayload(line: LineItem, slNo: number) {
   const { key, ...rest } = line;
   void key;
@@ -286,8 +313,7 @@ export function lineToPayload(line: LineItem, slNo: number) {
 }
 
 // BHD to 3 decimals, thousands separated.
-export const bd = (value: unknown): string =>
-  num(value).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+export const bd = (value: unknown): string => num(value).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 export const pct1 = (value: unknown): string => `${num(value).toFixed(1)}%`;
 
 export function formatDMY(value?: string | null): string {
@@ -310,48 +336,30 @@ export function formatDateTime(value?: string | null): string {
 export const todayBahrain = (): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-export const STATUS_STYLES: Record<string, string> = {
-  draft: 'bg-slate-100 text-slate-700',
-  submitted: 'bg-blue-100 text-blue-700',
-  approved: 'bg-emerald-100 text-emerald-700',
-  rejected: 'bg-red-100 text-red-700',
-};
-
-// The quotation's priced rows: ST1 + ST2 lines one by one, installation/labour and bank charges as lump sums.
-export interface QuotationRow {
-  qty: string;
-  unit: string;
-  description: string;
-  unitPrice: number | null;
-  total: number;
-}
-
-export function quotationRows(lines: LineItem[]): QuotationRow[] {
-  const { results, summary } = calcSheet(lines);
-  const rows: QuotationRow[] = [];
-  lines.forEach((line, index) => {
-    if (line.section !== 'ST1' && line.section !== 'ST2') return;
-    const r = results[index];
-    const label = [line.model_no, line.description].filter(Boolean).join(' - ') || '(item)';
-    rows.push({ qty: line.qty, unit: line.unit, description: label, unitPrice: r.unit_rate_selling ?? 0, total: r.selling_total_bd ?? 0 });
-  });
-  const labour = lines.reduce((sum, line, index) => sum + (line.section === 'ST3' ? results[index].selling : 0), 0);
-  const bank = summary.bank_charges;
-  if (labour > 0) rows.push({ qty: '1', unit: 'lot', description: 'Installation, testing and commissioning', unitPrice: null, total: labour });
-  if (bank > 0) rows.push({ qty: '1', unit: 'lot', description: 'Bank charges', unitPrice: null, total: bank });
-  return rows;
-}
+export const isOverdue = (dueDate: string | null, status: string): boolean => Boolean(dueDate) && status !== 'completed' && (dueDate as string).slice(0, 10) < todayBahrain();
 
 // JSON call to /api/costing/...; throws the server's error message on failure.
+export class CostingApiError extends Error {
+  status: number;
+  needsLogin: boolean;
+  constructor(message: string, status: number, needsLogin: boolean) {
+    super(message);
+    this.status = status;
+    this.needsLogin = needsLogin;
+  }
+}
+
 export async function costingApi<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await apiFetch(`/api/costing${path}`, init);
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(body?.error || `${response.status} ${response.statusText}`);
+  if (!response.ok) throw new CostingApiError(body?.error || `${response.status} ${response.statusText}`, response.status, Boolean(body?.needsLogin));
   return body as T;
 }
 
-export const jsonInit = (method: string, body: unknown): RequestInit => ({
+export const jsonInit = (method: string, body: unknown = {}): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 });
+
+export const errorText = (error: unknown, fallback: string): string => (error instanceof Error ? error.message : fallback);

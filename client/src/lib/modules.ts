@@ -2,8 +2,9 @@ import {
   Bell,
   BarChart3,
   Calculator,
+  ClipboardCheck,
   ClipboardList,
-  FileSpreadsheet,
+  ListTodo,
   Building2,
   Calendar,
   CalendarDays,
@@ -51,6 +52,8 @@ export interface ModuleNavItem {
   page: string;
   tab?: TabId;
   technicianTab?: TechnicianTabId;
+  // Costing Sheet: shown only to costing users whose role level is at least this (3 = Manager, 4 = General Manager).
+  minRoleLevel?: number;
 }
 
 export interface ModuleDefinition {
@@ -161,8 +164,9 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     nav: [
       DASHBOARD,
       { id: 'enquiries', label: 'Enquiries', icon: ClipboardList, page: 'costing-enquiries' },
-      { id: 'sheets', label: 'Costing Sheets', icon: FileSpreadsheet, page: 'costing-sheets' },
-      { id: 'quotations', label: 'Quotations', icon: FileText, page: 'costing-quotations' },
+      { id: 'tasks', label: 'My Tasks', icon: ListTodo, page: 'costing-tasks' },
+      { id: 'approvals', label: 'Pending Approvals', icon: ClipboardCheck, page: 'costing-approvals', minRoleLevel: 3 },
+      { id: 'admin', label: 'Users & Settings', icon: UserCog, page: 'costing-admin', minRoleLevel: 4 },
     ],
   },
 };
