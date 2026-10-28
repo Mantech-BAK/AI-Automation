@@ -941,7 +941,7 @@ router.post('/assets/add', async (req, res) => {
       );
       if (duplicates.length > 0) {
         const name = String(equipment_name || '');
-        const notified = await sendDuplicateEmail(req.session?.user?.email, [], { documentName: name }, {
+        const notified = await sendDuplicateEmail(req.session?.user?.email, { documentName: name }, {
           subject: 'Duplicate Document Submission – Not Processed',
           content: `<p>Your document '${escapeHtml(name)}' was not processed because it already exists in the system. If you believe this is an error, please contact the administrator.</p>`,
         });
