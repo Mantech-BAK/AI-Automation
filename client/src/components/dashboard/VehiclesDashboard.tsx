@@ -3,7 +3,6 @@ import type { NavFilter } from '../../App';
 import ResponsiblePerson, { looksLikeEmail } from '../ResponsiblePerson';
 import ModuleOverview from './ModuleOverview';
 import {
-  DashboardBanner,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -64,7 +63,6 @@ export default function VehiclesDashboard({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
-      <DashboardBanner moduleLabel="Vehicles" gradient="from-orange-400 to-amber-600" />
 
       {/* Original donut chart and stat tiles */}
       <ModuleOverview module="vehicles" onNavigate={onNavigate} />

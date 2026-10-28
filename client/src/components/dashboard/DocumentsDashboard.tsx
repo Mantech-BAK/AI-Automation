@@ -3,7 +3,6 @@ import type { NavFilter } from '../../App';
 import ResponsiblePerson from '../ResponsiblePerson';
 import ModuleOverview from './ModuleOverview';
 import {
-  DashboardBanner,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -68,7 +67,6 @@ export default function DocumentsDashboard({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
-      <DashboardBanner moduleLabel="Documents" gradient="from-purple-500 to-fuchsia-600" />
 
       {/* Original donut chart and stat tiles (total, expiring 30 / 7 days, expired, ...) */}
       <ModuleOverview module="documents" onNavigate={onNavigate} />

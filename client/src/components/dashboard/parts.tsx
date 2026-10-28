@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Loader2, Moon, Sun, Sunset, type LucideIcon } from 'lucide-react';
+import { Loader2, type LucideIcon } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 
 // ---------- data helpers ----------
@@ -67,93 +67,6 @@ export function titleCase(value: string): string {
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-// ---------- greeting ----------
-
-function bahrainHour(): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bahrain', hour: 'numeric', hour12: false }).formatToParts(new Date());
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
-  return Number.isFinite(hour) ? hour % 24 : new Date().getHours();
-}
-
-// 05:00-11:59 morning, 12:00-16:59 afternoon, 17:00-04:59 evening (Bahrain time).
-function greetingPeriod(): 'Good morning' | 'Good afternoon' | 'Good evening' {
-  const hour = bahrainHour();
-  return hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening';
-}
-
-// "Good afternoon, Umesh" - or just "Good afternoon" when no name has been saved.
-export function greeting(name?: string | null): string {
-  const period = greetingPeriod();
-  return name ? `${period}, ${name}` : period;
-}
-
-// The name saved in Settings -> "Your Name" ('' = none saved).
-export function useSavedName(): string {
-  const [name, setName] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch('/api/settings/display-name')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (!cancelled) setName(typeof json?.name === 'string' ? json.name : '');
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return name;
-}
-
-// One shared hook: "Good afternoon, Umesh" from the Settings name + Bahrain time.
-export function useGreeting(): string {
-  return greeting(useSavedName());
-}
-
-function dateLabel(): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Bahrain',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date());
-}
-
-// Compact version of the dashboard greeting banner: gradient, time-of-day icon,
-// "Good morning / afternoon / evening, <name>" and today's date (Bahrain time).
-export function GreetingLine({ gradient = 'from-teal-600 to-teal-800', className = '' }: { gradient?: string; className?: string }) {
-  const name = useSavedName();
-
-  const hour = bahrainHour();
-  const Icon = hour >= 5 && hour < 12 ? Sun : hour >= 12 && hour < 17 ? Sunset : Moon;
-
-  return (
-    <div className={`flex items-center gap-2.5 rounded-lg bg-gradient-to-r ${gradient} py-1.5 px-3 shadow-sm ${className}`}>
-      <Icon size={18} className="text-white flex-shrink-0" />
-      <p className="min-w-0 truncate text-white leading-tight">
-        <span className="text-lg font-semibold">{greeting(name)}</span>
-        <span className="text-xs text-white/80"> &nbsp;&middot;&nbsp; Project Tracking &middot; {dateLabel()}</span>
-      </p>
-    </div>
-  );
-}
-
-export function DashboardBanner({ moduleLabel, gradient }: { moduleLabel: string; gradient: string }) {
-  const name = useSavedName();
-
-  return (
-    <div className={`rounded-2xl bg-gradient-to-r ${gradient} px-6 py-7 shadow-md`}>
-      <h1 className="text-2xl lg:text-3xl font-bold text-white">{greeting(name)}</h1>
-      <p className="text-white/80 mt-1.5">
-        {moduleLabel} &middot; {dateLabel()}
-      </p>
-    </div>
-  );
 }
 
 // ---------- stat tiles ----------

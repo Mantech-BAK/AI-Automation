@@ -18,7 +18,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { NavFilter } from '../App';
-import { EmptyState, ErrorState, GreetingLine, Panel, TableHead, useJson } from '../components/dashboard/parts';
+import { EmptyState, ErrorState, Panel, TableHead, useJson } from '../components/dashboard/parts';
 import { Amt, FilterBar, FlagBadge, RowCount, FlagDot, KpiTile, ProcurementDonut, RateDonut, Skeleton, SkeletonBlock, type RateSlice } from '../components/projects/shared';
 import {
   FLAG_ORDER,
@@ -218,10 +218,8 @@ export default function ProjectsDashboard({ onNavigate, initialProject }: Props)
 
   return (
     <div className="space-y-6">
-      {/* Frozen header: greeting, filters, single-project line and the KPI tiles stay put while the content below scrolls. */}
-      <div className="sticky top-0 z-20 -mx-4 lg:-mx-8 -mt-4 lg:-mt-8 px-4 lg:px-8 pt-3 lg:pt-4 pb-3 space-y-2 bg-slate-100 border-b border-slate-200/70 shadow-sm">
-        <GreetingLine className="pl-14 lg:pl-3" />
-
+      {/* Frozen header: filters, single-project line and the KPI tiles stay put while the content below scrolls. */}
+      <div className="sticky top-0 z-20 -mx-4 lg:-mx-8 -mt-4 lg:-mt-8 px-4 lg:px-8 pt-14 lg:pt-4 pb-3 space-y-2 bg-slate-100 border-b border-slate-200/70 shadow-sm">
         <FilterBar projects={all.data ?? []} filters={filters} onChange={setFilters} showProjectFilter showDateFilter />
         {all.data && <RowCount shown={projects.length} total={all.data.length} noun="projects" />}
 
