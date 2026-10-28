@@ -21,13 +21,13 @@ interface HomeStats {
   approvedThisMonth: number | null;
 }
 
-// Per-module icon gradient and hover glow.
-const CARD_STYLE: Record<ModuleId, { icon: string; ring: string }> = {
-  equipment: { icon: 'from-blue-400 to-blue-600', ring: 'hover:shadow-blue-200' },
-  vehicles: { icon: 'from-green-400 to-emerald-600', ring: 'hover:shadow-green-200' },
-  documents: { icon: 'from-purple-400 to-purple-600', ring: 'hover:shadow-purple-200' },
-  projects: { icon: 'from-orange-400 to-orange-600', ring: 'hover:shadow-orange-200' },
-  costing: { icon: 'from-teal-400 to-teal-600', ring: 'hover:shadow-teal-200' },
+// Each module tile is one solid colour.
+const CARD_STYLE: Record<ModuleId, { bg: string }> = {
+  equipment: { bg: 'bg-[#2563EB]' },
+  vehicles: { bg: 'bg-[#16A34A]' },
+  documents: { bg: 'bg-[#7C3AED]' },
+  projects: { bg: 'bg-[#EA580C]' },
+  costing: { bg: 'bg-[#0D9488]' },
 };
 
 function bahrainDateLabel(): string {
@@ -115,7 +115,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
   const statTile = (tile: StatTile) => {
     const Icon = tile.icon;
     return (
-      <div key={tile.key} className={`flex items-center gap-3 bg-white rounded-xl border border-slate-200 border-l-4 ${tile.tone.border} shadow-sm px-4 py-3.5`}>
+      <div key={tile.key} className={`flex items-center gap-3 bg-white rounded-xl border border-slate-200 border-l-[6px] ${tile.tone.border} shadow-sm px-4 py-3.5`}>
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${tile.tone.chip}`}>
           <Icon size={20} />
         </div>
@@ -170,8 +170,8 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
       </div>
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 lg:px-8 -mt-16 pb-16">
-        {/* Module cards: 3 on the first row, 2 centred below */}
-        <div className="flex flex-wrap justify-center gap-6 max-w-[620px] mx-auto">
+        {/* Module cards: one row when they fit, otherwise 3 + 2 centred */}
+        <div className="flex flex-wrap justify-center gap-4">
           {MODULE_ORDER.map((id) => {
             const module = MODULES[id];
             const style = CARD_STYLE[id];
@@ -185,15 +185,15 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
                 disabled={!allowed}
                 onClick={() => onSelectModule(id)}
                 title={allowed ? module.label : `${module.label} - no access`}
-                className={`group relative w-[180px] h-[160px] flex flex-col items-center justify-center gap-2 px-3 bg-white rounded-2xl border border-slate-200 shadow-md transition-all duration-200 ${
-                  allowed ? `hover:-translate-y-1 hover:shadow-xl ${style.ring} active:scale-95` : 'opacity-60 cursor-not-allowed'
+                className={`relative w-[150px] h-[130px] flex flex-col items-center justify-center gap-2 px-2 rounded-xl text-white shadow-md transition-all duration-200 ${style.bg} ${
+                  allowed
+                    ? 'hover:-translate-y-1 hover:shadow-[0_10px_24px_-4px_rgba(15,23,42,0.35),0_0_0_4px_rgba(255,255,255,0.55)] active:scale-95'
+                    : 'opacity-60 cursor-not-allowed'
                 }`}
               >
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${style.icon} flex items-center justify-center shadow-md transition-[filter] duration-200 ${allowed ? 'group-hover:brightness-110' : ''}`}>
-                  <Icon size={32} className="text-white" />
-                </div>
-                <h2 className="h-9 flex items-center justify-center text-sm font-bold text-slate-800 text-center leading-tight">{module.label}</h2>
-                {!allowed && <Lock size={14} className="absolute top-3 right-3 text-slate-400" />}
+                <Icon size={40} className="text-white" strokeWidth={1.75} />
+                <h2 className="h-9 flex items-center justify-center text-sm font-bold text-white text-center leading-tight">{module.label}</h2>
+                {!allowed && <Lock size={14} className="absolute top-2.5 right-2.5 text-white/80" />}
               </button>
             );
           })}
