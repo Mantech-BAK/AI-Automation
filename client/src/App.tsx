@@ -281,6 +281,7 @@ function App() {
           accessibleModules={accessibleModules}
           onSelectModule={handleSelectModule}
           onSignOut={handleSignOut}
+          user={user}
         />
       </>
     );
