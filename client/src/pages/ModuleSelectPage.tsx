@@ -21,24 +21,14 @@ interface HomeStats {
   approvedThisMonth: number | null;
 }
 
-// Each module tile is one solid colour.
-const CARD_STYLE: Record<ModuleId, { bg: string }> = {
-  equipment: { bg: 'bg-[#2563EB]' },
-  vehicles: { bg: 'bg-[#16A34A]' },
-  documents: { bg: 'bg-[#7C3AED]' },
-  projects: { bg: 'bg-[#EA580C]' },
-  costing: { bg: 'bg-[#0D9488]' },
+// Each module tile is one solid colour (inline style so it always applies).
+const TILE_COLOR: Record<ModuleId, string> = {
+  equipment: '#2563EB',
+  vehicles: '#16A34A',
+  documents: '#7C3AED',
+  projects: '#EA580C',
+  costing: '#0D9488',
 };
-
-function bahrainDateLabel(): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Bahrain',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date());
-}
 
 interface StatTile {
   key: string;
@@ -151,7 +141,6 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
               <span className="font-semibold tracking-tight">BAK Group</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="hidden sm:inline text-sm text-slate-400">{bahrainDateLabel()}</span>
               <button
                 onClick={onSignOut}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-red-500/20 hover:text-red-300 transition-colors"
@@ -174,7 +163,6 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
         <div className="flex flex-wrap justify-center gap-4">
           {MODULE_ORDER.map((id) => {
             const module = MODULES[id];
-            const style = CARD_STYLE[id];
             const Icon = module.icon;
             const allowed = accessibleModules.includes(id);
 
@@ -185,7 +173,8 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
                 disabled={!allowed}
                 onClick={() => onSelectModule(id)}
                 title={allowed ? module.label : `${module.label} - no access`}
-                className={`relative w-[150px] h-[130px] flex flex-col items-center justify-center gap-2 px-2 rounded-xl text-white shadow-md transition-all duration-200 ${style.bg} ${
+                style={{ backgroundColor: TILE_COLOR[id], width: 150, height: 130, borderRadius: 12 }}
+                className={`relative w-[150px] h-[130px] flex flex-col items-center justify-center gap-2 px-2 rounded-xl text-white shadow-md transition-all duration-200 ${
                   allowed
                     ? 'hover:-translate-y-1 hover:shadow-[0_10px_24px_-4px_rgba(15,23,42,0.35),0_0_0_4px_rgba(255,255,255,0.55)] active:scale-95'
                     : 'opacity-60 cursor-not-allowed'
