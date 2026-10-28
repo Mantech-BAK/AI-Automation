@@ -23,10 +23,14 @@ const defaultRate = (currency) => DEFAULT_RATES[String(currency || 'BD').toUpper
 
 // Derived fields of one line plus `cost` (what it costs us), `selling` (what we charge) and, for ST3, `oh`.
 function calcLine(section, line) {
+  // Heading rows are labels only - they carry no figures.
+  if (line.is_heading) return { cost: 0, selling: 0, oh: 0 };
   const qty = num(line.qty);
 
   if (section === 'ST1') {
-    const rate = num(line.bd_conversion_rate) || defaultRate(line.currency);
+    // BD conversion: as typed (1 when left blank, like the Excel template).
+    const blank = line.bd_conversion_rate === null || line.bd_conversion_rate === undefined || line.bd_conversion_rate === '';
+    const rate = blank ? defaultRate(line.currency) : num(line.bd_conversion_rate);
     const discounted = num(line.unit_cost_exw) * (1 - num(line.supplier_discount_pct) / 100);
     const unitBd = num(line.unit_cost_exw) * rate * (1 - num(line.supplier_discount_pct) / 100);
     const totalCost = qty * unitBd;

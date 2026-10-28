@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, Copy, Lock, Pencil, Plus, Save, Send, Trash2, XCircle } from 'lucide-react';
 import Modal from '../../components/Modal';
 import {
-  CURRENCY_RATES,
   SECTION_TITLES,
   bd,
   calcSheet,
   costingApi,
+  emptyHeading,
   emptyLine,
   errorText,
   formatDMY,
@@ -28,7 +28,8 @@ import { Badge, Card, ErrorBanner, Loading, PageHeader, inputCls, primaryBtn, se
 const cellInput = 'w-full px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-600';
 const th = 'px-2 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap bg-slate-50';
 const td = 'px-1.5 py-1 align-middle';
-const calcCell = 'px-2 py-1 text-right text-sm text-slate-700 bg-slate-50/70 whitespace-nowrap';
+// Calculated cells are plain cells (not inputs): grey, not editable, updated live from the input cells.
+const calcCell = 'px-2 py-1 text-right text-sm text-slate-500 bg-slate-200/70 cursor-not-allowed select-none whitespace-nowrap border-x border-white';
 
 interface Header {
   quotation_ref_no: string;
@@ -125,8 +126,13 @@ export default function SheetPage({ mode, me, sheetId, enquiryId, onNavigate }: 
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
     setDirty(true);
   };
+  // New data rows get the next SL# of their section (editable, like the Excel); headings are labels and are not numbered.
   const addLine = (section: Section) => {
-    setLines((current) => [...current, emptyLine(section)]);
+    setLines((current) => [...current, emptyLine(section, section === 'ST1' || section === 'ST2' ? String(current.filter((l) => l.section === section && !l.is_heading).length + 1) : '')]);
+    setDirty(true);
+  };
+  const addHeading = (section: Section) => {
+    setLines((current) => [...current, emptyHeading(section)]);
     setDirty(true);
   };
   const removeLine = (key: string) => {
@@ -135,14 +141,10 @@ export default function SheetPage({ mode, me, sheetId, enquiryId, onNavigate }: 
   };
 
   const payload = () => {
-    const counters: Record<string, number> = {};
     return {
       ...header,
       quotation_ref_no: header.quotation_ref_no || undefined,
-      lines: lines.map((line) => {
-        counters[line.section] = (counters[line.section] ?? 0) + 1;
-        return lineToPayload(line, counters[line.section]);
-      }),
+      lines: lines.map(lineToPayload),
     };
   };
 
@@ -245,9 +247,14 @@ export default function SheetPage({ mode, me, sheetId, enquiryId, onNavigate }: 
     );
   const addButton = (section: Section) =>
     !readOnly && (
-      <button type="button" onClick={() => addLine(section)} className="flex items-center gap-1.5 text-sm font-medium text-teal-600 hover:underline">
-        <Plus size={15} /> Add row
-      </button>
+      <div className="flex items-center gap-4">
+        <button type="button" onClick={() => addLine(section)} className="flex items-center gap-1.5 text-sm font-medium text-teal-600 hover:underline">
+          <Plus size={15} /> Add row
+        </button>
+        <button type="button" onClick={() => addHeading(section)} className="flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:underline">
+          <Plus size={15} /> Add heading
+        </button>
+      </div>
     );
   const headerField = (label: string, key: keyof Header, opts: { type?: string; placeholder?: string } = {}) => (
     <div>
@@ -263,22 +270,49 @@ export default function SheetPage({ mode, me, sheetId, enquiryId, onNavigate }: 
   );
   const ohPct = summary.st3_total_cost > 0 ? Math.round((summary.oh_charges / summary.st3_total_cost) * 100) : 35;
 
-  const table = (section: Section, columns: string[], minWidth: string, renderRow: (line: LineItem, result: ReturnType<typeof calcSheet>['results'][number], index: number) => JSX.Element) => (
+  // A heading is a full-width, grey, bold label between groups of items - no SL#, quantities or costs.
+  const headingRow = (line: LineItem, columns: number) => (
+    <tr key={line.key} data-heading="true" className="bg-slate-200">
+      <td colSpan={columns} className="px-3 py-1.5">
+        <input
+          value={line.description}
+          disabled={readOnly}
+          placeholder="Heading (e.g. FIRE ALARM SYSTEM)"
+          onChange={(e) => setLine(line.key, { description: e.target.value })}
+          className="w-full bg-transparent font-bold text-slate-800 uppercase tracking-wide px-1 py-1 focus:outline-none focus:bg-white/70 rounded disabled:text-slate-800"
+          aria-label="Heading"
+        />
+      </td>
+      {!readOnly && (
+        <td className="px-1.5 bg-slate-200">
+          <button type="button" onClick={() => removeLine(line.key)} className="p-1 text-slate-500 hover:text-red-600" aria-label="Remove heading"><Trash2 size={15} /></button>
+        </td>
+      )}
+    </tr>
+  );
+
+  const table = (
+    section: Section,
+    columns: { label: string; calc?: boolean }[],
+    minWidth: string,
+    renderRow: (line: LineItem, result: ReturnType<typeof calcSheet>['results'][number], index: number) => JSX.Element
+  ) => (
     <Card title={SECTION_TITLES[section]} right={addButton(section)}>
       <div className="overflow-x-auto -mx-2">
         <table className={`w-full text-sm ${minWidth}`}>
           <thead>
             <tr>
               {columns.map((c, i) => (
-                <th key={`${c}${i}`} className={th}>{c}</th>
+                <th key={`${c.label}${i}`} className={c.calc ? `${th} bg-slate-200 text-slate-600` : th} title={c.calc ? 'Calculated automatically' : undefined}>{c.label}</th>
               ))}
+              {!readOnly && <th className={th} />}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {sectionLines(section).length === 0 && (
-              <tr><td colSpan={columns.length} className="px-3 py-4 text-center text-slate-400 text-sm">No rows</td></tr>
+              <tr><td colSpan={columns.length + 1} className="px-3 py-4 text-center text-slate-400 text-sm">No rows</td></tr>
             )}
-            {sectionLines(section).map(({ line, result }, index) => renderRow(line, result, index))}
+            {sectionLines(section).map(({ line, result }, index) => (line.is_heading ? headingRow(line, columns.length) : renderRow(line, result, index)))}
           </tbody>
         </table>
       </div>
@@ -391,66 +425,79 @@ export default function SheetPage({ mode, me, sheetId, enquiryId, onNavigate }: 
         </div>
       </Card>
 
-      {table('ST1', ['SL#', 'Qty', 'Unit', 'Model#', 'Description', 'Unit Cost EXW', 'Currency', 'BD Conv. Rate', 'Unit Rate BD', 'Supplier Disc %', 'Total Cost BD', 'Ship & Duty %', 'Total Landing BD', 'Margin %', 'Unit Rate Selling', 'Selling Total BD', ''], 'min-w-[1650px]', (line, result, i) => (
-        <tr key={line.key}>
-          <td className={`${td} text-slate-500 text-center`}>{i + 1}</td>
-          <td className={td}>{number(line, 'qty', 'w-16')}</td>
-          <td className={td}>{text(line, 'unit', 'w-16')}</td>
-          <td className={td}>{text(line, 'model_no', 'w-28')}</td>
-          <td className={td}>{text(line, 'description', 'min-w-[220px]')}</td>
-          <td className={td}>{number(line, 'unit_cost_exw', 'w-24')}</td>
-          <td className={td}>
-            <select value={line.currency} disabled={readOnly} onChange={(e) => setLine(line.key, { currency: e.target.value, bd_conversion_rate: '' })} className={`${cellInput} w-[72px]`}>
-              {Object.keys(CURRENCY_RATES).map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </td>
-          <td className={td}>
-            <input type="number" step="any" value={line.bd_conversion_rate} placeholder={String(CURRENCY_RATES[line.currency] ?? 1)} disabled={readOnly} onChange={(e) => setLine(line.key, { bd_conversion_rate: e.target.value })} className={`${cellInput} text-right w-20`} />
-          </td>
-          <td className={calcCell}>{bd(result.unit_rate_bd)}</td>
-          <td className={td}>{number(line, 'supplier_discount_pct', 'w-16')}</td>
-          <td className={calcCell}>{bd(result.total_cost_bd)}</td>
-          <td className={td}>{number(line, 'shipping_duty_pct', 'w-16')}</td>
-          <td className={calcCell}>{bd(result.total_landing_cost_bd)}</td>
-          <td className={td}>{number(line, 'margin_pct', 'w-16')}</td>
-          <td className={calcCell}>{bd(result.unit_rate_selling)}</td>
-          <td className={`${calcCell} font-medium`}>{bd(result.selling_total_bd)}</td>
-          {removeCell(line)}
-        </tr>
-      ))}
+      {table(
+        'ST1',
+        [
+          { label: 'SL#' }, { label: 'Qty' }, { label: 'Unit' }, { label: 'Model#' }, { label: 'Description' }, { label: 'Unit Cost EXW' },
+          { label: 'Supplier Disc %' }, { label: 'Unit Rate with Disc.', calc: true }, { label: 'BD Conv. Rate' }, { label: 'Unit Rate in BD', calc: true },
+          { label: 'Total Cost BD', calc: true }, { label: 'Ship & Duty %' }, { label: 'Unit Rate BD (C&F)', calc: true }, { label: 'Total Landing BD', calc: true },
+          { label: 'Margin %' }, { label: 'Unit Rate Selling', calc: true }, { label: 'Selling Total BD', calc: true },
+        ],
+        'min-w-[1700px]',
+        (line, result) => (
+          <tr key={line.key}>
+            <td className={td}>{text(line, 'sl_no', 'w-14 text-center')}</td>
+            <td className={td}>{number(line, 'qty', 'w-16')}</td>
+            <td className={td}>{text(line, 'unit', 'w-16')}</td>
+            <td className={td}>{text(line, 'model_no', 'w-28')}</td>
+            <td className={td}>{text(line, 'description', 'min-w-[220px]')}</td>
+            <td className={td}>{number(line, 'unit_cost_exw', 'w-24')}</td>
+            <td className={td}>{number(line, 'supplier_discount_pct', 'w-16')}</td>
+            <td className={calcCell}>{bd(result.unit_rate_discounted)}</td>
+            <td className={td}>{number(line, 'bd_conversion_rate', 'w-20')}</td>
+            <td className={calcCell}>{bd(result.unit_rate_bd)}</td>
+            <td className={calcCell}>{bd(result.total_cost_bd)}</td>
+            <td className={td}>{number(line, 'shipping_duty_pct', 'w-16')}</td>
+            <td className={calcCell}>{bd(result.unit_rate_with_cf)}</td>
+            <td className={calcCell}>{bd(result.total_landing_cost_bd)}</td>
+            <td className={td}>{number(line, 'margin_pct', 'w-16')}</td>
+            <td className={calcCell}>{bd(result.unit_rate_selling)}</td>
+            <td className={`${calcCell} font-medium`}>{bd(result.selling_total_bd)}</td>
+            {removeCell(line)}
+          </tr>
+        )
+      )}
 
-      {table('ST2', ['SL#', 'Qty', 'Unit', 'Description', 'Unit Cost BD', 'Total Cost BD', 'Margin %', 'Selling Total BD', ''], 'min-w-[900px]', (line, result, i) => (
-        <tr key={line.key}>
-          <td className={`${td} text-slate-500 text-center`}>{i + 1}</td>
-          <td className={td}>{number(line, 'qty', 'w-16')}</td>
-          <td className={td}>{text(line, 'unit', 'w-16')}</td>
-          <td className={td}>{text(line, 'description', 'min-w-[260px]')}</td>
-          <td className={td}>{number(line, 'unit_cost_bd', 'w-28')}</td>
-          <td className={calcCell}>{bd(result.total_cost_bd)}</td>
-          <td className={td}>{number(line, 'margin_pct', 'w-16')}</td>
-          <td className={`${calcCell} font-medium`}>{bd(result.selling_total_bd)}</td>
-          {removeCell(line)}
-        </tr>
-      ))}
+      {table(
+        'ST2',
+        [{ label: 'SL#' }, { label: 'Qty' }, { label: 'Unit' }, { label: 'Description' }, { label: 'Unit Cost BD' }, { label: 'Total Cost BD', calc: true }, { label: 'Margin %' }, { label: 'Selling Total BD', calc: true }],
+        'min-w-[900px]',
+        (line, result) => (
+          <tr key={line.key}>
+            <td className={td}>{text(line, 'sl_no', 'w-14 text-center')}</td>
+            <td className={td}>{number(line, 'qty', 'w-16')}</td>
+            <td className={td}>{text(line, 'unit', 'w-16')}</td>
+            <td className={td}>{text(line, 'description', 'min-w-[260px]')}</td>
+            <td className={td}>{number(line, 'unit_cost_bd', 'w-28')}</td>
+            <td className={calcCell}>{bd(result.total_cost_bd)}</td>
+            <td className={td}>{number(line, 'margin_pct', 'w-16')}</td>
+            <td className={`${calcCell} font-medium`}>{bd(result.selling_total_bd)}</td>
+            {removeCell(line)}
+          </tr>
+        )
+      )}
 
-      {table('ST3', ['Nos', 'Months', 'Days', 'Role / Designation', 'Salary / Month (BD)', 'Per Day Rate', 'OH %', 'Total Cost BD', ''], 'min-w-[900px]', (line, result) => (
-        <tr key={line.key}>
-          <td className={td}>{number(line, 'nos', 'w-16')}</td>
-          <td className={td}>{number(line, 'months', 'w-16')}</td>
-          <td className={td}>{number(line, 'days', 'w-16')}</td>
-          <td className={td}>{text(line, 'role_name', 'min-w-[200px]')}</td>
-          <td className={td}>{number(line, 'salary_per_month', 'w-28')}</td>
-          <td className={calcCell}>{bd(result.per_day_rate)}</td>
-          <td className={td}>{number(line, 'oh_pct', 'w-16')}</td>
-          <td className={`${calcCell} font-medium`}>{bd(result.total_cost)}</td>
-          {removeCell(line)}
-        </tr>
-      ))}
-      <p className="text-xs text-slate-400 -mt-3 px-1">ST3: per day = salary / 26; total = nos x days x per day x (1 + OH %), where days = months x 26 + days.</p>
+      {table(
+        'ST3',
+        [{ label: 'Nos' }, { label: 'Month' }, { label: 'Days' }, { label: 'Role / Designation' }, { label: 'Salary / Month (BD)' }, { label: 'Per Day Rate', calc: true }, { label: 'OH %' }, { label: 'Total Cost BD', calc: true }],
+        'min-w-[900px]',
+        (line, result) => (
+          <tr key={line.key}>
+            <td className={td}>{number(line, 'nos', 'w-16')}</td>
+            <td className={td}>{number(line, 'months', 'w-16')}</td>
+            <td className={td}>{number(line, 'days', 'w-16')}</td>
+            <td className={td}>{text(line, 'role_name', 'min-w-[200px]')}</td>
+            <td className={td}>{number(line, 'salary_per_month', 'w-28')}</td>
+            <td className={calcCell}>{bd(result.per_day_rate)}</td>
+            <td className={td}>{number(line, 'oh_pct', 'w-16')}</td>
+            <td className={`${calcCell} font-medium`}>{bd(result.total_cost)}</td>
+            {removeCell(line)}
+          </tr>
+        )
+      )}
+      <p className="text-xs text-slate-400 -mt-3 px-1">ST3: per day = salary / 26; total = nos x days x per day x (1 + OH %), where days = month x 26 + days.</p>
 
-      {table('ST4', ['Description', 'Amount (BD)', ''], 'min-w-[600px]', (line) => (
+      {table('ST4', [{ label: 'Description' }, { label: 'Amount (BD)' }], 'min-w-[600px]', (line) => (
         <tr key={line.key}>
           <td className={td}>{text(line, 'description', 'min-w-[320px]')}</td>
           <td className={td}>{number(line, 'amount', 'w-32')}</td>

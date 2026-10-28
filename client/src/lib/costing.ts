@@ -2,7 +2,6 @@ import { apiFetch } from './api';
 
 // Costing Sheet: types, live calculation (mirrors utils/costing.js - the server recomputes on save) and helpers.
 
-export const CURRENCY_RATES: Record<string, number> = { BD: 1, USD: 0.376, EUR: 0.41 };
 export const DEFAULT_OH_PCT = 35;
 const WORKING_DAYS_PER_MONTH = 26;
 
@@ -135,12 +134,14 @@ export interface Revision {
 export interface LineItem {
   key: string;
   section: Section;
+  // A heading row is a label between groups of items: only `description` is used.
+  is_heading: boolean;
+  sl_no: string;
   qty: string;
   unit: string;
   model_no: string;
   description: string;
   unit_cost_exw: string;
-  currency: string;
   bd_conversion_rate: string;
   supplier_discount_pct: string;
   shipping_duty_pct: string;
@@ -161,6 +162,8 @@ const num = (value: unknown): number => {
 };
 
 export interface LineResult {
+  unit_rate_discounted?: number;
+  unit_rate_with_cf?: number;
   unit_rate_bd?: number;
   total_cost_bd?: number;
   total_landing_cost_bd?: number;
@@ -174,15 +177,28 @@ export interface LineResult {
 }
 
 export function calcLine(line: LineItem): LineResult {
+  if (line.is_heading) return { cost: 0, selling: 0, oh: 0 };
   const qty = num(line.qty);
 
   if (line.section === 'ST1') {
-    const rate = num(line.bd_conversion_rate) || CURRENCY_RATES[line.currency] || 1;
-    const unitBd = num(line.unit_cost_exw) * rate * (1 - num(line.supplier_discount_pct) / 100);
-    const totalCost = qty * unitBd;
-    const landing = totalCost * (1 + num(line.shipping_duty_pct) / 100);
-    const unitSelling = unitBd * (1 + num(line.shipping_duty_pct) / 100) * (1 + num(line.margin_pct) / 100);
-    return { unit_rate_bd: unitBd, total_cost_bd: totalCost, total_landing_cost_bd: landing, unit_rate_selling: unitSelling, selling_total_bd: unitSelling * qty, cost: landing, selling: unitSelling * qty, oh: 0 };
+    // Same chain as the Excel template: discount -> BD conversion -> + shipping & duty -> + margin (blank conversion = 1).
+    const rate = line.bd_conversion_rate === '' ? 1 : num(line.bd_conversion_rate);
+    const discounted = num(line.unit_cost_exw) * (1 - num(line.supplier_discount_pct) / 100);
+    const unitBd = discounted * rate;
+    const withCf = unitBd * (1 + num(line.shipping_duty_pct) / 100);
+    const unitSelling = withCf * (1 + num(line.margin_pct) / 100);
+    return {
+      unit_rate_discounted: discounted,
+      unit_rate_bd: unitBd,
+      total_cost_bd: unitBd * qty,
+      unit_rate_with_cf: withCf,
+      total_landing_cost_bd: withCf * qty,
+      unit_rate_selling: unitSelling,
+      selling_total_bd: unitSelling * qty,
+      cost: withCf * qty,
+      selling: unitSelling * qty,
+      oh: 0,
+    };
   }
 
   if (line.section === 'ST2') {
@@ -253,17 +269,18 @@ export function calcSheet(lines: LineItem[]): { results: LineResult[]; summary: 
 let keyCounter = 0;
 export const newKey = () => `l${Date.now().toString(36)}${keyCounter++}`;
 
-export function emptyLine(section: Section): LineItem {
+export function emptyLine(section: Section, slNo = ''): LineItem {
   return {
     key: newKey(),
     section,
-    qty: '1',
+    is_heading: false,
+    sl_no: slNo,
+    qty: section === 'ST1' || section === 'ST2' ? '1' : '',
     unit: section === 'ST3' || section === 'ST4' ? '' : 'nos',
     model_no: '',
     description: '',
     unit_cost_exw: '',
-    currency: 'USD',
-    bd_conversion_rate: '',
+    bd_conversion_rate: '1',
     supplier_discount_pct: '0',
     shipping_duty_pct: '0',
     margin_pct: '0',
@@ -280,18 +297,22 @@ export function emptyLine(section: Section): LineItem {
 
 const text = (value: unknown) => (value === null || value === undefined ? '' : String(value));
 
+export function emptyHeading(section: Section): LineItem {
+  return { ...emptyLine(section), is_heading: true, qty: '', unit: '', nos: '', months: '', days: '', oh_pct: '', bd_conversion_rate: '', supplier_discount_pct: '', shipping_duty_pct: '', margin_pct: '' };
+}
+
 export function lineFromRow(row: Record<string, unknown>): LineItem {
   const blank = emptyLine(row.section as Section);
+  if (row.is_heading) return { ...emptyHeading(row.section as Section), description: text(row.description) };
   return {
     ...blank,
+    sl_no: text(row.sl_no),
     qty: text(row.qty),
     unit: text(row.unit),
     model_no: text(row.model_no),
     description: text(row.description),
     unit_cost_exw: text(row.unit_cost_exw),
-    currency: text(row.currency) || 'USD',
-    // Only keep a conversion rate that was typed in; the currency default is applied by the calculation.
-    bd_conversion_rate: Number(row.bd_conversion_rate) === (CURRENCY_RATES[text(row.currency)] ?? 1) ? '' : text(row.bd_conversion_rate),
+    bd_conversion_rate: text(row.bd_conversion_rate),
     supplier_discount_pct: text(row.supplier_discount_pct),
     shipping_duty_pct: text(row.shipping_duty_pct),
     margin_pct: text(row.margin_pct),
@@ -306,10 +327,11 @@ export function lineFromRow(row: Record<string, unknown>): LineItem {
   };
 }
 
-export function lineToPayload(line: LineItem, slNo: number) {
+// What the server expects. SL# is the user's own number (blank = none); headings carry only their text.
+export function lineToPayload(line: LineItem) {
   const { key, ...rest } = line;
   void key;
-  return { ...rest, sl_no: slNo };
+  return line.is_heading ? { section: line.section, is_heading: true, description: line.description } : rest;
 }
 
 // BHD to 3 decimals, thousands separated.

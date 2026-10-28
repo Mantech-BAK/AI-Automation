@@ -477,6 +477,8 @@ const LINE_COLUMNS = [
   'unit_cost_bd', 'nos', 'months', 'days', 'role_name', 'salary_per_month', 'per_day_rate', 'oh_pct', 'total_cost', 'amount',
 ];
 const TEXT_LINE_COLUMNS = new Set(['unit', 'model_no', 'description', 'currency', 'role_name']);
+// Everything that is copied for a revision: the figures plus the heading flag.
+const COPY_COLUMNS = [...LINE_COLUMNS, 'is_heading'];
 
 async function writeLines(client, sheetId, incoming) {
   const { results, summary } = calcSheet(incoming);
@@ -485,14 +487,17 @@ async function writeLines(client, sheetId, incoming) {
   for (let i = 0; i < incoming.length; i++) {
     const line = incoming[i];
     const derived = results[i];
+    const heading = line.is_heading === true;
+    // A heading keeps only its text (in description); every number and the other text fields are null.
     const values = LINE_COLUMNS.map((column) => {
+      if (heading) return column === 'description' ? clean(line.description) : null;
       const raw = derived[column] !== undefined ? derived[column] : line[column];
       return TEXT_LINE_COLUMNS.has(column) ? clean(raw) : toNumberOrNull(raw);
     });
     await client.query(
-      `INSERT INTO costing_line_items (costing_sheet_id, section, sort_order, ${LINE_COLUMNS.join(', ')})
-       VALUES ($1, $2, $3, ${LINE_COLUMNS.map((_, idx) => `$${idx + 4}`).join(', ')})`,
-      [sheetId, line.section, order[line.section]++, ...values]
+      `INSERT INTO costing_line_items (costing_sheet_id, section, sort_order, is_heading, ${LINE_COLUMNS.join(', ')})
+       VALUES ($1, $2, $3, $4, ${LINE_COLUMNS.map((_, idx) => `$${idx + 5}`).join(', ')})`,
+      [sheetId, line.section, order[line.section]++, heading, ...values]
     );
   }
   return summary;
@@ -691,8 +696,8 @@ router.post('/sheets/:id/revise', async (req, res) => {
       [sheet.id, ref, revisionNo, bahrainParts().today, req.masUser.id]
     );
     await client.query(
-      `INSERT INTO costing_line_items (costing_sheet_id, section, sort_order, ${LINE_COLUMNS.join(', ')})
-       SELECT $2, section, sort_order, ${LINE_COLUMNS.join(', ')} FROM costing_line_items WHERE costing_sheet_id = $1`,
+      `INSERT INTO costing_line_items (costing_sheet_id, section, sort_order, ${COPY_COLUMNS.join(', ')})
+       SELECT $2, section, sort_order, ${COPY_COLUMNS.join(', ')} FROM costing_line_items WHERE costing_sheet_id = $1`,
       [sheet.id, rows[0].id]
     );
     await client.query(`UPDATE enquiries SET status = 'in_progress', updated_at = NOW() WHERE id = $1`, [sheet.enquiry_id]);

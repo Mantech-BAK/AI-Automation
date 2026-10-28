@@ -139,6 +139,8 @@ async function ensureCostingSchema(pool) {
       amount NUMERIC
     );
     CREATE INDEX IF NOT EXISTS idx_costing_lines_sheet ON costing_line_items(costing_sheet_id);
+    -- A heading row is a label/divider between groups of items: section + description only, every number null.
+    ALTER TABLE costing_line_items ADD COLUMN IF NOT EXISTS is_heading BOOLEAN NOT NULL DEFAULT FALSE;
 
     CREATE TABLE IF NOT EXISTS mas_notifications (
       id SERIAL PRIMARY KEY,
