@@ -721,6 +721,8 @@ router.get('/dashboard', async (req, res) => {
     const eScope = enquiryScopeSql(req, eParams);
     const total = (await pool.query(`SELECT COUNT(*)::int AS count FROM enquiries e ${eScope ? `WHERE ${eScope}` : ''}`, eParams)).rows[0].count;
 
+    const openEnquiries = (await pool.query(`SELECT COUNT(*)::int AS count FROM enquiries e WHERE e.status IN ('open', 'in_progress') ${eScope ? `AND ${eScope}` : ''}`, eParams)).rows[0].count;
+
     const sParams = [];
     let sScope = '';
     if (!req.scope.all) {
@@ -748,6 +750,7 @@ router.get('/dashboard', async (req, res) => {
 
     return res.json({
       total_enquiries: total,
+      open_enquiries: openEnquiries,
       pending_my_action: openTasks + toApprove + rejected,
       pending_breakdown: { open_tasks: openTasks, to_approve: toApprove, rejected },
       awaiting_approval: awaiting,

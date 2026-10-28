@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
+import { CheckCircle2, ClipboardList, Cog, FileText, FileWarning, Inbox, ListChecks, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
 import { MODULE_ORDER, MODULES, type ModuleId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
-import { useGreeting } from '../components/dashboard/parts';
+import { useSavedName } from '../components/dashboard/parts';
 
 interface ModuleSelectPageProps {
   // Modules the signed-in user may open (based on their allowed item types).
@@ -11,12 +11,15 @@ interface ModuleSelectPageProps {
   onSignOut: () => void;
 }
 
-interface SummaryNumbers {
-  total_equipment: number;
-  equipment_due_7days: number;
-  document_due_7days: number;
-  expiring_documents: number;
-  total_vehicles: number;
+// null = that figure could not be loaded (shown as a dash).
+interface HomeStats {
+  equipmentDue: number | null;
+  vehiclesDue: number | null;
+  documentsExpiring: number | null;
+  openEnquiries: number | null;
+  myPendingTasks: number | null;
+  awaitingApproval: number | null;
+  approvedThisMonth: number | null;
 }
 
 // Per-card visuals: a distinct accent for each module, matching the colours
@@ -44,60 +47,85 @@ interface StatTile {
   label: string;
   value: number | null;
   icon: LucideIcon;
-  tone: string;
-  // The module whose access this number belongs to.
-  module: ModuleId;
+  // Category colours: icon chip, border and number.
+  tone: { chip: string; border: string };
+}
+
+const TONES = {
+  equipment: { chip: 'bg-blue-100 text-blue-600', border: 'border-blue-200' },
+  vehicles: { chip: 'bg-orange-100 text-orange-600', border: 'border-orange-200' },
+  documents: { chip: 'bg-green-100 text-green-600', border: 'border-green-200' },
+  costing: { chip: 'bg-indigo-100 text-indigo-600', border: 'border-indigo-200' },
+  amber: { chip: 'bg-amber-100 text-amber-600', border: 'border-amber-200' },
+};
+
+const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+async function fetchJson(url: string): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await apiFetch(url);
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function ModuleSelectPage({ accessibleModules, onSelectModule, onSignOut }: ModuleSelectPageProps) {
-  const greetingText = useGreeting();
-  const [summary, setSummary] = useState<SummaryNumbers | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(true);
+  const name = useSavedName();
+  const [stats, setStats] = useState<HomeStats | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-
-    apiFetch('/api/dashboard/summary')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (cancelled || !json) return;
-        const num = (value: unknown) => Number(value) || 0;
-        setSummary({
-          total_equipment: num(json.total_equipment),
-          equipment_due_7days: num(json.equipment_due_7days),
-          document_due_7days: num(json.document_due_7days),
-          expiring_documents: num(json.expiring_documents),
-          total_vehicles: num(json.total_vehicles),
-        });
-      })
-      .catch(() => {
-        // The stats row is a nicety - the cards still work without it.
-      })
-      .finally(() => {
-        if (!cancelled) setSummaryLoading(false);
+    // Independent calls: one failing leaves only its own tiles as a dash.
+    Promise.all([fetchJson('/api/dashboard/home-stats'), fetchJson('/api/costing/dashboard')]).then(([home, costing]) => {
+      if (cancelled) return;
+      setStats({
+        equipmentDue: num(home?.equipment_due),
+        vehiclesDue: num(home?.vehicles_due),
+        documentsExpiring: num(home?.documents_expiring),
+        openEnquiries: num(costing?.open_enquiries),
+        myPendingTasks: num((costing?.pending_breakdown as Record<string, unknown> | undefined)?.open_tasks),
+        awaitingApproval: num(costing?.awaiting_approval),
+        approvedThisMonth: num(costing?.approved_this_month),
       });
-
+    });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const allStats: StatTile[] = [
-    { key: 'assets', label: 'Active assets', value: summary?.total_equipment ?? null, icon: Cog, tone: 'text-blue-600 bg-blue-100', module: 'equipment' },
-    {
-      key: 'tasks',
-      label: 'Tasks due this week',
-      value: summary ? summary.equipment_due_7days + summary.document_due_7days : null,
-      icon: CalendarClock,
-      tone: 'text-amber-600 bg-amber-100',
-      module: 'equipment',
-    },
-    { key: 'documents', label: 'Documents expiring in 30 days', value: summary?.expiring_documents ?? null, icon: FileText, tone: 'text-purple-600 bg-purple-100', module: 'documents' },
-    { key: 'vehicles', label: 'Total vehicles', value: summary?.total_vehicles ?? null, icon: Truck, tone: 'text-orange-600 bg-orange-100', module: 'vehicles' },
+  const row1: StatTile[] = [
+    { key: 'equipment', label: 'Equipment due for maintenance (30 days)', value: stats?.equipmentDue ?? null, icon: Cog, tone: TONES.equipment },
+    { key: 'vehicles', label: 'Vehicles due for service (30 days)', value: stats?.vehiclesDue ?? null, icon: Truck, tone: TONES.vehicles },
+    { key: 'documents', label: 'Documents expiring soon (60 days)', value: stats?.documentsExpiring ?? null, icon: FileWarning, tone: TONES.documents },
+    { key: 'enquiries', label: 'Open enquiries', value: stats?.openEnquiries ?? null, icon: Inbox, tone: TONES.costing },
   ];
-  const stats = allStats.filter((tile) => accessibleModules.includes(tile.module));
+  const row2: StatTile[] = [
+    { key: 'tasks', label: 'My pending tasks', value: stats?.myPendingTasks ?? null, icon: ListChecks, tone: TONES.costing },
+    { key: 'approval', label: 'Costing sheets awaiting approval', value: stats?.awaitingApproval ?? null, icon: ClipboardList, tone: TONES.amber },
+    { key: 'approved', label: 'Approved this month', value: stats?.approvedThisMonth ?? null, icon: CheckCircle2, tone: TONES.documents },
+  ];
 
-  const showStats = stats.length > 0 && (summaryLoading || summary !== null);
+  const statTile = (tile: StatTile) => {
+    const Icon = tile.icon;
+    return (
+      <div key={tile.key} className={`flex items-center gap-4 bg-white rounded-xl border ${tile.tone.border} shadow-sm px-5 py-4`}>
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${tile.tone.chip}`}>
+          <Icon size={24} />
+        </div>
+        <div className="min-w-0">
+          {stats === null ? (
+            <div className="h-8 w-12 rounded bg-slate-200 animate-pulse" />
+          ) : (
+            <p className="text-3xl font-bold text-slate-800 leading-tight" title={tile.value === null ? 'Could not be loaded' : undefined}>
+              {tile.value === null ? '–' : tile.value}
+            </p>
+          )}
+          <p className="text-xs text-slate-500 leading-tight mt-1">{tile.label}</p>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -119,10 +147,10 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           </div>
 
           <div className="pt-10 pb-24">
-            <h1 className="text-3xl lg:text-4xl font-bold tracking-tight">
-              {greetingText}
-            </h1>
-            <p className="text-slate-300 mt-2">{bahrainDateLabel()}</p>
+            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+              <h1 className="text-3xl lg:text-4xl font-bold tracking-tight">{name ? `Welcome back, ${name}` : 'Welcome back'}</h1>
+              <p className="text-slate-300">{bahrainDateLabel()}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -161,32 +189,13 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           })}
         </div>
 
-        {/* Quick stats */}
-        {showStats && (
-          <section className="mt-10">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">At a glance</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {stats.map((tile) => {
-                const Icon = tile.icon;
-                return (
-                  <div key={tile.key} className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3.5">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${tile.tone}`}>
-                      <Icon size={20} />
-                    </div>
-                    <div className="min-w-0">
-                      {tile.value === null ? (
-                        <div className="h-6 w-10 rounded bg-slate-200 animate-pulse" />
-                      ) : (
-                        <p className="text-2xl font-bold text-slate-800 leading-tight">{tile.value}</p>
-                      )}
-                      <p className="text-xs text-slate-500 leading-tight mt-0.5">{tile.label}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
+        {/* Live summary */}
+        <section className="mt-10 space-y-4">
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">At a glance</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{row1.map(statTile)}</div>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide pt-2">Costing snapshot</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{row2.map(statTile)}</div>
+        </section>
       </main>
     </div>
   );
