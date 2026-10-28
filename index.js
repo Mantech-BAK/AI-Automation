@@ -21,6 +21,7 @@ const notificationsConfigRouter = require('./routes/notifications-config');
 const usersRouter = require('./routes/users');
 const vehiclesRouter = require('./routes/vehicles');
 const projectsRouter = require('./routes/projects');
+const costingRouter = require('./routes/costing');
 const { startStatusTracker } = require('./jobs/statusTracker');
 const { processEmails } = require('./jobs/emailProcessor');
 const { processDocumentEmails, removeDuplicateDocuments } = require('./jobs/documentEmailProcessor');
@@ -125,6 +126,7 @@ app.use('/api/notifications-config', requireAuth, notificationsConfigRouter);
 app.use('/api/users', requireAuth, usersRouter);
 app.use('/api/vehicles', requireAuth, vehiclesRouter);
 app.use('/api/projects', requireAuth, projectsRouter);
+app.use('/api/costing', requireAuth, costingRouter);
 
 app.use(express.static(clientDistPath));
 
@@ -137,6 +139,9 @@ startStatusTracker();
 require('./db/documentColumns')
   .ensureDocumentColumns(pool)
   .catch((error) => console.error('Document column setup failed:', error.message));
+require('./db/costingSchema')
+  .ensureCostingSchema(pool)
+  .catch((error) => console.error('Costing schema setup failed:', error.message));
 removeDuplicateDocuments().catch((error) => {
   console.error('Duplicate document clean-up failed:', error.message);
 });

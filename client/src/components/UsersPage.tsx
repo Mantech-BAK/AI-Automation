@@ -19,7 +19,7 @@ interface LookupOption {
   name: string;
 }
 
-const ITEM_TYPE_OPTIONS = ['Equipment', 'Document', 'Project'];
+const ITEM_TYPE_OPTIONS = ['Equipment', 'Document', 'Project', 'Costing'];
 
 const emptyForm = {
   name: '',

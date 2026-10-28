@@ -16,6 +16,7 @@ import UsersPage from './components/UsersPage';
 import LoginPage from './pages/LoginPage';
 import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
+import CostingModule from './modules/CostingModule';
 import { MODULE_ORDER, allNavItems, isModuleId, type ModuleId } from './lib/modules';
 import { apiFetch } from './lib/api';
 
@@ -70,6 +71,8 @@ function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
   if (user.role === 'admin') return true;
   // Project financials are opt-in: the user needs the 'Project' item type, an empty list is not enough.
   if (module === 'projects') return (user.allowed_item_types || []).includes('Project');
+  // Costing sheets hold selling prices and margins, so they are opt-in too: the 'Costing' item type.
+  if (module === 'costing') return (user.allowed_item_types || []).includes('Costing');
   const allowedItemTypes = user.allowed_item_types || [];
   if (allowedItemTypes.length === 0) return true;
   return allowedItemTypes.includes(module === 'documents' ? 'Document' : 'Equipment');
@@ -86,6 +89,10 @@ function hasPageAccess(page: string, user: SessionUser): boolean {
 function parsePath(pathname: string): { module: ModuleId | null; navId: string } {
   const [first, second] = pathname.split('/').filter(Boolean);
   if (!isModuleId(first)) return { module: null, navId: 'dashboard' };
+  // /costing/sheet/:id and /costing/quotation/:id are detail pages under the Costing Sheets / Quotations items.
+  if (first === 'costing' && (second === 'sheet' || second === 'quotation')) {
+    return { module: first, navId: second === 'sheet' ? 'sheets' : 'quotations' };
+  }
   const known = allNavItems(first).some((item) => item.id === second);
   return { module: first, navId: known ? second : 'dashboard' };
 }
@@ -104,6 +111,8 @@ function App() {
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(null);
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
+  // Bumped on every Costing Sheet URL change so the page re-renders (and remounts) even when nothing else in state changed.
+  const [, setRouteTick] = useState(0);
 
   const currentItem = activeModule ? allNavItems(activeModule).find((item) => item.id === activeNavId) : undefined;
   const currentPage = currentItem?.page ?? activeNavId;
@@ -124,6 +133,17 @@ function App() {
     setNavFilter(filter ?? null);
     setAccessDeniedMessage(null);
     pushRoute(module, navId, filter?.projectId);
+  };
+
+  // Costing Sheet detail URLs (/costing/sheet/12): keeps the sidebar highlight in step with the URL.
+  const goToCostingPath = (path: string) => {
+    const route = parsePath(path);
+    setActiveModule('costing');
+    setActiveNavId(route.navId);
+    setNavFilter(null);
+    setAccessDeniedMessage(null);
+    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+    setRouteTick((tick) => tick + 1);
   };
 
   const handleSelectModule = (module: ModuleId) => {
@@ -172,6 +192,7 @@ function App() {
       setActiveModule(route.module);
       setActiveNavId(route.navId);
       setNavFilter(null);
+      setRouteTick((tick) => tick + 1);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -260,6 +281,10 @@ function App() {
       return <ProjectsModule page={currentPage} onNavigate={handleNavigate} navFilter={navFilter} />;
     }
 
+    if (activeModule === 'costing' && currentPage !== 'settings' && currentPage !== 'users') {
+      return <CostingModule onNavigate={goToCostingPath} />;
+    }
+
     // The other modules share the asset / task / document pages below.
     switch (currentPage) {
       case 'dashboard':
@@ -322,7 +347,7 @@ function App() {
         </div>
       )}
       {/* Keyed so moving between modules or pages always starts a page fresh. */}
-      <div key={`${activeModule}:${activeNavId}`}>{renderPage()}</div>
+      <div key={`${activeModule}:${activeNavId}${activeModule === 'costing' ? window.location.pathname : ''}`}>{renderPage()}</div>
     </Layout>
   );
 }

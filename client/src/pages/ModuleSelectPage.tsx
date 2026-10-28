@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, BarChart3, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
+import { ArrowRight, BarChart3, Calculator, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
 import { MODULE_ORDER, MODULES, type ModuleId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
 import { useGreeting } from '../components/dashboard/parts';
@@ -26,6 +26,7 @@ const CARD_STYLE: Record<ModuleId, { accentText: string; accentBg: string; ring:
   vehicles: { accentText: 'text-orange-600', accentBg: 'bg-orange-50', ring: 'hover:shadow-orange-200/70', watermark: Truck },
   documents: { accentText: 'text-purple-600', accentBg: 'bg-purple-50', ring: 'hover:shadow-purple-200/70', watermark: FileText },
   projects: { accentText: 'text-teal-600', accentBg: 'bg-teal-50', ring: 'hover:shadow-teal-200/70', watermark: BarChart3 },
+  costing: { accentText: 'text-indigo-600', accentBg: 'bg-indigo-50', ring: 'hover:shadow-indigo-200/70', watermark: Calculator },
 };
 
 function bahrainDateLabel(): string {

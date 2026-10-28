@@ -1,6 +1,9 @@
 import {
   Bell,
   BarChart3,
+  Calculator,
+  ClipboardList,
+  FileSpreadsheet,
   Building2,
   Calendar,
   CalendarDays,
@@ -28,11 +31,11 @@ import {
 } from 'lucide-react';
 import type { NavFilter } from '../App';
 
-export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects';
+export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects' | 'costing';
 
 // The three modules built on the shared asset/task dashboards (Project Tracking
 // has its own pages under pages/projects).
-export type LegacyModuleId = Exclude<ModuleId, 'projects'>;
+export type LegacyModuleId = Exclude<ModuleId, 'projects' | 'costing'>;
 
 export type TabId = NonNullable<NavFilter['tab']>;
 export type TechnicianTabId = 'maintenance' | 'documentation' | 'vehicles';
@@ -148,12 +151,26 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
+  costing: {
+    id: 'costing',
+    label: 'Costing Sheet',
+    description: 'Prepare enquiries, costing sheets and quotations',
+    icon: Calculator,
+    gradient: 'from-indigo-500 to-violet-600',
+    // Settings is appended to every module's sidebar via SYSTEM_NAV.
+    nav: [
+      DASHBOARD,
+      { id: 'enquiries', label: 'Enquiries', icon: ClipboardList, page: 'costing-enquiries' },
+      { id: 'sheets', label: 'Costing Sheets', icon: FileSpreadsheet, page: 'costing-sheets' },
+      { id: 'quotations', label: 'Quotations', icon: FileText, page: 'costing-quotations' },
+    ],
+  },
 };
 
-export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents', 'projects'];
+export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents', 'projects', 'costing'];
 
 export function isModuleId(value: string | undefined): value is ModuleId {
-  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects';
+  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects' || value === 'costing';
 }
 
 export function allNavItems(module: ModuleId): ModuleNavItem[] {

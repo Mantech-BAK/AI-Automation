@@ -661,6 +661,9 @@ async function runMigrations() {
     // Documents: dedicated cr_no / license_no columns and the processed_at timestamp.
     await require('./documentColumns').ensureDocumentColumns(pool);
 
+    // Costing Sheet module: enquiries, costing sheets, line items, linked documents/files, quotation counters.
+    await require('./costingSchema').ensureCostingSchema(pool);
+
     // Project Tracking module: projects, AR transactions and retention.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS projects (
