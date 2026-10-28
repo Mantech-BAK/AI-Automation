@@ -988,9 +988,6 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               />
             </div>
           </div>
-          {saveError && (
-            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{saveError}</div>
-          )}
           <div className="flex justify-end gap-3 pt-4">
             <button
               onClick={() => setAddModalOpen(false)}
