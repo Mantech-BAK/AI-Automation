@@ -23,6 +23,9 @@ const TILES: Record<ModuleId, { name: string; subtitle: string; icon: LucideIcon
 };
 
 type Tone = 'good' | 'warn' | 'bad';
+// Inter is the app-wide font; the home page headings and numbers use Plus Jakarta Sans for a more distinctive look.
+const DISPLAY_FONT = { fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif" };
+
 const TONE_TEXT: Record<Tone, string> = { good: 'text-emerald-400', warn: 'text-orange-400', bad: 'text-red-400' };
 
 // One stat tile: its endpoint, label and how the number is described underneath.
@@ -120,7 +123,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
         {count === undefined ? (
           <div className="h-7 w-10 rounded bg-white/10 animate-pulse mt-2" />
         ) : (
-          <p className="text-3xl font-bold text-white leading-none mt-2">{count.value}</p>
+          <p className="text-3xl font-bold text-white leading-none mt-2" style={DISPLAY_FONT}>{count.value}</p>
         )}
         <p className={`text-[11px] mt-2 ${described ? TONE_TEXT[described.tone] : 'text-slate-500'}`}>{described ? described.text : count?.failed ? 'No data' : ' '}</p>
       </div>
@@ -184,7 +187,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
                   {allowed ? <ChevronRight size={22} className="opacity-90" /> : <Lock size={18} className="opacity-90" />}
                 </div>
                 <div>
-                  <p className="text-2xl font-bold leading-tight">{tile.name}</p>
+                  <p className="text-2xl font-bold leading-tight" style={DISPLAY_FONT}>{tile.name}</p>
                   <p className="text-sm text-white/75 mt-0.5">{tile.subtitle}</p>
                 </div>
               </button>
@@ -192,8 +195,8 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           })}
         </div>
 
-        {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 56px below the tiles) */}
-        <div className="pt-9 space-y-5">
+        {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 76px below the tiles) */}
+        <div className="pt-14 space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][0]))}</div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][1]))}</div>
         </div>
