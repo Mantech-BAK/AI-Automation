@@ -58,14 +58,20 @@ const STATS: Record<ModuleId, [StatDef, StatDef]> = {
   ],
 };
 
-async function fetchCount(url: string): Promise<number | null> {
+// A count that could not be loaded counts as 0 (failed = true, so the tile can say "No data" instead of a description).
+interface Count {
+  value: number;
+  failed: boolean;
+}
+
+async function fetchCount(url: string): Promise<Count> {
   try {
     const response = await apiFetch(url);
-    if (!response.ok) return null;
+    if (!response.ok) return { value: 0, failed: true };
     const json = await response.json();
-    return typeof json?.count === 'number' ? json.count : null;
+    return typeof json?.count === 'number' ? { value: json.count, failed: false } : { value: 0, failed: true };
   } catch {
-    return null;
+    return { value: 0, failed: true };
   }
 }
 
@@ -84,8 +90,8 @@ const initialsOf = (name: string) =>
 const roleLabel = (role: string) => (role ? role.charAt(0).toUpperCase() + role.slice(1) : '');
 
 export default function ModuleSelectPage({ accessibleModules, onSelectModule, onSignOut, user }: ModuleSelectPageProps) {
-  // key -> count; undefined = still loading, null = could not be loaded
-  const [counts, setCounts] = useState<Record<string, number | null | undefined>>({});
+  // key -> count; undefined = still loading
+  const [counts, setCounts] = useState<Record<string, Count | undefined>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -101,30 +107,28 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
   }, []);
 
   const statTile = (def: StatDef) => {
-    const value = counts[def.key];
-    const described = typeof value === 'number' ? def.describe(value) : null;
+    const count = counts[def.key];
+    const described = count && !count.failed ? def.describe(count.value) : null;
     const warning = described !== null && described.tone !== 'good';
     const Icon = warning ? AlertTriangle : TrendingUp;
     return (
-      <div key={def.key} className="rounded-2xl bg-[#1a1a1a] border border-white/10 px-5 py-4 min-w-0">
+      <div key={def.key} className="rounded-2xl bg-[#1e293b] border border-white/10 px-5 py-4 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <p className="text-xs text-slate-400 leading-snug">{def.label}</p>
-          <Icon size={16} className={`flex-shrink-0 ${warning ? 'text-orange-400' : 'text-emerald-400'}`} />
+          <Icon size={16} className={`flex-shrink-0 ${warning ? 'text-orange-400' : count?.failed ? 'text-slate-500' : 'text-emerald-400'}`} />
         </div>
-        {value === undefined ? (
+        {count === undefined ? (
           <div className="h-9 w-12 rounded bg-white/10 animate-pulse mt-3" />
         ) : (
-          <p className="text-4xl font-bold text-white leading-none mt-3" title={value === null ? 'Could not be loaded' : undefined}>
-            {value === null ? '–' : value}
-          </p>
+          <p className="text-4xl font-bold text-white leading-none mt-3">{count.value}</p>
         )}
-        <p className={`text-xs mt-2.5 ${described ? TONE_TEXT[described.tone] : 'text-slate-500'}`}>{described ? described.text : value === null ? 'Unavailable' : ' '}</p>
+        <p className={`text-xs mt-2.5 ${described ? TONE_TEXT[described.tone] : 'text-slate-500'}`}>{described ? described.text : count?.failed ? 'No data' : ' '}</p>
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col">
+    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col">
       {/* Top bar */}
       <header className="border-b border-white/10">
         <div className="max-w-7xl mx-auto px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
@@ -188,9 +192,11 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           })}
         </div>
 
-        {/* Stat tiles: one pair per module, in the same column as its module tile */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][0]))}</div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][1]))}</div>
+        {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 44px below the tiles) */}
+        <div className="pt-6 space-y-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][0]))}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][1]))}</div>
+        </div>
       </main>
     </div>
   );
