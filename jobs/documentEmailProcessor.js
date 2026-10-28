@@ -12,7 +12,10 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const MAX_TEXT_CHARS = 6000;
+// Text sent to the model: every page is included (marked "=== PAGE n of N ==="), each page capped so one long page
+// cannot push the later pages out. Long inputs make the model's answer long enough to be cut off mid-JSON.
+const MAX_TEXT_CHARS = 24000;
+const MAX_PAGE_CHARS = 6000;
 const ONEDRIVE_FOLDER = 'Maintenance Documents';
 
 const SYSTEM_PROMPT =
@@ -23,7 +26,8 @@ const SYSTEM_PROMPT =
   'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
   'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
   'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
-  'If the PDF contains more than one separate document (for example a CR certificate AND a licence on the same file), return {"documents": [ {...}, {...} ]} ' +
+  'This PDF may contain multiple documents, one per page (the text is split into "=== PAGE n of N ===" sections). Extract each document as a separate item in the documents array. Do not merge multiple documents into one. ' +
+  'If the PDF contains more than one separate document (for example a CR certificate AND a licence on the same file, or one licence per page), return {"documents": [ {...}, {...} ]} ' +
   'with one object per document, each with its own document_name, cr_no, license_no, registration_date, expiry_date and the other fields; otherwise return a single object. ' +
   'Return ONLY a valid JSON object with no markdown or extra text. Every field name should be snake_case.';
 
@@ -150,7 +154,6 @@ ${rawResponse}`);
 }
 
 async function extractDocumentData(text) {
-  // Long inputs make the model's answer long enough to be cut off mid-JSON.
   const truncatedText = text.slice(0, MAX_TEXT_CHARS);
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const messages = [
@@ -172,7 +175,40 @@ async function extractDocumentData(text) {
   if (choice?.finish_reason === 'length') {
     console.warn('Groq response was cut off (finish_reason=length) - the JSON will be incomplete');
   }
-  return parseJsonObject(choice?.message?.content);
+  const content = choice?.message?.content;
+  console.log(`AI raw response (${String(content || '').length} chars, ${truncatedText.length} chars sent): ${String(content || '').slice(0, 4000)}`);
+  return parseJsonObject(content);
+}
+
+// Text of a PDF page by page. pdf-parse joins pages into one string; the custom page renderer keeps each page's own text.
+async function readPdfPages(pdfBuffer) {
+  const pages = [];
+  const renderPage = async (pageData) => {
+    const content = await pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
+    let lastY;
+    let text = '';
+    for (const item of content.items) {
+      if (lastY === item.transform[5] || lastY === undefined) text += item.str;
+      else text += '\n' + item.str;
+      lastY = item.transform[5];
+    }
+    pages.push(text);
+    return text;
+  };
+  const result = await pdfParse(pdfBuffer, { pagerender: renderPage });
+  return { text: result.text, pages };
+}
+
+const textForAi = (pages) =>
+  pages.map((page, i) => `=== PAGE ${i + 1} of ${pages.length} ===\n${String(page).trim().slice(0, MAX_PAGE_CHARS)}`).join('\n\n');
+
+// A PDF whose pages each start with the same title (e.g. two licences of the same kind) holds one document per page.
+function pagesAreSeparateDocuments(pages) {
+  if (pages.length < 2 || pages.length > 10) return false;
+  if (pages.some((page) => String(page).trim().length < MIN_TEXT_CHARS)) return false;
+  const title = (page) => String(page).split('\n').map((line) => line.trim()).find(Boolean)?.toLowerCase();
+  const first = title(pages[0]);
+  return Boolean(first) && pages.every((page) => title(page) === first);
 }
 
 const MIN_TEXT_CHARS = 100;
@@ -414,6 +450,7 @@ async function createNewDocument(doc, oneDriveUrl) {
       [rows[0].id, oneDriveUrl, doc.expiry_date, doc.registration_date, buildFileName(doc.owner_name, doc.document_name, doc.expiry_date)]
     );
   }
+  return rows[0].id;
 }
 
 function normalizeValue(value) {
@@ -506,7 +543,8 @@ function compareExtractedData(newData, existingData) {
   return 1 + (ownerSame ? 1 : 0);
 }
 
-async function findExistingDocument(extractedData, documentName, responsiblePerson, doc = {}) {
+async function findExistingDocument(extractedData, documentName, responsiblePerson, doc = {}, excludeIds = new Set()) {
+  const exclude = [...excludeIds];
   // Per-document identifier rule: a document with a licence number is the same document as a stored one
   // with that licence number; one with only a CR number matches a stored CR-only record (a licence record
   // also carries the CR number, so it must not count as a duplicate of the CR certificate).
@@ -518,8 +556,8 @@ async function findExistingDocument(extractedData, documentName, responsiblePers
   if (identifier) {
     const { rows: byId } = await pool.query(
       `SELECT id, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at
-       FROM assets WHERE extracted_data IS NOT NULL AND ${identifier.sql} ORDER BY id LIMIT 1`,
-      [identifier.value]
+       FROM assets WHERE extracted_data IS NOT NULL AND ${identifier.sql} AND id <> ALL($2::int[]) ORDER BY id LIMIT 1`,
+      [identifier.value, exclude]
     );
     if (byId.length > 0) return { id: byId[0].id, expiryDate: byId[0].expiry_date, processedAt: byId[0].processed_at, score: 100 };
   }
@@ -532,9 +570,9 @@ async function findExistingDocument(extractedData, documentName, responsiblePers
       `SELECT id, expiry_date, COALESCE(processed_at, last_received_at) AS processed_at
        FROM assets
        WHERE extracted_data IS NOT NULL AND LOWER(TRIM(equipment_name)) = LOWER(TRIM($1))
-         AND LOWER(TRIM(responsible_person)) = LOWER(TRIM($2))
+         AND LOWER(TRIM(responsible_person)) = LOWER(TRIM($2)) AND id <> ALL($3::int[])
        ORDER BY id LIMIT 1`,
-      [documentName, responsiblePerson]
+      [documentName, responsiblePerson, exclude]
     );
     if (byName.length > 0) return { id: byName[0].id, expiryDate: byName[0].expiry_date, processedAt: byName[0].processed_at, score: 99 };
   }
@@ -545,6 +583,7 @@ async function findExistingDocument(extractedData, documentName, responsiblePers
 
   let best = null;
   for (const row of rows) {
+    if (excludeIds.has(row.id)) continue;
     const score = compareExtractedData(extractedData, row.extracted_data);
     if (score !== null && (!best || score > best.score)) {
       best = { id: row.id, expiryDate: row.expiry_date, processedAt: row.processed_at, score };
@@ -611,7 +650,8 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   }
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
-  let { text } = await withRetries(`PDF text extraction for "${attachment.name}"`, () => pdfParse(pdfBuffer));
+  let { text, pages } = await withRetries(`PDF text extraction for "${attachment.name}"`, () => readPdfPages(pdfBuffer));
+  console.log(`"${attachment.name}": ${pages.length} page(s), text per page: ${pages.map((p) => String(p).trim().length).join(', ')} chars`);
 
   // Scanned PDFs have little or no text layer - try Microsoft's conversion.
   if (!text || text.trim().length < MIN_TEXT_CHARS) {
@@ -623,11 +663,12 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
       return [fail('scanned image PDF — Microsoft could not extract text — please use a text-based PDF', 'scanned')];
     }
     text = converted;
+    pages = [converted];
   }
 
   let aiResult;
   try {
-    aiResult = await withRetries(`AI extraction for "${attachment.name}"`, () => extractDocumentData(text));
+    aiResult = await withRetries(`AI extraction for "${attachment.name}"`, () => extractDocumentData(pages.length > 1 ? textForAi(pages) : text));
   } catch (error) {
     if (error instanceof InvalidAiJsonError) {
       console.error(`AI returned invalid JSON for "${attachment.name}":`, error.message);
@@ -638,7 +679,25 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
   // One PDF can hold several documents (e.g. a CR certificate and a licence): each becomes its own record,
   // all linked to the same PDF file.
-  const items = splitDocuments(aiResult);
+  let items = splitDocuments(aiResult);
+
+  // Safety net: pages that share the same title are separate documents. If the model merged them into fewer
+  // items than pages, read each page on its own.
+  if (items.length < pages.length && pagesAreSeparateDocuments(pages)) {
+    console.log(`"${attachment.name}": ${pages.length} pages with the same title but only ${items.length} document(s) returned - extracting page by page`);
+    try {
+      const perPage = [];
+      for (let i = 0; i < pages.length; i++) {
+        const pageResult = await withRetries(`AI extraction for "${attachment.name}" page ${i + 1}`, () => extractDocumentData(String(pages[i]).trim()));
+        perPage.push(...splitDocuments(pageResult));
+      }
+      items = perPage;
+    } catch (error) {
+      console.error(`Page-by-page extraction failed for "${attachment.name}":`, error.message);
+      if (error instanceof InvalidAiJsonError) return [fail(error.message, 'invalid_json')];
+      throw error;
+    }
+  }
   const baseName =
     documentNameFromFilename(attachment.name) || String(attachment.name || '').replace(/\.pdf$/i, '').trim();
   if (items.length > 1) console.log(`"${attachment.name}" contains ${items.length} documents`);
@@ -655,9 +714,11 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
   const results = [];
   const usedNames = new Set();
+  // Records created or matched by an earlier document of this same PDF: a later page never merges into them.
+  const claimedIds = new Set();
   for (let index = 0; index < items.length; index++) {
     try {
-      results.push(await processExtractedDocument({ raw: items[index], index, total: items.length, attachment, baseName, usedNames, senderName, senderAddress, getOneDriveUrl }));
+      results.push(await processExtractedDocument({ raw: items[index], index, total: items.length, attachment, baseName, usedNames, claimedIds, senderName, senderAddress, getOneDriveUrl }));
     } catch (error) {
       console.error(`Failed to save document ${index + 1} of "${attachment.name}":`, error.message);
       results.push({ status: 'failed', fileName: attachment.name, reason: error.message });
@@ -668,7 +729,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
 // Result for ONE document found in a PDF. Duplicates are checked per document (by licence / CR number, then by
 // name + responsible person), never per file.
-async function processExtractedDocument({ raw, index, total, attachment, baseName, usedNames, senderName, senderAddress, getOneDriveUrl }) {
+async function processExtractedDocument({ raw, index, total, attachment, baseName, usedNames, claimedIds = new Set(), senderName, senderAddress, getOneDriveUrl }) {
   const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode });
 
   // The PDF's own printed date is not when we processed it (that is processed_at), so it is not kept.
@@ -733,7 +794,8 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   // Documents handled earlier in this same run are already in the database
   // (each record is committed before the next one is checked), so this also
   // catches the same document attached twice, or sent in several emails.
-  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person, doc);
+  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person, doc, claimedIds);
+  if (existing) claimedIds.add(existing.id);
 
   // Already stored with the very same expiry - nothing new to record.
   if (existing && existing.expiryDate === doc.expiry_date) {
@@ -751,7 +813,7 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   if (existing) {
     await updateExistingDocument(existing.id, doc, oneDriveUrl);
   } else {
-    await createNewDocument(doc, oneDriveUrl);
+    claimedIds.add(await createNewDocument(doc, oneDriveUrl));
   }
 
   const status = existing ? 'updated' : 'created';
