@@ -112,17 +112,17 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
     const warning = described !== null && described.tone !== 'good';
     const Icon = warning ? AlertTriangle : TrendingUp;
     return (
-      <div key={def.key} className="rounded-2xl bg-[#1e293b] border border-white/10 px-5 py-4 min-w-0">
+      <div key={def.key} className="rounded-2xl bg-[#1e293b] border border-white/10 px-4 py-3 min-w-0">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-xs text-slate-400 leading-snug">{def.label}</p>
-          <Icon size={16} className={`flex-shrink-0 ${warning ? 'text-orange-400' : count?.failed ? 'text-slate-500' : 'text-emerald-400'}`} />
+          <p className="text-[11px] text-slate-400 leading-snug">{def.label}</p>
+          <Icon size={14} className={`flex-shrink-0 ${warning ? 'text-orange-400' : count?.failed ? 'text-slate-500' : 'text-emerald-400'}`} />
         </div>
         {count === undefined ? (
-          <div className="h-9 w-12 rounded bg-white/10 animate-pulse mt-3" />
+          <div className="h-7 w-10 rounded bg-white/10 animate-pulse mt-2" />
         ) : (
-          <p className="text-4xl font-bold text-white leading-none mt-3">{count.value}</p>
+          <p className="text-3xl font-bold text-white leading-none mt-2">{count.value}</p>
         )}
-        <p className={`text-xs mt-2.5 ${described ? TONE_TEXT[described.tone] : 'text-slate-500'}`}>{described ? described.text : count?.failed ? 'No data' : ' '}</p>
+        <p className={`text-[11px] mt-2 ${described ? TONE_TEXT[described.tone] : 'text-slate-500'}`}>{described ? described.text : count?.failed ? 'No data' : ' '}</p>
       </div>
     );
   };
@@ -192,8 +192,8 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           })}
         </div>
 
-        {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 44px below the tiles) */}
-        <div className="pt-6 space-y-5">
+        {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 56px below the tiles) */}
+        <div className="pt-9 space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][0]))}</div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][1]))}</div>
         </div>
