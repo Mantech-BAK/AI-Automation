@@ -31,6 +31,16 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
 
   const pageTitle = [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
 
+  const signOutButton = (
+    <button
+      onClick={onSignOut}
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-slate-600 border border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+    >
+      <LogOut size={15} />
+      Sign Out
+    </button>
+  );
+
   const renderItem = (item: ModuleNavItem) => {
     const Icon = item.icon;
     const isActive = activeNavId === item.id;
@@ -127,16 +137,6 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
           </div>
         </nav>
 
-        {/* Sign Out */}
-        <div className="px-2.5 py-4 border-t border-slate-700 flex-shrink-0">
-          <button
-            onClick={onSignOut}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-slate-300 hover:bg-red-500/20 hover:text-red-400 transition-colors"
-          >
-            <LogOut size={18} />
-            <span className="font-medium text-sm">Sign Out</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main content */}
@@ -149,9 +149,14 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
           {module !== 'projects' && (
             <span className="hidden sm:inline text-xs font-medium text-slate-400 uppercase tracking-wide">{definition.label}</span>
           )}
-          {topbarExtra && <div className="ml-auto">{topbarExtra}</div>}
+          <div className="ml-auto flex items-center gap-3">
+            {topbarExtra}
+            {signOutButton}
+          </div>
         </header>
         )}
+        {/* Project Tracking has no top bar, so its Sign Out floats in the top-right corner. */}
+        {hideTopbar && <div className="fixed top-3 right-4 z-30">{signOutButton}</div>}
 
         <div
           className={`flex-1 p-4 lg:p-8 ${hideTopbar && activeNavId === 'settings' ? 'pt-16 lg:pt-8' : ''}`}

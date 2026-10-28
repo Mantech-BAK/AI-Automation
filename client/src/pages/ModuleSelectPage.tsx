@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, BarChart3, Calculator, CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
+import { CalendarClock, Cog, FileText, LogOut, Lock, Truck, type LucideIcon } from 'lucide-react';
 import { MODULE_ORDER, MODULES, type ModuleId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
 import { useGreeting } from '../components/dashboard/parts';
@@ -21,12 +21,12 @@ interface SummaryNumbers {
 
 // Per-card visuals: a distinct accent for each module, matching the colours
 // the module dashboards already use (blue / orange / purple).
-const CARD_STYLE: Record<ModuleId, { accentText: string; accentBg: string; ring: string; watermark: LucideIcon }> = {
-  equipment: { accentText: 'text-blue-600', accentBg: 'bg-blue-50', ring: 'hover:shadow-blue-200/70', watermark: Cog },
-  vehicles: { accentText: 'text-orange-600', accentBg: 'bg-orange-50', ring: 'hover:shadow-orange-200/70', watermark: Truck },
-  documents: { accentText: 'text-purple-600', accentBg: 'bg-purple-50', ring: 'hover:shadow-purple-200/70', watermark: FileText },
-  projects: { accentText: 'text-teal-600', accentBg: 'bg-teal-50', ring: 'hover:shadow-teal-200/70', watermark: BarChart3 },
-  costing: { accentText: 'text-indigo-600', accentBg: 'bg-indigo-50', ring: 'hover:shadow-indigo-200/70', watermark: Calculator },
+const CARD_STYLE: Record<ModuleId, { accentText: string; accentBg: string; ring: string }> = {
+  equipment: { accentText: 'text-blue-600', accentBg: 'bg-blue-50', ring: 'hover:shadow-blue-200/70' },
+  vehicles: { accentText: 'text-orange-600', accentBg: 'bg-orange-50', ring: 'hover:shadow-orange-200/70' },
+  documents: { accentText: 'text-purple-600', accentBg: 'bg-purple-50', ring: 'hover:shadow-purple-200/70' },
+  projects: { accentText: 'text-teal-600', accentBg: 'bg-teal-50', ring: 'hover:shadow-teal-200/70' },
+  costing: { accentText: 'text-indigo-600', accentBg: 'bg-indigo-50', ring: 'hover:shadow-indigo-200/70' },
 };
 
 function bahrainDateLabel(): string {
@@ -129,12 +129,11 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 lg:px-8 -mt-16 pb-12">
         {/* Module cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="flex flex-nowrap justify-center gap-3 sm:gap-4">
           {MODULE_ORDER.map((id) => {
             const module = MODULES[id];
             const style = CARD_STYLE[id];
             const Icon = module.icon;
-            const Watermark = style.watermark;
             const allowed = accessibleModules.includes(id);
 
             return (
@@ -143,29 +142,19 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
                 type="button"
                 disabled={!allowed}
                 onClick={() => onSelectModule(id)}
-                className={`group relative text-left rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-md transition-all duration-200 ${
-                  allowed ? `hover:-translate-y-1.5 hover:shadow-2xl ${style.ring}` : 'opacity-60 cursor-not-allowed'
+                title={allowed ? module.label : `${module.label} - no access`}
+                className={`group relative flex-1 min-w-0 max-w-[10rem] rounded-xl overflow-hidden bg-white border border-slate-200 shadow-md transition-all duration-200 ${
+                  allowed ? `hover:-translate-y-1 hover:shadow-xl ${style.ring}` : 'opacity-60 cursor-not-allowed'
                 }`}
               >
-                <div className={`relative bg-gradient-to-br ${module.gradient} px-7 pt-8 pb-10 overflow-hidden`}>
-                  <Watermark size={150} className="absolute -right-6 -bottom-8 text-white/10" strokeWidth={1.25} />
-                  <div className="relative w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-inner">
-                    <Icon size={34} className="text-white" />
+                <div className={`relative bg-gradient-to-br ${module.gradient} py-4 flex items-center justify-center`}>
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                    <Icon size={22} className="text-white" />
                   </div>
-                  {!allowed && <Lock size={20} className="absolute top-5 right-5 text-white/80" />}
+                  {!allowed && <Lock size={14} className="absolute top-2 right-2 text-white/80" />}
                 </div>
-
-                <div className="px-7 py-6">
-                  <h2 className="text-xl font-bold text-slate-800">{module.label}</h2>
-                  <p className="text-sm text-slate-500 mt-2 leading-relaxed min-h-[2.75rem]">{module.description}</p>
-                  <span
-                    className={`mt-5 inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold ${
-                      allowed ? `${style.accentBg} ${style.accentText}` : 'bg-slate-100 text-slate-500'
-                    }`}
-                  >
-                    {allowed ? 'Open module' : 'No access'}
-                    {allowed && <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />}
-                  </span>
+                <div className="px-2 py-2.5">
+                  <h2 className="text-xs sm:text-sm font-semibold text-slate-800 text-center leading-tight">{module.label}</h2>
                 </div>
               </button>
             );
