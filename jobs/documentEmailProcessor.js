@@ -22,7 +22,8 @@ const SYSTEM_PROMPT =
   'You are a document data extraction assistant. Extract every piece of information you can find in this document and return it as a JSON object. ' +
   'Include all fields you find such as document name, owner name, company name, document type, document number, issuing authority, registration number, ' +
   'address, contact details, validity period, conditions, fees, reference numbers, stamp details, signatures, categories, and any other field present in the document. ' +
-  'Also always include these specific fields if found: document_name (string), registration_date (the date the document was issued / registered / valid from, YYYY-MM-DD or null), expiry_date (the date it expires / is valid until - always the LATER of the two dates, YYYY-MM-DD or null). ' +
+  'Also always include these specific fields if found: document_name (string), registration_date (YYYY-MM-DD or null), expiry_date (YYYY-MM-DD or null). ' +
+  'registration_date is the date the document was issued or registered (usually the earlier date). expiry_date is the date the document expires or becomes invalid (usually the later date). expiry_date must always be after registration_date. ' +
   'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
   'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
   'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
