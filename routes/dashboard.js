@@ -149,30 +149,6 @@ router.get('/overview/documentation', async (req, res) => {
   }
 });
 
-// Counts for the home page (module selection) tiles. Each count is computed on its own so one failing query
-// (e.g. a table that does not exist yet) yields null for that tile instead of failing the others.
-router.get('/home-stats', async (req, res) => {
-  const count = async (sql) => {
-    try {
-      return Number((await pool.query(sql)).rows[0].count);
-    } catch (error) {
-      console.error('Home stat query failed:', error.message);
-      return null;
-    }
-  };
-  const vehicles = `(SELECT id FROM asset_categories WHERE name ILIKE '%vehicle%' OR name ILIKE '%transport%')`;
-  const [equipmentDue, vehiclesDue, documentsExpiring] = await Promise.all([
-    count(`SELECT COUNT(*) AS count FROM work_orders WHERE task_type = 'equipment' AND status = 'open'
-             AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`),
-    count(`SELECT COUNT(*) AS count FROM work_orders wo JOIN assets a ON a.id = wo.asset_id
-             WHERE a.category_id IN ${vehicles} AND wo.status = 'open'
-             AND wo.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`),
-    count(`SELECT COUNT(*) AS count FROM assets a JOIN asset_types at ON at.id = a.type_id
-             WHERE at.name = 'Document' AND a.expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '60 days'`),
-  ]);
-  return res.json({ equipment_due: equipmentDue, vehicles_due: vehiclesDue, documents_expiring: documentsExpiring });
-});
-
 // Single aggregate endpoint for the Dashboard tiles, so the page can render
 // with one round trip instead of stitching together several overview calls.
 router.get('/summary', async (req, res) => {

@@ -113,6 +113,42 @@ router.use((req, res, next) => {
   return next();
 });
 
+// ------------------------------------------------------------------ home page counts
+// Plain { count } endpoints for the module-selection page. They only need the MAS login, not a selected costing
+// user, so the home page works before anyone has opened Costing. Enquiry/sheet counts are organisation-wide.
+
+const countOf = (sql) => async (req, res) => {
+  try {
+    return res.json({ count: Number((await pool.query(sql)).rows[0].count) });
+  } catch (error) {
+    console.error('Costing count failed:', req.path, error.message);
+    return res.status(500).json({ error: 'Failed to load count' });
+  }
+};
+
+router.get('/enquiries/open-count', countOf(`SELECT COUNT(*) AS count FROM enquiries WHERE status IN ('open', 'in_progress')`));
+router.get('/sheets/awaiting-approval', countOf(`SELECT COUNT(*) AS count FROM costing_sheets WHERE status = 'submitted' AND is_latest`));
+router.get('/sheets/approved-this-month', countOf(
+  `SELECT COUNT(*) AS count FROM costing_sheets WHERE status = 'approved'
+   AND reviewed_at >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Bahrain') AT TIME ZONE 'Asia/Bahrain'`
+));
+
+// "Me" = the selected costing user, else the costing user whose e-mail matches the signed-in MAS user.
+router.get('/tasks/my-pending', async (req, res) => {
+  try {
+    let id = req.session.masUserId;
+    if (!id && req.session.user.email) {
+      id = (await pool.query('SELECT id FROM mas_users WHERE is_active AND LOWER(email) = LOWER($1) LIMIT 1', [req.session.user.email])).rows[0]?.id;
+    }
+    if (!id) return res.json({ count: 0 });
+    const { rows } = await pool.query(`SELECT COUNT(*) AS count FROM enquiry_tasks WHERE assigned_to = $1 AND status <> 'completed'`, [id]);
+    return res.json({ count: Number(rows[0].count) });
+  } catch (error) {
+    console.error('Costing count failed:', req.path, error.message);
+    return res.status(500).json({ error: 'Failed to load count' });
+  }
+});
+
 router.get('/me', loadMasUser, (req, res) => res.json({ user: req.masUser }));
 
 // Everything below needs a selected costing user.
@@ -721,7 +757,6 @@ router.get('/dashboard', async (req, res) => {
     const eScope = enquiryScopeSql(req, eParams);
     const total = (await pool.query(`SELECT COUNT(*)::int AS count FROM enquiries e ${eScope ? `WHERE ${eScope}` : ''}`, eParams)).rows[0].count;
 
-    const openEnquiries = (await pool.query(`SELECT COUNT(*)::int AS count FROM enquiries e WHERE e.status IN ('open', 'in_progress') ${eScope ? `AND ${eScope}` : ''}`, eParams)).rows[0].count;
 
     const sParams = [];
     let sScope = '';
@@ -750,7 +785,6 @@ router.get('/dashboard', async (req, res) => {
 
     return res.json({
       total_enquiries: total,
-      open_enquiries: openEnquiries,
       pending_my_action: openTasks + toApprove + rejected,
       pending_breakdown: { open_tasks: openTasks, to_approve: toApprove, rejected },
       awaiting_approval: awaiting,

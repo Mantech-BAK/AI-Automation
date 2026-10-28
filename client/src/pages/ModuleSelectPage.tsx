@@ -76,17 +76,26 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
   useEffect(() => {
     let cancelled = false;
-    // Independent calls: one failing leaves only its own tiles as a dash.
-    Promise.all([fetchJson('/api/dashboard/home-stats'), fetchJson('/api/costing/dashboard')]).then(([home, costing]) => {
+    // One call per tile: a failing endpoint leaves only its own tile as a dash.
+    const urls = [
+      '/api/equipment/due-soon?days=30',
+      '/api/vehicles/due-soon?days=30',
+      '/api/documents/expiring-soon?days=60',
+      '/api/costing/enquiries/open-count',
+      '/api/costing/tasks/my-pending',
+      '/api/costing/sheets/awaiting-approval',
+      '/api/costing/sheets/approved-this-month',
+    ];
+    Promise.all(urls.map(fetchJson)).then(([equipment, vehicles, documents, enquiries, tasks, awaiting, approved]) => {
       if (cancelled) return;
       setStats({
-        equipmentDue: num(home?.equipment_due),
-        vehiclesDue: num(home?.vehicles_due),
-        documentsExpiring: num(home?.documents_expiring),
-        openEnquiries: num(costing?.open_enquiries),
-        myPendingTasks: num((costing?.pending_breakdown as Record<string, unknown> | undefined)?.open_tasks),
-        awaitingApproval: num(costing?.awaiting_approval),
-        approvedThisMonth: num(costing?.approved_this_month),
+        equipmentDue: num(equipment?.count),
+        vehiclesDue: num(vehicles?.count),
+        documentsExpiring: num(documents?.count),
+        openEnquiries: num(enquiries?.count),
+        myPendingTasks: num(tasks?.count),
+        awaitingApproval: num(awaiting?.count),
+        approvedThisMonth: num(approved?.count),
       });
     });
     return () => {

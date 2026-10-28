@@ -115,6 +115,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api', require('./routes/homeStats'));
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/employees', requireAuth, employeesRouter);
 app.use('/api/workorders', requireAuth, workOrdersRouter);
