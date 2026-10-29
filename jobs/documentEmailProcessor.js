@@ -891,12 +891,11 @@ function uniqueAddresses(addresses, exclude = []) {
 
 // Emails the submitter that their document is a duplicate. `toAddress` is one address or a list (the sender plus
 // everyone the original email was addressed to). Never throws; returns true when sent.
-async function sendDuplicateEmail(toAddress, ccAddresses, info, override = null) {
+async function sendDuplicateEmail(toAddress, info, override = null) {
   const to = uniqueAddresses([].concat(toAddress || []));
   if (to.length === 0) return false;
 
   const { subject, content } = override || buildDuplicateEmail(info);
-  const cc = uniqueAddresses(ccAddresses || [], to);
   try {
     await graphRequest(
       'POST',
@@ -906,7 +905,6 @@ async function sendDuplicateEmail(toAddress, ccAddresses, info, override = null)
           subject,
           body: { contentType: 'HTML', content },
           toRecipients: to.map((address) => ({ emailAddress: { address } })),
-          ccRecipients: cc.map((address) => ({ emailAddress: { address } })),
         },
         saveToSentItems: 'true',
       },
@@ -932,10 +930,9 @@ async function sendSummaryEmails(entriesBySender) {
 
     const results = entries.map((entry) => entry.result);
 
-    // To = the sender plus everyone their emails were addressed to; CC = everyone CC'd on them (both merged over all
-    // of this sender's emails, unique, case-insensitive). The service account is never included, nor anyone twice.
+    // To = the sender plus everyone their emails were addressed to (merged over all of this sender's emails, unique,
+    // case-insensitive). The service account is never included, nor anyone twice. Nobody is CC'd.
     const toAddresses = uniqueAddresses([senderAddress, ...entries.flatMap((entry) => entry.to || [])]);
-    const ccAddresses = uniqueAddresses(entries.flatMap((entry) => entry.cc || []), toAddresses);
     const count = (status) => results.filter((r) => r.status === status).length;
     const created = count('created');
     const processed = count('updated') + created;
@@ -965,13 +962,12 @@ async function sendSummaryEmails(entriesBySender) {
             subject,
             body: { contentType: 'HTML', content },
             toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
-            ccRecipients: ccAddresses.map((address) => ({ emailAddress: { address } })),
           },
           saveToSentItems: 'true',
         },
         'app'
       );
-      console.log(`Summary email sent to ${senderAddress} (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To, ${ccAddresses.length} CC)`);
+      console.log(`Summary email sent to ${senderAddress} (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To)`);
     } catch (error) {
       console.warn(`Could not send summary email to ${senderAddress}: ${error.message}`);
     }
@@ -1022,7 +1018,7 @@ async function processDocumentEmails() {
     const filter = `hasAttachments eq true and isRead eq false and receivedDateTime ge ${since}`;
     const data = await graphRequest(
       'GET',
-      `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(filter)}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients&$top=50`,
+      `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(filter)}&$select=id,internetMessageId,subject,from,toRecipients&$top=50`,
       null,
       'app'
     );
@@ -1088,7 +1084,6 @@ async function processDocumentEmails() {
             // Rejected: nothing was saved. The submitter gets a dedicated failure email instead of a summary line.
             await sendDuplicateEmail(
               [senderAddress, ...addressesOf(message.toRecipients)],
-              addressesOf(message.ccRecipients),
               result
             );
           } else if (senderAddress) {
@@ -1097,7 +1092,6 @@ async function processDocumentEmails() {
               subject: message.subject,
               result,
               to: addressesOf(message.toRecipients),
-              cc: addressesOf(message.ccRecipients),
             });
           } else {
             console.warn(`No sender address on "${message.subject}", it will not be included in a summary email`);
