@@ -767,7 +767,7 @@ export default function SettingsPage() {
                   <div className="flex-1">
                     <p className="font-medium text-slate-800">Process Document Emails</p>
                     <p className="text-sm text-slate-500">
-                      Reads PDF attachments from unread emails and creates or renews documents. Runs automatically every 30 minutes.
+                      Reads PDF attachments from unread emails and creates or renews documents. Runs automatically every 5 minutes.
                     </p>
                   </div>
                   <button
