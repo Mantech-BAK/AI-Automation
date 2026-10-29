@@ -147,16 +147,17 @@ removeDuplicateDocuments().catch((error) => {
   console.error('Duplicate document clean-up failed:', error.message);
 });
 
-// One combined schedule: documents first, then the general email processor,
-// so PDF emails are handled (and marked read) before the generic summariser
-// looks at the mailbox. Each step is isolated so one failing doesn't skip the other.
-cron.schedule('0,30 * * * *', async () => {
+// One combined schedule: documents first (every 5 minutes), then the general email processor (every 30 minutes,
+// at :00 and :30), so PDF emails are handled (and marked read) before the generic summariser looks at the mailbox.
+// Each step is isolated so one failing doesn't skip the other.
+cron.schedule('*/5 * * * *', async () => {
   try {
     await processDocumentEmails();
   } catch (error) {
     console.error('Document email processor job failed:', error.message, error.stack);
   }
 
+  if (new Date().getMinutes() % 30 !== 0) return;
   try {
     await processEmails();
   } catch (error) {
