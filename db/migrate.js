@@ -656,6 +656,13 @@ async function runMigrations() {
 
       ALTER TABLE assets ADD COLUMN IF NOT EXISTS extracted_data JSONB;
       ALTER TABLE assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+
+      CREATE TABLE IF NOT EXISTS processed_emails (
+        message_id VARCHAR PRIMARY KEY,
+        subject VARCHAR,
+        sender VARCHAR,
+        processed_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Documents: dedicated cr_no / license_no columns and the processed_at timestamp.

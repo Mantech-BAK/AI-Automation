@@ -960,6 +960,32 @@ async function sendSummaryEmails(entriesBySender) {
   }
 }
 
+// Emails already handled, keyed by the Internet Message-ID (stable even if the same mail is delivered or moved again).
+let processedEmailsReady = false;
+async function ensureProcessedEmailsTable() {
+  if (processedEmailsReady) return;
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS processed_emails (
+       message_id VARCHAR PRIMARY KEY, subject VARCHAR, sender VARCHAR, processed_at TIMESTAMP DEFAULT NOW()
+     )`
+  );
+  processedEmailsReady = true;
+}
+
+async function wasEmailProcessed(messageId) {
+  if (!messageId) return false;
+  const { rows } = await pool.query('SELECT 1 FROM processed_emails WHERE message_id = $1', [messageId]);
+  return rows.length > 0;
+}
+
+async function markEmailProcessed(messageId, subject, sender) {
+  if (!messageId) return;
+  await pool.query(
+    'INSERT INTO processed_emails (message_id, subject, sender) VALUES ($1, $2, $3) ON CONFLICT (message_id) DO NOTHING',
+    [messageId, subject || null, sender || null]
+  );
+}
+
 async function processDocumentEmails() {
   const summary = { emailsChecked: 0, pdfsFound: 0, documentsUpdated: 0, documentsCreated: 0, duplicates: 0, failed: 0 };
 
@@ -978,7 +1004,7 @@ async function processDocumentEmails() {
     const filter = `hasAttachments eq true and isRead eq false and receivedDateTime ge ${since}`;
     const data = await graphRequest(
       'GET',
-      `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,from,ccRecipients&$top=50`,
+      `/users/${serviceAccount()}/messages?$filter=${encodeURIComponent(filter)}&$select=id,internetMessageId,subject,from,ccRecipients&$top=50`,
       null,
       'app'
     );
@@ -1001,8 +1027,18 @@ async function processDocumentEmails() {
       console.warn(`[DEBUG] Debug fetch failed: ${error.message}`);
     }
 
+    await ensureProcessedEmailsTable();
+
     for (const message of messages) {
       try {
+        // The same email arriving again (same Message-ID) is skipped before any download or AI call.
+        const messageKey = message.internetMessageId || message.id;
+        if (await wasEmailProcessed(messageKey)) {
+          console.log(`Email already processed (Message-ID ${messageKey}) - skipped: "${message.subject}"`);
+          await graphRequest('PATCH', `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}`, { isRead: true }, 'app');
+          continue;
+        }
+
         const attachmentList = await graphRequest(
           'GET',
           `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}/attachments?$select=id,name,contentType`,
@@ -1054,6 +1090,7 @@ async function processDocumentEmails() {
           }
         }
 
+        await markEmailProcessed(messageKey, message.subject, senderAddress);
         await graphRequest('PATCH', `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}`, { isRead: true }, 'app');
       } catch (error) {
         summary.failed++;
