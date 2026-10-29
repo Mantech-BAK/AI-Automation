@@ -29,7 +29,7 @@ const SYSTEM_PROMPT =
   'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
   'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
   'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
-  'This PDF may contain multiple documents, one per page (the text is split into "=== PAGE n of N ===" sections). Extract each document as a separate item in the documents array. Do not merge multiple documents into one. ' +
+  'This PDF may contain multiple separate documents, one per page or section (the text is split into "=== PAGE n of N ===" sections). You MUST return ALL documents found as separate items in the documents array. Do not combine multiple documents into one. If there are 2 documents, return 2 items. If there are 3, return 3. ' +
   'If the PDF contains more than one separate document (for example a CR certificate AND a licence on the same file, or one licence per page), return {"documents": [ {...}, {...} ]} ' +
   'with one object per document, each with its own document_name, cr_no, license_no, registration_date, expiry_date and the other fields; otherwise return a single object. ' +
   'Return ONLY a valid JSON object with no markdown or extra text. Every field name should be snake_case.';
@@ -158,6 +158,8 @@ ${rawResponse}`);
 
 async function extractDocumentData(text) {
   const truncatedText = text.slice(0, MAX_TEXT_CHARS);
+  console.log(`Text sent to the AI (${truncatedText.length} of ${text.length} chars):
+${truncatedText}`);
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
