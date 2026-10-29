@@ -783,6 +783,13 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
 
   const base = { fileName: attachment.name, documentName: doc.document_name, expiry: doc.expiry_date };
 
+  // Already expired (before today, Bahrain time): not saved. A missing expiry is handled above, never treated as expired.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain' }).format(new Date());
+  if (doc.expiry_date < today) {
+    console.warn(`Failed - already expired: "${doc.document_name}" (expiry date: ${formatDMY(doc.expiry_date)}) - not saved`);
+    return { ...fail('already expired', 'expired'), documentName: doc.document_name, expiry: doc.expiry_date };
+  }
+
   // Documents handled earlier in this same run are already in the database
   // (each record is committed before the next one is checked), so this also
   // catches the same document attached twice, or sent in several emails.
@@ -832,6 +839,8 @@ function describeResult(result) {
           return `${result.fileName} — Failed: This is a scanned image PDF. Please use a text-searchable PDF version and resend.`;
         case 'invalid_json':
           return `${result.fileName} — Failed: Could not read document content. Please resend.`;
+        case 'expired':
+          return `Document '${result.documentName}' was not processed — it is already expired (expiry date: ${formatDMY(result.expiry)}). Please submit a valid, current document.`;
         case 'no_expiry':
           return `${result.fileName} — Failed: No expiry date found in document. Please ensure the document contains a visible expiry date.`;
         default:
