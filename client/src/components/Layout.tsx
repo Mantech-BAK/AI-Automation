@@ -34,7 +34,7 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
   const signOutButton = (
     <button
       onClick={onSignOut}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-slate-600 border border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm whitespace-nowrap flex-shrink-0 text-slate-600 border border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
     >
       <LogOut size={15} />
       Sign Out
@@ -144,7 +144,7 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
         {/* Topbar */}
         {!hideTopbar && (
         <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm px-4 lg:px-8 h-16 flex items-center gap-3 flex-shrink-0">
-          <h1 className="text-lg font-semibold text-slate-800 pl-16 lg:pl-0">{pageTitle}</h1>
+          <h1 className="text-lg font-semibold text-slate-800 pl-16 lg:pl-0 min-w-0 truncate">{pageTitle}</h1>
           {/* Project Tracking pages show just their own title, without the module name. */}
           {module !== 'projects' && (
             <span className="hidden sm:inline text-xs font-medium text-slate-400 uppercase tracking-wide">{definition.label}</span>

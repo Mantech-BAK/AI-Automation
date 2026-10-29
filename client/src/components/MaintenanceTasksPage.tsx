@@ -577,7 +577,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="flex items-center gap-2">
                 <Filter size={18} className="text-slate-400" />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {(['all', 'pending', 'open', 'approved', 'completed'] as StatusFilter[]).map((status) => (
                     <button
                       key={status}
@@ -1057,7 +1057,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
                   <p className="text-sm text-slate-500">No previous work orders for this asset.</p>
                 ) : (
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto"><table className="w-full text-sm">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
                           <th className="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Date</th>
@@ -1080,7 +1080,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                   </div>
                 )}
               </div>

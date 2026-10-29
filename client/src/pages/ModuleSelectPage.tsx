@@ -138,7 +138,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           <div className="flex items-center gap-3 min-w-0">
             <img src="/bak-logo.png" alt="BAK Group" className="h-10 w-auto rounded bg-white p-0.5 flex-shrink-0" />
             <div className="min-w-0">
-              <p className="font-bold text-lg leading-tight">BAK Group</p>
+              <p className="font-bold text-lg leading-tight whitespace-nowrap">BAK Group</p>
               <p className="text-xs text-slate-400 truncate">
                 Maintenance Automation System <span className="hidden sm:inline">&middot; {bahrainDateLabel()}</span>
               </p>
@@ -165,7 +165,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 lg:px-8 py-10 space-y-5">
         {/* Module tiles */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-5">
           {TILE_ORDER.map((id) => {
             const tile = TILES[id];
             const Icon = tile.icon;
@@ -178,7 +178,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
                 onClick={() => onSelectModule(id)}
                 title={allowed ? tile.name : `${tile.name} - no access`}
                 style={{ backgroundImage: `linear-gradient(135deg, ${tile.from}, ${tile.to})`, borderRadius: 16 }}
-                className={`relative h-44 p-5 flex flex-col justify-between text-left text-white shadow-lg transition-all duration-200 ${
+                className={`relative h-32 sm:h-44 p-5 flex flex-col justify-between text-left text-white shadow-lg transition-all duration-200 ${
                   allowed ? 'hover:-translate-y-1 hover:shadow-2xl hover:brightness-110 active:scale-[0.98]' : 'opacity-50 cursor-not-allowed'
                 }`}
               >
