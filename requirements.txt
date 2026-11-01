@@ -1,0 +1,6 @@
+# Python dependencies for scripts/ocr_pdf.py (OCR of scanned PDFs). CPU-only torch keeps the image small.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+easyocr
+pdf2image

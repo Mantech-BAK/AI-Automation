@@ -1,4 +1,7 @@
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
+const { execFile } = require('child_process');
 const dotenv = require('dotenv');
 const Groq = require('groq-sdk');
 // Required via lib/ directly: pdf-parse's index.js runs a debug routine that
@@ -202,6 +205,38 @@ async function readPdfPages(pdfBuffer) {
   };
   const result = await pdfParse(pdfBuffer, { pagerender: renderPage });
   return { text: result.text, pages };
+}
+
+// Text of a PDF through scripts/ocr_pdf.py: the PDF's own text layer when it has one, otherwise EasyOCR (English +
+// Arabic) on page images. Pages come back separated by a form feed. Resolves to { text, pages }, or null when the
+// script could not run (Python / poppler / EasyOCR missing, timeout, ...) so the caller can fall back to pdf-parse.
+const OCR_SCRIPT = path.join(__dirname, '..', 'scripts', 'ocr_pdf.py');
+const OCR_TIMEOUT_MS = 10 * 60 * 1000;
+
+function readPdfViaScript(pdfBuffer, label) {
+  const tempPath = path.join(os.tmpdir(), `ocr_input_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`);
+  const python = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+
+  return new Promise((resolve) => {
+    fs.writeFileSync(tempPath, pdfBuffer);
+    execFile(
+      python,
+      [OCR_SCRIPT, tempPath],
+      { timeout: OCR_TIMEOUT_MS, maxBuffer: 50 * 1024 * 1024, encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
+      (error, stdout, stderr) => {
+        fs.rm(tempPath, { force: true }, () => {});
+        const notes = String(stderr || '').trim();
+        if (notes) console.log(`"${label}" OCR script: ${notes.split('\n').join(' | ').slice(0, 800)}`);
+        if (error) {
+          console.warn(`OCR script failed for "${label}" (${error.code || error.signal || error.message}) - falling back to pdf-parse`);
+          return resolve(null);
+        }
+        const pages = String(stdout).split('\f');
+        while (pages.length > 1 && !pages[pages.length - 1].trim()) pages.pop();
+        resolve({ text: pages.join('\n'), pages });
+      }
+    );
+  });
 }
 
 const textForAi = (pages) =>
@@ -642,7 +677,10 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   }
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
-  let { text, pages } = await withRetries(`PDF text extraction for "${attachment.name}"`, () => readPdfPages(pdfBuffer));
+  // Text layer or OCR through scripts/ocr_pdf.py; pdf-parse is the fallback when the script cannot run.
+  let { text, pages } =
+    (await readPdfViaScript(pdfBuffer, attachment.name)) ||
+    (await withRetries(`PDF text extraction for "${attachment.name}"`, () => readPdfPages(pdfBuffer)));
   console.log(`"${attachment.name}": ${pages.length} page(s), text per page: ${pages.map((p) => String(p).trim().length).join(', ')} chars`);
 
   // Scanned PDFs have little or no text layer - try Microsoft's conversion.

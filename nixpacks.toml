@@ -1,0 +1,18 @@
+# Railway build: Node app + Python (EasyOCR) + poppler for scripts/ocr_pdf.py.
+# The Python steps never fail the build (`|| echo`): without them the processor falls back to pdf-parse and
+# Microsoft's text conversion, exactly as before OCR was added.
+[phases.setup]
+nixPkgs = ['...', 'python311', 'poppler_utils']
+nixLibs = ['...', 'zlib', 'stdenv.cc.cc.lib']
+
+[phases.install]
+cmds = [
+  '...',
+  'python -m venv /opt/venv || echo "OCR: could not create the Python venv"',
+  '/opt/venv/bin/pip install -r requirements.txt || echo "OCR: pip install failed - scanned PDFs will use the fallback"',
+  # download the English + Arabic OCR models at build time so the first scanned PDF is not slow
+  '/opt/venv/bin/python -c "import easyocr; easyocr.Reader([\"en\", \"ar\"], gpu=False)" || echo "OCR: model download failed"',
+]
+
+[variables]
+PYTHON_BIN = '/opt/venv/bin/python'
