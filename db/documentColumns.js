@@ -12,9 +12,10 @@ async function ensureDocumentColumns(pool) {
   `);
 
   // sent_by = who emailed the document (read-only); responsible_person = who it is assigned to (editable).
-  // Until now responsible_person held the sender, so emailed documents start with sent_by = that value.
+  // Until now responsible_person held the sender: move it to sent_by and leave responsible_person empty so it can
+  // be assigned separately. One-off - once sent_by is filled the row no longer matches.
   await pool.query(
-    `UPDATE assets SET sent_by = responsible_person
+    `UPDATE assets SET sent_by = responsible_person, responsible_person = NULL
      WHERE sent_by IS NULL AND responsible_person IS NOT NULL AND extracted_data IS NOT NULL
        AND type_id = (SELECT id FROM asset_types WHERE name = 'Document')`
   );

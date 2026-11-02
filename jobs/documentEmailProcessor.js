@@ -795,9 +795,9 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     license_no: findLicenseNo(raw),
     document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number'),
     issuing_authority: firstString('issuing_authority'),
-    // Whoever emailed the document (read-only) - and, until someone else is assigned, responsible for it.
+    // Whoever emailed the document (read-only). The responsible person is left empty until someone is assigned.
     sent_by: senderAddress || null,
-    responsible_person: senderAddress || null,
+    responsible_person: null,
   };
 
   // A document is registered before it expires: when the AI returns the two dates the wrong way round, put them right.
