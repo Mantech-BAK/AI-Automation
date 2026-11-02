@@ -14,6 +14,9 @@ import sys
 MIN_TEXT_CHARS = 50
 OCR_LANGUAGES = ['en', 'ar']
 OCR_DPI = 200
+# Only the first pages of a PDF are ever read.
+FIRST_PAGE = 1
+LAST_PAGE = 2
 
 
 def log(message):
@@ -24,7 +27,7 @@ def text_layer(path):
     """Text of the PDF's own text layer, pages separated by \\f ('' when pdftotext is unavailable or fails)."""
     try:
         result = subprocess.run(
-            ['pdftotext', '-layout', '-enc', 'UTF-8', path, '-'],
+            ['pdftotext', '-f', str(FIRST_PAGE), '-l', str(LAST_PAGE), '-layout', '-enc', 'UTF-8', path, '-'],
             capture_output=True, timeout=120, check=True,
         )
     except (OSError, subprocess.SubprocessError) as error:
@@ -40,7 +43,7 @@ def ocr_pages(path):
     import numpy
 
     # POPPLER_PATH is only needed where poppler's bin folder is not on PATH (e.g. a Windows dev machine).
-    images = convert_from_path(path, dpi=OCR_DPI, poppler_path=os.environ.get('POPPLER_PATH') or None)
+    images = convert_from_path(path, dpi=OCR_DPI, first_page=FIRST_PAGE, last_page=LAST_PAGE, poppler_path=os.environ.get('POPPLER_PATH') or None)
     log(f'OCR: {len(images)} page(s) converted to images')
     reader = easyocr.Reader(OCR_LANGUAGES, gpu=False, verbose=False)
     pages = []

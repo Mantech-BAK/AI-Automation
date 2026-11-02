@@ -188,6 +188,9 @@ ${truncatedText}`);
   return parseJsonObject(content);
 }
 
+// Only the first pages of a PDF are ever read (here, in scripts/ocr_pdf.py and so in the text sent to the AI).
+const MAX_PDF_PAGES = 2;
+
 // Text of a PDF page by page. pdf-parse joins pages into one string; the custom page renderer keeps each page's own text.
 async function readPdfPages(pdfBuffer) {
   const pages = [];
@@ -203,7 +206,7 @@ async function readPdfPages(pdfBuffer) {
     pages.push(text);
     return text;
   };
-  const result = await pdfParse(pdfBuffer, { pagerender: renderPage });
+  const result = await pdfParse(pdfBuffer, { pagerender: renderPage, max: MAX_PDF_PAGES });
   return { text: result.text, pages };
 }
 
