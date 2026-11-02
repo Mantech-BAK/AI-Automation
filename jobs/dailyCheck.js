@@ -463,7 +463,18 @@ async function resolveEmailChain(responsiblePersonName) {
   let primaryEmail = null;
   let managerEmail = null;
 
-  if (responsiblePersonName) {
+  // A mailbox (documents are assigned by e-mail address) is the recipient itself; only the manager is looked up.
+  const isMailbox = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(responsiblePersonName || '').trim());
+
+  if (isMailbox) {
+    primaryEmail = String(responsiblePersonName).trim();
+    const managerResult = await pool.query(
+      `SELECT e2.email FROM employees e1 JOIN employees e2 ON e2.id = e1.reports_to
+       WHERE LOWER(e1.email) = LOWER($1) LIMIT 1`,
+      [primaryEmail]
+    );
+    managerEmail = managerResult.rows[0]?.email || null;
+  } else if (responsiblePersonName) {
     // Whitespace-insensitive, case-insensitive match: collapse runs of
     // whitespace and lowercase both sides before comparing, so a free-text
     // name like 'Dhanaraju Lanke' still matches an HR record with irregular

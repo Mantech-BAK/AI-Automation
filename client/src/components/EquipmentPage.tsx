@@ -43,6 +43,8 @@ interface Equipment {
   tolerance_days?: number | null;
   responsible_person?: string | null;
   resolved_responsible_name?: string | null;
+  sent_by?: string | null;
+  resolved_sent_by_name?: string | null;
   document_name?: string | null;
   remarks?: string | null;
   company_name?: string | null;
@@ -55,6 +57,14 @@ interface Equipment {
   processed_at?: string | null;
   versions?: DocumentVersion[];
   extracted_data?: Record<string, unknown> | null;
+}
+
+interface AssignableUser {
+  id: number;
+  name: string;
+  email: string | null;
+  // What is stored as the responsible person: the mailbox when the user has one, otherwise the name.
+  value: string;
 }
 
 interface SiteOption {
@@ -174,7 +184,10 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
   const [documentsError, setDocumentsError] = useState<string | null>(null);
 
   const [equipmentDeptFilter, setEquipmentDeptFilter] = useState(initialSite || 'all');
-  const [documentDeptFilter, setDocumentDeptFilter] = useState(initialSite || 'all');
+  const [documentCompanyFilter, setDocumentCompanyFilter] = useState('all');
+  // Users a document can be assigned to (Responsible Person dropdown).
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [assigning, setAssigning] = useState(false);
 
   const [editingAsset, setEditingAsset] = useState<EditableAsset | null>(null);
   const [detailsDoc, setDetailsDoc] = useState<Equipment | null>(null);
@@ -215,6 +228,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
   useEffect(() => {
     fetchData();
     fetchDocuments();
+    fetchAssignableUsers();
   }, []);
 
   async function fetchData() {
@@ -231,6 +245,36 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchAssignableUsers() {
+    try {
+      const response = await apiFetch('/api/dashboard/documents/assignable-users');
+      if (response.ok) setAssignableUsers(await response.json());
+    } catch (fetchError) {
+      console.error('Error fetching assignable users:', fetchError);
+    }
+  }
+
+  async function assignResponsiblePerson(documentId: number, value: string) {
+    setAssigning(true);
+    try {
+      const response = await apiFetch(`/api/dashboard/documents/${documentId}/responsible-person`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ responsible_person: value || null }),
+      });
+      if (!response.ok) throw new Error('Failed to assign');
+      const saved: { responsible_person: string | null; resolved_responsible_name?: string | null } = await response.json();
+      const patch = { responsible_person: saved.responsible_person, resolved_responsible_name: saved.resolved_responsible_name ?? null };
+      setDocuments((current) => current.map((doc) => (doc.id === documentId ? { ...doc, ...patch } : doc)));
+      setDetailsDoc((current) => (current && current.id === documentId ? { ...current, ...patch } : current));
+    } catch (assignError) {
+      console.error('Error assigning responsible person:', assignError);
+      alert('Could not assign the responsible person. Please try again.');
+    } finally {
+      setAssigning(false);
     }
   }
 
@@ -411,9 +455,9 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     ? equipment
     : equipment.filter((item) => item.site_location === equipmentDeptFilter);
 
-  const documentDeptOptions = [...new Set(
-    documents.map((item) => item.site_location).filter((d): d is string => Boolean(d))
-  )].sort();
+  const documentCompanyOptions = [...new Set(
+    documents.map((item) => item.company_name?.trim()).filter((c): c is string => Boolean(c))
+  )].sort((a, b) => a.localeCompare(b));
 
   // Cumulative "due within X days" windows, matching the semantics of the
   // Dashboard's Documentation tiles (e.g. expiring_documents = 0-30 days) so
@@ -433,9 +477,9 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     }
   };
 
-  const documentsInDept = documentDeptFilter === 'all'
+  const documentsInDept = documentCompanyFilter === 'all'
     ? documents
-    : documents.filter((item) => item.site_location === documentDeptFilter);
+    : documents.filter((item) => item.company_name?.trim() === documentCompanyFilter);
 
   const docExpiryTileCounts: Record<DocExpiryTile, number> = {
     all: documentsInDept.length,
@@ -650,16 +694,16 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               ))}
             </div>
 
-            {/* Department filter */}
+            {/* Company filter */}
             <div className="flex flex-wrap items-center gap-3">
               <select
-                value={documentDeptFilter}
-                onChange={(e) => setDocumentDeptFilter(e.target.value)}
+                value={documentCompanyFilter}
+                onChange={(e) => setDocumentCompanyFilter(e.target.value)}
                 className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
               >
-                <option value="all">All Departments</option>
-                {documentDeptOptions.map((dept) => (
-                  <option key={dept} value={dept}>{dept}</option>
+                <option value="all">All Companies</option>
+                {documentCompanyOptions.map((company) => (
+                  <option key={company} value={company}>{company}</option>
                 ))}
               </select>
             </div>
@@ -676,6 +720,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processed Date</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Sent By</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Doc</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Docs</th>
@@ -717,6 +762,9 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                               {formatDateDMY(item.expiry_date)}
                             </td>
                             <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateTimeDMY(item.processed_at)}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600">
+                              <ResponsiblePerson value={item.sent_by} resolvedName={item.resolved_sent_by_name} showEmail />
+                            </td>
                             <td className="px-6 py-4 text-sm text-slate-600">
                               <ResponsiblePerson value={item.responsible_person} resolvedName={item.resolved_responsible_name} showEmail />
                             </td>
@@ -938,13 +986,26 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Responsible Person</label>
-              <input
-                type="text"
-                value={formData.responsible_person}
-                onChange={(e) => setFormData({ ...formData, responsible_person: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                placeholder="e.g., Yasir Ismail"
-              />
+              {isDocumentType ? (
+                <select
+                  value={formData.responsible_person}
+                  onChange={(e) => setFormData({ ...formData, responsible_person: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                >
+                  <option value="">Select a user</option>
+                  {assignableUsers.map((user) => (
+                    <option key={user.id} value={user.value}>{user.name}{user.email ? ` (${user.email})` : ''}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.responsible_person}
+                  onChange={(e) => setFormData({ ...formData, responsible_person: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  placeholder="e.g., Yasir Ismail"
+                />
+              )}
             </div>
             {isDocumentType && (
               <>
@@ -1029,9 +1090,29 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.document_name || detailsDoc.equipment_name || '-'}</dd>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Sent by:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">
+                <ResponsiblePerson value={detailsDoc.sent_by} resolvedName={detailsDoc.resolved_sent_by_name} showEmail />
+              </dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
               <dt className="text-sm font-medium text-slate-500">Responsible person:</dt>
               <dd className="sm:col-span-2 text-sm text-slate-800 break-words">
-                <ResponsiblePerson value={detailsDoc.responsible_person} resolvedName={detailsDoc.resolved_responsible_name} showEmail />
+                <select
+                  value={detailsDoc.responsible_person || ''}
+                  disabled={assigning}
+                  onChange={(e) => assignResponsiblePerson(detailsDoc.id, e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-60"
+                >
+                  <option value="">Not assigned</option>
+                  {/* a stored value that is not (or no longer) in the user list stays selectable */}
+                  {detailsDoc.responsible_person && !assignableUsers.some((user) => user.value === detailsDoc.responsible_person) && (
+                    <option value={detailsDoc.responsible_person}>{detailsDoc.resolved_responsible_name || detailsDoc.responsible_person}</option>
+                  )}
+                  {assignableUsers.map((user) => (
+                    <option key={user.id} value={user.value}>{user.name}{user.email ? ` (${user.email})` : ''}</option>
+                  ))}
+                </select>
               </dd>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">

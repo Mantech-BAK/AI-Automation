@@ -469,18 +469,18 @@ async function createNewDocument(doc, oneDriveUrl) {
        expiry_date, next_due_date, registration_date, last_received_at,
        reminder_days, maintenance_interval_days, frequency_days, onedrive_url,
        type_id, responsible_person, site_location, estimated_duration_hours, extracted_data,
-       cr_no, license_no, processed_at
+       cr_no, license_no, processed_at, sent_by
      ) VALUES (
        $1, $2, $3, $4, $5,
        $6, $6, $7, NOW(),
        30, 365, NULL, $8,
        (SELECT id FROM asset_types WHERE name = 'Document' LIMIT 1), $9, 'Unassigned', 0, $10::jsonb,
-       $11, $12, NOW()
+       $11, $12, NOW(), $13
      ) RETURNING id`,
     [
       doc.document_name, doc.owner_name, doc.document_type, doc.document_number, doc.issuing_authority,
       doc.expiry_date, doc.registration_date, oneDriveUrl, doc.responsible_person,
-      JSON.stringify(doc.extracted_data), doc.cr_no, doc.license_no,
+      JSON.stringify(doc.extracted_data), doc.cr_no, doc.license_no, doc.sent_by,
     ]
   );
 
@@ -585,7 +585,7 @@ function compareExtractedData(newData, existingData) {
 
 // Looks for a stored document (assets row of type "Document" - manual and e-mailed ones alike) that is the same
 // as the incoming one. Checked against the live database, in priority order:
-//   1. same licence number          2. same CR number (CR-only records)          3. same name AND same responsible person
+//   1. same licence number          2. same CR number (CR-only records)          3. same name AND same sender (sent_by)
 // Records already created/matched by an earlier document of this same PDF (excludeIds) are skipped.
 // Returns { id, expiryDate, processedAt, matchedBy, matchedValue, name } or null.
 async function findExistingDocument(extractedData, documentName, responsiblePerson, doc = {}, excludeIds = new Set()) {
@@ -610,10 +610,10 @@ async function findExistingDocument(extractedData, documentName, responsiblePers
   // (the AI spells identifiers differently on every run, so identifiers alone cannot catch a re-sent file).
   if (documentName && responsiblePerson) {
     const { rows } = await pool.query(
-      `${base} AND LOWER(TRIM(a.equipment_name)) = LOWER(TRIM($2)) AND LOWER(TRIM(a.responsible_person)) = LOWER(TRIM($3)) ORDER BY a.id LIMIT 1`,
+      `${base} AND LOWER(TRIM(a.equipment_name)) = LOWER(TRIM($2)) AND LOWER(TRIM(COALESCE(a.sent_by, a.responsible_person))) = LOWER(TRIM($3)) ORDER BY a.id LIMIT 1`,
       [exclude, documentName, responsiblePerson]
     );
-    if (rows.length > 0) return found(rows[0], 'name + responsible person', `${documentName} / ${responsiblePerson}`);
+    if (rows.length > 0) return found(rows[0], 'name + sent by', `${documentName} / ${responsiblePerson}`);
   }
 
   return null;
@@ -795,7 +795,8 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     license_no: findLicenseNo(raw),
     document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number'),
     issuing_authority: firstString('issuing_authority'),
-    // Whoever sent the document is responsible for it.
+    // Whoever emailed the document (read-only) - and, until someone else is assigned, responsible for it.
+    sent_by: senderAddress || null,
     responsible_person: senderAddress || null,
   };
 
@@ -831,7 +832,7 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   // Documents handled earlier in this same run are already in the database
   // (each record is committed before the next one is checked), so this also
   // catches the same document attached twice, or sent in several emails.
-  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.responsible_person, doc, claimedIds);
+  const existing = await findExistingDocument(doc.extracted_data, doc.document_name, doc.sent_by, doc, claimedIds);
   if (existing) claimedIds.add(existing.id);
 
   // Already in the system: nothing is saved and the sender is told (renewals go through the administrator).

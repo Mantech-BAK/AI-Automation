@@ -459,6 +459,7 @@ router.get('/assets', async (req, res) => {
       params
     );
     await addResolvedNames(rows);
+    await addResolvedNames(rows, 'sent_by', 'resolved_sent_by_name');
     return res.json(rows);
   } catch (error) {
     console.error('Assets query failed:', error);
@@ -477,6 +478,41 @@ router.get('/documents/:id/versions', async (req, res) => {
   } catch (error) {
     console.error('Document versions query failed:', error);
     return res.status(500).json({ error: 'Failed to load document versions' });
+  }
+});
+
+// Users a document can be assigned to: the active MAS users (name / BAK mailbox). The value stored as the
+// document's responsible_person is the mailbox when the user has one, otherwise the name.
+router.get('/documents/assignable-users', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email FROM mas_users
+       WHERE is_active AND (email IS NULL OR TRIM(email) = '' OR LOWER(email) LIKE '%@bakgroup.net')
+       ORDER BY name`
+    );
+    return res.json(rows.map((row) => ({ id: row.id, name: row.name, email: row.email || null, value: row.email || row.name })));
+  } catch (error) {
+    console.error('Assignable users query failed:', error);
+    return res.status(500).json({ error: 'Failed to load users' });
+  }
+});
+
+// Assigns (or clears) the responsible person of one document. sent_by is never touched.
+router.patch('/documents/:id/responsible-person', async (req, res) => {
+  try {
+    const value = String(req.body?.responsible_person ?? '').trim() || null;
+    const { rows } = await pool.query(
+      `UPDATE assets SET responsible_person = $1, updated_at = NOW()
+       WHERE id = $2 AND type_id = (SELECT id FROM asset_types WHERE name = 'Document')
+       RETURNING id, responsible_person`,
+      [value, Number(req.params.id)]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+    await addResolvedNames(rows);
+    return res.json(rows[0]);
+  } catch (error) {
+    console.error('Assign responsible person failed:', error);
+    return res.status(500).json({ error: 'Failed to assign responsible person' });
   }
 });
 
@@ -1010,6 +1046,12 @@ router.post('/assets/add', async (req, res) => {
         isDocument,
       ]
     );
+
+    // A manually added document is "sent by" the signed-in user.
+    if (isDocument && req.session?.user?.email) {
+      await pool.query('UPDATE assets SET sent_by = $1 WHERE id = $2', [req.session.user.email, rows[0].id]);
+      rows[0].sent_by = req.session.user.email;
+    }
 
     return res.status(201).json(rows[0]);
   } catch (error) {

@@ -8,7 +8,16 @@ async function ensureDocumentColumns(pool) {
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS cr_no VARCHAR;
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS license_no VARCHAR;
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+    ALTER TABLE assets ADD COLUMN IF NOT EXISTS sent_by VARCHAR;
   `);
+
+  // sent_by = who emailed the document (read-only); responsible_person = who it is assigned to (editable).
+  // Until now responsible_person held the sender, so emailed documents start with sent_by = that value.
+  await pool.query(
+    `UPDATE assets SET sent_by = responsible_person
+     WHERE sent_by IS NULL AND responsible_person IS NOT NULL AND extracted_data IS NOT NULL
+       AND type_id = (SELECT id FROM asset_types WHERE name = 'Document')`
+  );
 
   // processed_at replaces the AI-extracted "printed date": for rows processed before this
   // column existed, last_received_at (set to NOW() on each processing, stored as UTC) is the best value.
