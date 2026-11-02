@@ -17,6 +17,8 @@ interface ResponsiblePersonPickerProps {
   resolvedName?: string | null;
   users: PickerUser[];
   saving?: boolean;
+  // Show just the name when assigned (no email line underneath).
+  nameOnly?: boolean;
   // Called with the chosen user's value, or '' to clear the assignment.
   onConfirm: (value: string) => void;
 }
@@ -25,7 +27,7 @@ const PANEL_WIDTH = 320;
 
 // Shows the assigned person like "Sent By" (name, with the email smaller below). Clicking it opens a searchable list;
 // choosing a name only selects it - the change is saved with the Confirm button, and clicking outside cancels.
-export default function ResponsiblePersonPicker({ value, resolvedName, users, saving = false, onConfirm }: ResponsiblePersonPickerProps) {
+export default function ResponsiblePersonPicker({ value, resolvedName, users, saving = false, nameOnly = false, onConfirm }: ResponsiblePersonPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null); // null = nothing picked yet
@@ -103,18 +105,18 @@ export default function ResponsiblePersonPicker({ value, resolvedName, users, sa
         className={`group text-left rounded-lg transition-colors disabled:opacity-60 ${
           current
             ? 'px-1 -mx-1 py-0.5 hover:bg-slate-100'
-            : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-dashed border-slate-300 text-slate-400 hover:border-slate-400 hover:text-slate-500'
+            : 'inline-flex items-center gap-1 px-2 py-1 border border-dashed border-slate-300 text-slate-400 hover:border-slate-400 hover:text-slate-500'
         }`}
       >
         {current ? (
           <span className="block">
-            <span className="block text-sm text-slate-700">{displayName}</span>
-            {displayEmail && <span className="block text-xs text-slate-400">{displayEmail}</span>}
+            <span className="block text-xs text-slate-700 whitespace-nowrap">{displayName}</span>
+            {displayEmail && !nameOnly && <span className="block text-xs text-slate-400">{displayEmail}</span>}
           </span>
         ) : (
           <>
-            <span className="text-sm">Assign...</span>
-            <ChevronDown size={14} />
+            <span className="text-xs">Assign...</span>
+            <ChevronDown size={12} />
           </>
         )}
       </button>

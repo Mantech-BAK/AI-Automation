@@ -127,6 +127,27 @@ function getDocumentExpiryColorClass(dateStr?: string | null): string {
   return 'text-emerald-600 font-medium';
 }
 
+// Long names are cut for the compact grid; the full text is in the cell's title (hover).
+function truncateText(value: string, max = 20): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value || '-';
+}
+
+// Status badge from the expiry date: Expired, Expiring (within 30 days) or Valid.
+function getDocumentStatus(dateStr?: string | null): { label: string; className: string } {
+  const days = daysUntil(dateStr);
+  if (days === null) return { label: 'No expiry', className: 'bg-slate-100 text-slate-500' };
+  if (days < 0) return { label: 'Expired', className: 'bg-red-100 text-red-700' };
+  if (days <= 30) return { label: 'Expiring', className: 'bg-orange-100 text-orange-700' };
+  return { label: 'Valid', className: 'bg-emerald-100 text-emerald-700' };
+}
+
+// The document's reference number: the AI-extracted reference_number, else its document number.
+function getReferenceNumber(item: { extracted_data?: Record<string, unknown> | null; document_number?: string | null }): string {
+  const extracted = item.extracted_data?.reference_number;
+  const value = typeof extracted === 'string' || typeof extracted === 'number' ? String(extracted).trim() : '';
+  return value || item.document_number?.trim() || '-';
+}
+
 // Full timestamp in Bahrain time: DD/MM/YYYY HH:mm.
 function formatDateTimeDMY(value?: string | null): string {
   if (!value) return '-';
@@ -714,23 +735,20 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                 <table className="w-full">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Document Name</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Details</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">CR No</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">License No</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Registration Date</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processed Date</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Sent By</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsible Person</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Doc</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Previous Docs</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Document Name</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Company</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Reference No.</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Sent By</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Responsible Person</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Expiry Date</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Status</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
@@ -742,72 +760,69 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                         const previous = (item.versions || [])
                           .filter((version) => version.onedrive_url !== item.onedrive_url)
                           .slice(0, 3);
+                        const documentName = item.document_name || item.equipment_name || '';
+                        const company = item.company_name?.trim() || '';
+                        const status = getDocumentStatus(item.expiry_date);
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-4 text-sm font-medium text-slate-800">
-                              {item.document_name || item.equipment_name || '-'}
+                            <td className="px-2 py-1.5 text-xs font-medium text-slate-800 whitespace-nowrap" title={documentName}>
+                              {truncateText(documentName)}
                             </td>
-                            <td className="px-6 py-4">
-                              <button
-                                onClick={() => setDetailsDoc(item)}
-                                className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                              >
-                                Details
-                              </button>
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap" title={company}>
+                              {truncateText(company)}
                             </td>
-                            <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{item.cr_no || '-'}</td>
-                            <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{item.license_no || '-'}</td>
-                            <td className="px-6 py-4 text-sm text-slate-600">{formatDateDMY(item.registration_date)}</td>
-                            <td className={`px-6 py-4 text-sm ${getDocumentExpiryColorClass(item.expiry_date)}`}>
-                              {formatDateDMY(item.expiry_date)}
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{getReferenceNumber(item)}</td>
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">
+                              {item.resolved_sent_by_name || item.sent_by || '-'}
                             </td>
-                            <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateTimeDMY(item.processed_at)}</td>
-                            <td className="px-6 py-4 text-sm text-slate-600">
-                              <ResponsiblePerson value={item.sent_by} resolvedName={item.resolved_sent_by_name} showEmail />
-                            </td>
-                            <td className="px-6 py-4 text-sm text-slate-600">
+                            <td className="px-2 py-1.5 text-xs text-slate-600">
                               <ResponsiblePersonPicker
                                 value={item.responsible_person}
                                 resolvedName={item.resolved_responsible_name}
                                 users={assignableUsers}
                                 saving={assigning}
+                                nameOnly
                                 onConfirm={(value) => assignResponsiblePerson(item.id, value)}
                               />
                             </td>
-                            <td className="px-6 py-4 text-sm">
-                              {item.onedrive_url ? (
-                                <a
-                                  href={item.onedrive_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-block px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                                >
-                                  View
-                                </a>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
+                            <td className={`px-2 py-1.5 text-xs whitespace-nowrap ${getDocumentExpiryColorClass(item.expiry_date)}`}>
+                              {formatDateDMY(item.expiry_date)}
                             </td>
-                            <td className="px-6 py-4 text-sm">
-                              {previous.length === 0 ? (
-                                <span className="text-slate-600">-</span>
-                              ) : (
-                                <div className="flex flex-wrap gap-2">
-                                  {previous.map((version, index) => (
-                                    <a
-                                      key={version.id}
-                                      href={version.onedrive_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      title={`Uploaded ${formatDateDMY(version.uploaded_at)}`}
-                                      className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
-                                    >
-                                      Previous {index + 1}
-                                    </a>
-                                  ))}
-                                </div>
-                              )}
+                            <td className="px-2 py-1.5 text-xs whitespace-nowrap">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${status.className}`}>{status.label}</span>
+                            </td>
+                            <td className="px-2 py-1.5 text-xs whitespace-nowrap">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => setDetailsDoc(item)}
+                                  className="px-2 py-1 text-[11px] font-medium bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                                >
+                                  Details
+                                </button>
+                                {item.onedrive_url && (
+                                  <a
+                                    href={item.onedrive_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2 py-1 text-[11px] font-medium bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                                  >
+                                    View
+                                  </a>
+                                )}
+                                {previous.map((version, index) => (
+                                  <a
+                                    key={version.id}
+                                    href={version.onedrive_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={`Previous document, uploaded ${formatDateDMY(version.uploaded_at)}`}
+                                    className="px-1.5 py-1 text-[11px] bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
+                                  >
+                                    P{index + 1}
+                                  </a>
+                                ))}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1113,6 +1128,22 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                   onConfirm={(value) => assignResponsiblePerson(detailsDoc.id, value)}
                 />
               </dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Company:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.company_name || '-'}</dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Reference No.:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{getReferenceNumber(detailsDoc)}</dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Registration Date:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatDateDMY(detailsDoc.registration_date)}</dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Expiry Date:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatDateDMY(detailsDoc.expiry_date)}</dd>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
               <dt className="text-sm font-medium text-slate-500">CR No:</dt>
