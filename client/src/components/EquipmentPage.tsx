@@ -738,9 +738,13 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Document Name</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Company</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Reference No.</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">CR No.</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">License No.</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Sent By</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Responsible Person</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Registration Date</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Expiry Date</th>
+                      <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Processed Date</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Status</th>
                       <th className="text-left px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Actions</th>
                     </tr>
@@ -748,7 +752,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                   <tbody className="divide-y divide-slate-200">
                     {filteredDocuments.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={12} className="px-6 py-12 text-center text-slate-500">
                           <FileText size={40} className="mx-auto text-slate-300 mb-2" />
                           <p>No documents found.</p>
                         </td>
@@ -773,6 +777,8 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                               {truncateText(company)}
                             </td>
                             <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{getReferenceNumber(item)}</td>
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{item.cr_no || '-'}</td>
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{item.license_no || '-'}</td>
                             <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">
                               {item.resolved_sent_by_name || item.sent_by || '-'}
                             </td>
@@ -786,9 +792,11 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                                 onConfirm={(value) => assignResponsiblePerson(item.id, value)}
                               />
                             </td>
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{formatDateDMY(item.registration_date)}</td>
                             <td className={`px-2 py-1.5 text-xs whitespace-nowrap ${getDocumentExpiryColorClass(item.expiry_date)}`}>
                               {formatDateDMY(item.expiry_date)}
                             </td>
+                            <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{formatDateTimeDMY(item.processed_at)}</td>
                             <td className="px-2 py-1.5 text-xs whitespace-nowrap">
                               <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${status.className}`}>{status.label}</span>
                             </td>
@@ -1128,22 +1136,6 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                   onConfirm={(value) => assignResponsiblePerson(detailsDoc.id, value)}
                 />
               </dd>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
-              <dt className="text-sm font-medium text-slate-500">Company:</dt>
-              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.company_name || '-'}</dd>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
-              <dt className="text-sm font-medium text-slate-500">Reference No.:</dt>
-              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{getReferenceNumber(detailsDoc)}</dd>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
-              <dt className="text-sm font-medium text-slate-500">Registration Date:</dt>
-              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatDateDMY(detailsDoc.registration_date)}</dd>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
-              <dt className="text-sm font-medium text-slate-500">Expiry Date:</dt>
-              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatDateDMY(detailsDoc.expiry_date)}</dd>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
               <dt className="text-sm font-medium text-slate-500">CR No:</dt>
