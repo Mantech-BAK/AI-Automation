@@ -12,6 +12,7 @@ import Modal from './Modal';
 import AssetEditModal, { EditableAsset } from './AssetEditModal';
 import VehiclesPage from './VehiclesPage';
 import ResponsiblePerson from './ResponsiblePerson';
+import ResponsiblePersonPicker from './ResponsiblePersonPicker';
 import { apiFetch } from '../lib/api';
 
 interface DocumentVersion {
@@ -766,25 +767,13 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                               <ResponsiblePerson value={item.sent_by} resolvedName={item.resolved_sent_by_name} showEmail />
                             </td>
                             <td className="px-6 py-4 text-sm text-slate-600">
-                              {/* Inline assignment: pick a user and it saves straight away. */}
-                              <select
-                                value={item.responsible_person || ''}
-                                disabled={assigning}
-                                onChange={(e) => assignResponsiblePerson(item.id, e.target.value)}
-                                title={item.responsible_person || 'Assign a responsible person'}
-                                className={`w-full min-w-[11rem] px-2.5 py-1.5 text-sm rounded-lg border bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-60 cursor-pointer ${
-                                  item.responsible_person ? 'border-slate-200 text-slate-700' : 'border-dashed border-slate-300 text-slate-400'
-                                }`}
-                              >
-                                <option value="">Assign...</option>
-                                {/* a stored value that is not (or no longer) in the user list stays selectable */}
-                                {item.responsible_person && !assignableUsers.some((user) => user.value === item.responsible_person) && (
-                                  <option value={item.responsible_person}>{item.resolved_responsible_name || item.responsible_person}</option>
-                                )}
-                                {assignableUsers.map((user) => (
-                                  <option key={user.id} value={user.value}>{user.name}{user.email ? ` (${user.email})` : ''}</option>
-                                ))}
-                              </select>
+                              <ResponsiblePersonPicker
+                                value={item.responsible_person}
+                                resolvedName={item.resolved_responsible_name}
+                                users={assignableUsers}
+                                saving={assigning}
+                                onConfirm={(value) => assignResponsiblePerson(item.id, value)}
+                              />
                             </td>
                             <td className="px-6 py-4 text-sm">
                               {item.onedrive_url ? (
@@ -1116,21 +1105,13 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
               <dt className="text-sm font-medium text-slate-500">Responsible person:</dt>
               <dd className="sm:col-span-2 text-sm text-slate-800 break-words">
-                <select
-                  value={detailsDoc.responsible_person || ''}
-                  disabled={assigning}
-                  onChange={(e) => assignResponsiblePerson(detailsDoc.id, e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-60"
-                >
-                  <option value="">Not assigned</option>
-                  {/* a stored value that is not (or no longer) in the user list stays selectable */}
-                  {detailsDoc.responsible_person && !assignableUsers.some((user) => user.value === detailsDoc.responsible_person) && (
-                    <option value={detailsDoc.responsible_person}>{detailsDoc.resolved_responsible_name || detailsDoc.responsible_person}</option>
-                  )}
-                  {assignableUsers.map((user) => (
-                    <option key={user.id} value={user.value}>{user.name}{user.email ? ` (${user.email})` : ''}</option>
-                  ))}
-                </select>
+                <ResponsiblePersonPicker
+                  value={detailsDoc.responsible_person}
+                  resolvedName={detailsDoc.resolved_responsible_name}
+                  users={assignableUsers}
+                  saving={assigning}
+                  onConfirm={(value) => assignResponsiblePerson(detailsDoc.id, value)}
+                />
               </dd>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
