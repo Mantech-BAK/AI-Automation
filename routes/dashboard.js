@@ -7,6 +7,7 @@ const { graphRequest } = require('../graph/client');
 const { toTitleCase } = require('../utils/text');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
 const { sendDuplicateEmail } = require('../jobs/documentEmailProcessor');
+const { fetchBakUsers } = require('../utils/bakUsers');
 
 const DUPLICATE_UI_MESSAGE = 'This document already exists.';
 const escapeHtml = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -481,16 +482,27 @@ router.get('/documents/:id/versions', async (req, res) => {
   }
 });
 
-// Users a document can be assigned to: the active MAS users (name / BAK mailbox). The value stored as the
-// document's responsible_person is the mailbox when the user has one, otherwise the name.
+// Users a document can be assigned to: every enabled @bakgroup.net account in Microsoft 365 (name + mailbox).
+// The mailbox is what is stored as the document's responsible_person. If Graph fails or returns nobody, the
+// active MAS users are offered instead (by mailbox when they have one, otherwise by name).
 router.get('/documents/assignable-users', async (req, res) => {
   try {
+    try {
+      const users = await fetchBakUsers();
+      if (users.length > 0) {
+        return res.json(users.map((user, index) => ({ id: index + 1, name: user.name, email: user.email, value: user.email, source: 'microsoft' })));
+      }
+      console.warn('Graph returned no @bakgroup.net users - falling back to mas_users');
+    } catch (graphError) {
+      console.warn(`Graph users fetch failed (${graphError.message}) - falling back to mas_users`);
+    }
+
     const { rows } = await pool.query(
       `SELECT id, name, email FROM mas_users
        WHERE is_active AND (email IS NULL OR TRIM(email) = '' OR LOWER(email) LIKE '%@bakgroup.net')
        ORDER BY name`
     );
-    return res.json(rows.map((row) => ({ id: row.id, name: row.name, email: row.email || null, value: row.email || row.name })));
+    return res.json(rows.map((row) => ({ id: row.id, name: row.name, email: row.email || null, value: row.email || row.name, source: 'mas_users' })));
   } catch (error) {
     console.error('Assignable users query failed:', error);
     return res.status(500).json({ error: 'Failed to load users' });
