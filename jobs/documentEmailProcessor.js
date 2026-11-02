@@ -211,8 +211,11 @@ async function readPdfPages(pdfBuffer) {
 }
 
 // Text of a PDF through scripts/ocr_pdf.py: the PDF's own text layer when it has one, otherwise EasyOCR (English +
-// Arabic) on page images. Pages come back separated by a form feed. Resolves to { text, pages }, or null when the
-// script could not run (Python / poppler / EasyOCR missing, timeout, ...) so the caller can fall back to pdf-parse.
+// Arabic) on page images. Pages come back separated by a form feed. Always resolves to an object:
+//   { text, pages, ocrAttempted }                 - the script produced text
+//   { failure: 'killed' | 'error', ocrAttempted } - it could not (killed by a signal, e.g. out of memory on Railway;
+//                                                    or Python / poppler / EasyOCR missing, no text found, ...)
+// so the caller can fall back to pdf-parse and still report why OCR failed.
 const OCR_SCRIPT = path.join(__dirname, '..', 'scripts', 'ocr_pdf.py');
 const OCR_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -230,13 +233,17 @@ function readPdfViaScript(pdfBuffer, label) {
         fs.rm(tempPath, { force: true }, () => {});
         const notes = String(stderr || '').trim();
         if (notes) console.log(`"${label}" OCR script: ${notes.split('\n').join(' | ').slice(0, 800)}`);
+        // the script says "running OCR" once it gave up on the text layer
+        const ocrAttempted = /running OCR/.test(notes);
         if (error) {
-          console.warn(`OCR script failed for "${label}" (${error.code || error.signal || error.message}) - falling back to pdf-parse`);
-          return resolve(null);
+          // error.signal is set when the process was killed (SIGKILL = the container ran out of memory)
+          const failure = error.signal ? 'killed' : 'error';
+          console.warn(`OCR script failed for "${label}" (${error.signal || error.code || error.message}) - falling back to pdf-parse`);
+          return resolve({ failure, ocrAttempted });
         }
         const pages = String(stdout).split('\f');
         while (pages.length > 1 && !pages[pages.length - 1].trim()) pages.pop();
-        resolve({ text: pages.join('\n'), pages });
+        resolve({ text: pages.join('\n'), pages, ocrAttempted });
       }
     );
   });
@@ -255,6 +262,8 @@ function pagesAreSeparateDocuments(pages) {
 }
 
 const MIN_TEXT_CHARS = 100;
+// Fewer characters than this from OCR means the scan was unreadable.
+const MIN_OCR_CHARS = 50;
 const TEMP_FOLDER = 'temp';
 const TEMP_FILE_PREFIX = 'ocr_temp_';
 const TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000;
@@ -681,9 +690,10 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
   // Text layer or OCR through scripts/ocr_pdf.py; pdf-parse is the fallback when the script cannot run.
-  let { text, pages } =
-    (await readPdfViaScript(pdfBuffer, attachment.name)) ||
-    (await withRetries(`PDF text extraction for "${attachment.name}"`, () => readPdfPages(pdfBuffer)));
+  const scriptResult = await readPdfViaScript(pdfBuffer, attachment.name);
+  let { text, pages } = scriptResult.pages
+    ? scriptResult
+    : await withRetries(`PDF text extraction for "${attachment.name}"`, () => readPdfPages(pdfBuffer));
   console.log(`"${attachment.name}": ${pages.length} page(s), text per page: ${pages.map((p) => String(p).trim().length).join(', ')} chars`);
 
   // Scanned PDFs have little or no text layer - try Microsoft's conversion.
@@ -692,6 +702,15 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
     const converted = await extractTextViaGraph(pdfBuffer);
 
     if (!converted || converted.trim().length < MIN_TEXT_CHARS) {
+      // Every extraction path failed - say why, using what the OCR script reported.
+      if (scriptResult.failure === 'killed') {
+        console.warn(`Failed — OCR process was killed (memory limit) ("${attachment.name}")`);
+        return [fail('OCR processing failed (memory limit) — try splitting the PDF into smaller files', 'ocr_killed')];
+      }
+      if (scriptResult.ocrAttempted) {
+        console.warn(`Failed — OCR ran but found less than ${MIN_OCR_CHARS} characters ("${attachment.name}")`);
+        return [fail('Scan quality too low — please rescan at minimum 300 DPI and send again', 'low_quality')];
+      }
       console.warn(`Failed — scanned image PDF — Microsoft could not extract text — please use a text-based PDF ("${attachment.name}")`);
       return [fail('scanned image PDF — Microsoft could not extract text — please use a text-based PDF', 'scanned')];
     }
@@ -879,6 +898,10 @@ function describeResult(result) {
       switch (result.reasonCode) {
         case 'scanned':
           return `${result.fileName} — Failed: This is a scanned image PDF. Please use a text-searchable PDF version and resend.`;
+        case 'ocr_killed':
+          return `${result.fileName} — Failed: OCR processing failed (memory limit) — try splitting the PDF into smaller files`;
+        case 'low_quality':
+          return `${result.fileName} — Failed: Scan quality too low — please rescan at minimum 300 DPI and send again`;
         case 'invalid_json':
           return `${result.fileName} — Failed: Could not read document content. Please resend.`;
         case 'expired':
