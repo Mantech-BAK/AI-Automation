@@ -839,16 +839,16 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
 
   if (!doc.expiry_date) {
     console.warn(`Cannot process document "${doc.document_name}" - no expiry date found ("${attachment.name}")`);
-    return { ...fail('could not extract expiry date', 'no_expiry'), documentName: doc.document_name };
+    return { ...fail('could not extract expiry date', 'no_expiry'), documentName: doc.document_name, company: doc.owner_name };
   }
 
-  const base = { fileName: attachment.name, documentName: doc.document_name, expiry: doc.expiry_date };
+  const base = { fileName: attachment.name, documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date };
 
   // Already expired (before today, Bahrain time): not saved. A missing expiry is handled above, never treated as expired.
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain' }).format(new Date());
   if (doc.expiry_date < today) {
     console.warn(`Failed - already expired: "${doc.document_name}" (expiry date: ${formatDMY(doc.expiry_date)}) - not saved`);
-    return { ...fail('already expired', 'expired'), documentName: doc.document_name, expiry: doc.expiry_date };
+    return { ...fail('already expired', 'expired'), documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date };
   }
 
   // Documents handled earlier in this same run are already in the database
@@ -886,31 +886,23 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   return { ...base, status };
 }
 
-function describeResult(result) {
-  switch (result.status) {
-    case 'updated':
-      return `Successfully processed — ${result.documentName} — Expiry updated to ${formatDMY(result.expiry)}`;
-    case 'created':
-      return `New document created — ${result.documentName} — Expires ${formatDMY(result.expiry)}`;
-    case 'duplicate':
-      return `Duplicate — ${result.documentName} — already exists in system with same details`;
+// Why a document failed, in words for the sender (no file name - the summary shows that separately).
+function failureReason(result) {
+  switch (result.reasonCode) {
+    case 'scanned':
+      return 'This is a scanned image PDF. Please use a text-searchable PDF version and resend.';
+    case 'ocr_killed':
+      return 'OCR processing failed (memory limit) — try splitting the PDF into smaller files';
+    case 'low_quality':
+      return 'Scan quality too low — please rescan at minimum 300 DPI and send again';
+    case 'invalid_json':
+      return 'Could not read document content. Please resend.';
+    case 'expired':
+      return `Document '${result.documentName}' was not processed — it is already expired (expiry date: ${formatDMY(result.expiry)}). Please submit a valid, current document.`;
+    case 'no_expiry':
+      return 'No expiry date found in document. Please ensure the document contains a visible expiry date.';
     default:
-      switch (result.reasonCode) {
-        case 'scanned':
-          return `${result.fileName} — Failed: This is a scanned image PDF. Please use a text-searchable PDF version and resend.`;
-        case 'ocr_killed':
-          return `${result.fileName} — Failed: OCR processing failed (memory limit) — try splitting the PDF into smaller files`;
-        case 'low_quality':
-          return `${result.fileName} — Failed: Scan quality too low — please rescan at minimum 300 DPI and send again`;
-        case 'invalid_json':
-          return `${result.fileName} — Failed: Could not read document content. Please resend.`;
-        case 'expired':
-          return `Document '${result.documentName}' was not processed — it is already expired (expiry date: ${formatDMY(result.expiry)}). Please submit a valid, current document.`;
-        case 'no_expiry':
-          return `${result.fileName} — Failed: No expiry date found in document. Please ensure the document contains a visible expiry date.`;
-        default:
-          return `${result.fileName} — Failed: ${result.reason}`;
-      }
+      return result.reason || 'Unknown error';
   }
 }
 
@@ -983,9 +975,71 @@ async function sendDuplicateEmail(toAddress, info, override = null) {
   }
 }
 
-// Sends ONE summary email per unique sender at the end of a run, covering all
-// of that sender's documents across every email they sent. Never throws.
-// entries: [{ subject, result }] collected as PDFs are processed.
+// The summary email for one sender: documents grouped by status - Failed (red), Duplicates (amber), Successfully
+// processed (green) - each section only when it has items. Table layout with inline styles only, so Outlook renders it.
+// results: [{ status, fileName, documentName, company, expiry, reasonCode, reason }]
+function buildSummaryEmail(results) {
+  const sections = [
+    {
+      key: 'failed', title: 'Failed', icon: '❌', solid: '#dc2626', tint: '#fef2f2', line: '#fecaca',
+      items: results.filter((r) => r.status === 'failed'),
+      detail: (r) => `Reason: ${failureReason(r)}`,
+    },
+    {
+      key: 'duplicate', title: 'Duplicates', icon: '⚠️', solid: '#d97706', tint: '#fffbeb', line: '#fde68a',
+      items: results.filter((r) => r.status === 'duplicate'),
+      detail: () => 'Already exists in system',
+      footer: 'If a duplicate is a renewal or update, please contact the administrator.',
+    },
+    {
+      key: 'success', title: 'Successfully Processed', icon: '✅', solid: '#16a34a', tint: '#f0fdf4', line: '#bbf7d0',
+      items: results.filter((r) => r.status === 'created' || r.status === 'updated'),
+      detail: (r) => (r.status === 'updated' ? `Expiry updated to ${formatDMY(r.expiry)}` : `Expires ${formatDMY(r.expiry)}`),
+    },
+  ].filter((section) => section.items.length > 0);
+
+  const font = "font-family:'Segoe UI',Arial,Helvetica,sans-serif;";
+  const renderSection = (section) => {
+    const rows = section.items
+      .map((r) => {
+        const name = r.documentName || r.fileName || 'Unknown document';
+        const label = r.company ? `${escapeHtml(name)} — ${escapeHtml(r.company)}` : escapeHtml(name);
+        return (
+          `<tr><td bgcolor="${section.tint}" style="background-color:${section.tint};padding:10px 14px;border-bottom:1px solid ${section.line};${font}font-size:14px;color:#1f2937;">` +
+          `<b>${label}</b><br><span style="font-size:13px;color:#4b5563;">${escapeHtml(section.detail(r))}</span></td></tr>`
+        );
+      })
+      .join('');
+    const footer = section.footer
+      ? `<tr><td bgcolor="${section.tint}" style="background-color:${section.tint};padding:8px 14px;${font}font-size:12px;color:#6b7280;">${escapeHtml(section.footer)}</td></tr>`
+      : '';
+    return (
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border-collapse:collapse;">` +
+      `<tr><td bgcolor="${section.solid}" style="background-color:${section.solid};color:#ffffff;padding:11px 14px;${font}font-size:15px;font-weight:bold;">` +
+      `${section.icon} ${section.title} (${section.items.length})</td></tr>${rows}${footer}</table>`
+    );
+  };
+
+  const content =
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td align="center" style="padding:16px;">` +
+    `<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:640px;max-width:100%;"><tr><td style="${font}font-size:14px;color:#1f2937;padding-bottom:14px;">` +
+    `Summary of the ${results.length} document${results.length === 1 ? '' : 's'} received from you:</td></tr>` +
+    `<tr><td>${sections.map(renderSection).join('')}</td></tr></table></td></tr></table>`;
+
+  const created = results.filter((r) => r.status === 'created' || r.status === 'updated').length;
+  const duplicates = results.filter((r) => r.status === 'duplicate').length;
+  const failed = results.filter((r) => r.status === 'failed').length;
+  const parts = [
+    created ? `${created} created` : null,
+    duplicates ? `${duplicates} duplicate${duplicates === 1 ? '' : 's'}` : null,
+    failed ? `${failed} failed` : null,
+  ].filter(Boolean);
+  return { subject: `Document Processing Complete — ${parts.join(', ') || 'nothing to process'}`, content };
+}
+
+// Sends ONE summary email per unique sender at the end of a run, covering all of that sender's documents across
+// every email they sent. Never throws.
+// entries: [{ subject, result, to }] collected as PDFs are processed.
 async function sendSummaryEmails(entriesBySender) {
   const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
 
@@ -998,25 +1052,7 @@ async function sendSummaryEmails(entriesBySender) {
     // To = the sender plus everyone their emails were addressed to (merged over all of this sender's emails, unique,
     // case-insensitive). The service account is never included, nor anyone twice. Nobody is CC'd.
     const toAddresses = uniqueAddresses([senderAddress, ...entries.flatMap((entry) => entry.to || [])]);
-    const count = (status) => results.filter((r) => r.status === status).length;
-    const created = count('created');
-    const processed = count('updated') + created;
-    const totals = `Total: ${processed} processed, ${created} new, ${count('duplicate')} duplicates, ${count('failed')} failed`;
-
-    const subjects = [...new Set(entries.map((entry) => entry.subject || '(no subject)'))];
-    const sections = subjects
-      .map((subject) => {
-        const items = entries
-          .filter((entry) => (entry.subject || '(no subject)') === subject)
-          .map(({ result }) => `<li>${escapeHtml(result.status === 'failed' ? describeResult(result) : `${result.fileName}: ${describeResult(result)}`)}</li>`)
-          .join('');
-        return `<p><b>${escapeHtml(subject)}</b></p><ul>${items}</ul>`;
-      })
-      .join('');
-    const content = `<p>Summary of the ${results.length} PDF attachment${results.length === 1 ? '' : 's'} received from you:</p>${sections}<p><b>${totals}</b></p>`;
-    const subject = subjects.length === 1
-      ? `Document Processing Summary — ${subjects[0]}`
-      : `Document Processing Summary — ${subjects.length} emails`;
+    const { subject, content } = buildSummaryEmail(results);
 
     try {
       await graphRequest(
@@ -1145,13 +1181,8 @@ async function processDocumentEmails() {
 
           for (const result of results) {
 
-          if (result.status === 'duplicate') {
-            // Rejected: nothing was saved. The submitter gets a dedicated failure email instead of a summary line.
-            await sendDuplicateEmail(
-              [senderAddress, ...addressesOf(message.toRecipients)],
-              result
-            );
-          } else if (senderAddress) {
+          // Duplicates (nothing was saved) are reported in the summary email, in their own section.
+          if (senderAddress) {
             if (!entriesBySender.has(senderAddress)) entriesBySender.set(senderAddress, []);
             entriesBySender.get(senderAddress).push({
               subject: message.subject,
@@ -1192,4 +1223,4 @@ async function processDocumentEmails() {
   return summary;
 }
 
-module.exports = { processExtractedDocument, splitDocuments, DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
+module.exports = { buildSummaryEmail, processExtractedDocument, splitDocuments, DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
