@@ -833,6 +833,12 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     doc.owner_name = senderName || null;
   }
 
+  // The AI spells the same company slightly differently between runs: trim, collapse repeated spaces and drop
+  // trailing periods (W.L.L. -> W.L.L) so the Company filter doesn't list one company several times.
+  if (doc.owner_name) {
+    doc.owner_name = String(doc.owner_name).replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim() || null;
+  }
+
   // Keep the stored extraction consistent with the chosen name, so it can't
   // differ between runs when documents are matched against each other.
   raw.document_name = doc.document_name;

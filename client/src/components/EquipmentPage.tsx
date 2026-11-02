@@ -477,8 +477,11 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     ? equipment
     : equipment.filter((item) => item.site_location === equipmentDeptFilter);
 
+  // Safety net for inconsistent AI spellings: trim, collapse spaces, drop trailing periods.
+  const normalizeCompanyName = (name?: string | null): string => (name || '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+
   const documentCompanyOptions = [...new Set(
-    documents.map((item) => item.company_name?.trim()).filter((c): c is string => Boolean(c))
+    documents.map((item) => normalizeCompanyName(item.company_name)).filter((c): c is string => Boolean(c))
   )].sort((a, b) => a.localeCompare(b));
 
   // Cumulative "due within X days" windows, matching the semantics of the
@@ -501,7 +504,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
 
   const documentsInDept = documentCompanyFilter === 'all'
     ? documents
-    : documents.filter((item) => item.company_name?.trim() === documentCompanyFilter);
+    : documents.filter((item) => normalizeCompanyName(item.company_name) === documentCompanyFilter);
 
   const docExpiryTileCounts: Record<DocExpiryTile, number> = {
     all: documentsInDept.length,
@@ -765,7 +768,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                           .filter((version) => version.onedrive_url !== item.onedrive_url)
                           .slice(0, 3);
                         const documentName = item.document_name || item.equipment_name || '';
-                        const company = item.company_name?.trim() || '';
+                        const company = normalizeCompanyName(item.company_name);
                         const status = getDocumentStatus(item.expiry_date);
 
                         return (
