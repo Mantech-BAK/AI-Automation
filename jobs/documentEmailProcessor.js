@@ -837,6 +837,16 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   // trailing periods (W.L.L. -> W.L.L) so the Company filter doesn't list one company several times.
   if (doc.owner_name) {
     doc.owner_name = String(doc.owner_name).replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim() || null;
+    // Same company spelled differently ("AL JUMAN" / "ALJUMAN"): use the spelling already stored.
+    if (doc.owner_name) {
+      const known = await pool.query(
+        `SELECT company_name FROM assets
+         WHERE company_name IS NOT NULL AND REGEXP_REPLACE(UPPER(company_name), '[\\s.]+', '', 'g') = $1
+         GROUP BY company_name ORDER BY COUNT(*) DESC, LENGTH(company_name) DESC LIMIT 1`,
+        [doc.owner_name.replace(/[\s.]+/g, '').toUpperCase()]
+      );
+      if (known.rows[0]) doc.owner_name = known.rows[0].company_name;
+    }
   }
 
   // Keep the stored extraction consistent with the chosen name, so it can't

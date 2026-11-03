@@ -483,9 +483,26 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
   // Safety net for inconsistent AI spellings: trim, collapse spaces, drop trailing periods.
   const normalizeCompanyName = (name?: string | null): string => (name || '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
 
-  const documentCompanyOptions = [...new Set(
-    documents.map((item) => normalizeCompanyName(item.company_name)).filter((c): c is string => Boolean(c))
-  )].sort((a, b) => a.localeCompare(b));
+  // The same company can be spelled with or without a space ("AL JUMAN" / "ALJUMAN") or a final period, so companies are
+  // grouped by their name without spaces and periods, upper-cased. The group shows under its most used spelling.
+  const companyKey = (name?: string | null): string => normalizeCompanyName(name).replace(/[\s.]+/g, '').toUpperCase();
+  const companyLabels = (() => {
+    const counts = new Map<string, Map<string, number>>();
+    for (const item of documents) {
+      const label = normalizeCompanyName(item.company_name);
+      if (!label) continue;
+      const spellings = counts.get(companyKey(label)) ?? new Map<string, number>();
+      spellings.set(label, (spellings.get(label) ?? 0) + 1);
+      counts.set(companyKey(label), spellings);
+    }
+    const labels = new Map<string, string>();
+    for (const [key, spellings] of counts) {
+      const best = [...spellings].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length || a[0].localeCompare(b[0]))[0][0];
+      labels.set(key, best);
+    }
+    return labels;
+  })();
+  const documentCompanyOptions = [...companyLabels].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label));
 
   // Cumulative "due within X days" windows, matching the semantics of the
   // Dashboard's Documentation tiles (e.g. expiring_documents = 0-30 days) so
@@ -507,7 +524,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
 
   const documentsInDept = documentCompanyFilter === 'all'
     ? documents
-    : documents.filter((item) => normalizeCompanyName(item.company_name) === documentCompanyFilter);
+    : documents.filter((item) => companyKey(item.company_name) === documentCompanyFilter);
 
   const docExpiryTileCounts: Record<DocExpiryTile, number> = {
     all: documentsInDept.length,
@@ -731,7 +748,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               >
                 <option value="all">All Companies</option>
                 {documentCompanyOptions.map((company) => (
-                  <option key={company} value={company}>{company}</option>
+                  <option key={company.key} value={company.key}>{company.label}</option>
                 ))}
               </select>
             </div>
@@ -771,7 +788,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                           .filter((version) => version.onedrive_url !== item.onedrive_url)
                           .slice(0, 3);
                         const documentName = item.document_name || item.equipment_name || '';
-                        const company = normalizeCompanyName(item.company_name);
+                        const company = companyLabels.get(companyKey(item.company_name)) ?? normalizeCompanyName(item.company_name);
                         const status = getDocumentStatus(item.expiry_date);
 
                         return (
