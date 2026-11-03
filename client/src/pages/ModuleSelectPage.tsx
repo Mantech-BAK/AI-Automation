@@ -185,22 +185,18 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           {visibleTiles.map((id) => {
             const tile = TILES[id];
             const Icon = tile.icon;
-            const allowed = accessibleModules.includes(id);
             return (
               <button
                 key={id}
                 type="button"
-                disabled={!allowed}
                 onClick={() => onSelectModule(id)}
-                title={allowed ? tile.name : `${tile.name} - no access`}
+                title={tile.name}
                 style={{ backgroundImage: `linear-gradient(135deg, ${tile.from}, ${tile.to})`, borderRadius: 16 }}
-                className={`relative h-32 sm:h-44 p-5 flex flex-col justify-between text-left text-white shadow-lg transition-all duration-200 ${
-                  allowed ? 'hover:-translate-y-1 hover:shadow-2xl hover:brightness-110 active:scale-[0.98]' : 'opacity-50 cursor-not-allowed'
-                }`}
+                className="relative h-32 sm:h-44 p-5 flex flex-col justify-between text-left text-white shadow-lg transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl hover:brightness-110 active:scale-[0.98]"
               >
                 <div className="flex items-start justify-between">
                   <Icon size={36} strokeWidth={1.75} />
-                  {allowed ? <ChevronRight size={22} className="opacity-90" /> : <Lock size={18} className="opacity-90" />}
+                  <ChevronRight size={22} className="opacity-90" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold leading-tight" style={DISPLAY_FONT}>{tile.name}</p>
