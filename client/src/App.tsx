@@ -82,7 +82,7 @@ function parsePath(pathname: string): { module: ModuleId | null; navId: string; 
   const [first, second] = pathname.split('/').filter(Boolean);
   if (isToolId(first)) return { module: null, navId: 'dashboard', tool: first };
   if (!isModuleId(first)) return { module: null, navId: 'dashboard', tool: null };
-  // /costing/sheet/... belongs to Enquiries in the sidebar; /costing/login is the user picker.
+  // /costing/sheet/... belongs to Enquiries in the sidebar; /costing/login is the old user picker (now just the dashboard).
   if (first === 'costing' && second === 'sheet') return { module: first, navId: 'enquiries', tool: null };
   if (first === 'costing' && second === 'login') return { module: first, navId: 'dashboard', tool: null };
   const known = allNavItems(first).some((item) => item.id === second);
@@ -107,7 +107,7 @@ function App() {
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
   // Bumped on every Costing Sheet URL change so the page re-renders (and remounts) even when nothing else in state changed.
   const [, setRouteTick] = useState(0);
-  // The Costing Sheet module's own user (picked on /costing/login). undefined = not checked yet, null = nobody picked.
+  // The Costing Sheet module's own user (the signed-in user's profile). undefined = not checked yet, null = nobody picked.
   const [masUser, setMasUser] = useState<MasUser | null | undefined>(undefined);
 
   const currentItem = activeModule ? allNavItems(activeModule).find((item) => item.id === activeNavId) : undefined;
@@ -341,7 +341,7 @@ function App() {
     }
 
     if (activeModule === 'costing') {
-      return <CostingModule me={masUser} onLogin={setMasUser} onNavigate={goToCostingPath} />;
+      return <CostingModule me={masUser} onNavigate={goToCostingPath} />;
     }
 
     // The other modules share the asset / task / document pages below.

@@ -88,19 +88,15 @@ async function subtreeIds(userId) {
 // them; every other role sees only their own records.
 async function loadMasUser(req, res, next) {
   try {
-    let id = req.session?.masUserId;
-    if (!id && req.session?.user?.email) {
-      // Whoever is signed in is the costing user - no picking a name.
-      await syncMasUsers();
-      id = (await pool.query('SELECT id FROM mas_users WHERE is_active AND LOWER(email) = LOWER($1) LIMIT 1', [req.session.user.email])).rows[0]?.id;
-      if (id) req.session.masUserId = id;
-    }
-    if (!id) return res.status(401).json({ error: 'Select your name to continue', needsLogin: true });
+    // The signed-in user IS the costing user (matched by e-mail) - there is no screen to pick a name.
+    await syncMasUsers();
+    const email = req.session?.user?.email;
+    const id = email ? (await pool.query('SELECT id FROM mas_users WHERE is_active AND LOWER(email) = LOWER($1) LIMIT 1', [email])).rows[0]?.id : null;
+    if (!id) return res.status(403).json({ error: 'Your account has no costing profile - ask an administrator to check your e-mail in the Users section' });
     const { rows } = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [id]);
     const user = rows[0];
     if (!user || !user.is_active) {
-      delete req.session.masUserId;
-      return res.status(401).json({ error: 'That user is not active - select your name again', needsLogin: true });
+      return res.status(403).json({ error: 'Your costing profile is not active' });
     }
     const level = Number(user.role_level);
     const scope = level >= 4 ? { all: true, ids: [] } : level === 3 ? { all: false, ids: await subtreeIds(user.id) } : { all: false, ids: [user.id] };
@@ -118,34 +114,6 @@ async function loadMasUser(req, res, next) {
 
 const isManagerOrAbove = (user) => user.role_level >= 3;
 const isGmOrAbove = (user) => user.role_level >= 4;
-
-// ------------------------------------------------------------------ login (public within the MAS session)
-
-router.get('/login-users', async (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
-  await syncMasUsers();
-  const { rows } = await pool.query(`${USER_SELECT} WHERE u.is_active ORDER BY r.level DESC, u.name`);
-  const mine = String(req.session.user.email || '').toLowerCase();
-  return res.json(req.session.user.role === 'admin' ? rows : rows.filter((row) => String(row.email || '').toLowerCase() === mine));
-});
-
-router.post('/login', async (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
-  const id = toId(req.body?.user_id);
-  if (!id) return res.status(400).json({ error: 'user_id is required' });
-  const { rows } = await pool.query(`${USER_SELECT} WHERE u.id = $1 AND u.is_active`, [id]);
-  if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
-  if (req.session.user.role !== 'admin' && String(rows[0].email || '').toLowerCase() !== String(req.session.user.email || '').toLowerCase()) {
-    return res.status(403).json({ error: 'You can only use your own costing profile' });
-  }
-  req.session.masUserId = id;
-  return res.json({ user: rows[0] });
-});
-
-router.post('/logout', (req, res) => {
-  if (req.session) delete req.session.masUserId;
-  return res.json({ success: true });
-});
 
 router.use((req, res, next) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -172,13 +140,12 @@ router.get('/sheets/approved-this-month', countOf(
    AND reviewed_at >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Bahrain') AT TIME ZONE 'Asia/Bahrain'`
 ));
 
-// "Me" = the selected costing user, else the costing user whose e-mail matches the signed-in MAS user.
+// "Me" = the costing user whose e-mail matches the signed-in MAS user.
 router.get('/tasks/my-pending', async (req, res) => {
   try {
-    let id = req.session.masUserId;
-    if (!id && req.session.user.email) {
-      id = (await pool.query('SELECT id FROM mas_users WHERE is_active AND LOWER(email) = LOWER($1) LIMIT 1', [req.session.user.email])).rows[0]?.id;
-    }
+    const id = req.session.user.email
+      ? (await pool.query('SELECT id FROM mas_users WHERE is_active AND LOWER(email) = LOWER($1) LIMIT 1', [req.session.user.email])).rows[0]?.id
+      : null;
     if (!id) return res.json({ count: 0 });
     const { rows } = await pool.query(`SELECT COUNT(*) AS count FROM enquiry_tasks WHERE assigned_to = $1 AND status <> 'completed'`, [id]);
     return res.json({ count: Number(rows[0].count) });

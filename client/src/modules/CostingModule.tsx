@@ -2,7 +2,6 @@ import type { MasUser } from '../lib/costing';
 import AdminUsers from '../pages/costing/AdminUsers';
 import Approvals from '../pages/costing/Approvals';
 import CostingDashboard from '../pages/costing/CostingDashboard';
-import CostingLogin from '../pages/costing/CostingLogin';
 import EnquiriesList from '../pages/costing/EnquiriesList';
 import EnquiryDetail from '../pages/costing/EnquiryDetail';
 import EnquiryForm from '../pages/costing/EnquiryForm';
@@ -11,31 +10,22 @@ import SheetPage from '../pages/costing/SheetPage';
 import { Loading } from '../pages/costing/ui';
 
 interface CostingModuleProps {
-  // undefined while the session is being checked, null when nobody has picked a name yet.
+  // The signed-in user's costing profile: undefined while it loads, null when the account has none.
   me: MasUser | null | undefined;
-  onLogin: (user: MasUser) => void;
   // Opens a Costing Sheet URL (App keeps the sidebar highlight in step).
   onNavigate: (path: string) => void;
 }
 
-// URLs: /costing (dashboard) /costing/login /costing/enquiries /costing/enquiries/new /costing/enquiries/:id[/edit]
+// URLs: /costing (dashboard) /costing/enquiries /costing/enquiries/new /costing/enquiries/:id[/edit]
 // /costing/tasks /costing/approvals /costing/admin /costing/sheet/new?enquiry=:id /costing/sheet/:id[/edit]
-export default function CostingModule({ me, onLogin, onNavigate }: CostingModuleProps) {
+export default function CostingModule({ me, onNavigate }: CostingModuleProps) {
   if (me === undefined) return <Loading />;
 
   const [, a, b, c] = window.location.pathname.split('/').filter(Boolean);
   const id = Number(b);
 
-  if (me === null || a === 'login') {
-    return (
-      <CostingLogin
-        current={me}
-        onLogin={(user) => {
-          onLogin(user);
-          onNavigate('/costing');
-        }}
-      />
-    );
+  if (me === null) {
+    return <p className="text-sm text-slate-500">Your account has no costing profile. Ask an administrator to check your email in the Users section.</p>;
   }
 
   if (a === 'enquiries') {
