@@ -174,4 +174,6 @@ cron.schedule('*/5 * * * *', async () => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  // Expiry / renewal check on its saved interval (Settings -> Expiry Check Interval).
+  require('./jobs/dailyCheck').scheduleExpiryCheck().catch((error) => console.error('Expiry check scheduling failed:', error.message));
 });

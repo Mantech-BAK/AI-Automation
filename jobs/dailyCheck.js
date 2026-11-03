@@ -684,7 +684,7 @@ async function logNotification(workOrderId, notificationType) {
   );
 }
 
-async function runDailyCheck() {
+async function runChecks() {
   let tasksCreated = 0;
   let documentRemindersSent = 0;
   let errors = 0;
@@ -1129,16 +1129,56 @@ async function runDailyCheck() {
   return { tasksCreated, documentRemindersSent, errors };
 }
 
-cron.schedule('0 6 * * *', async () => {
-  try {
-    await runDailyCheck();
-  } catch (error) {
-    console.error('Daily check failed:', error);
+// ---- Schedule -------------------------------------------------------------------------------------------------
+// The expiry / renewal check (documents, equipment) runs every N hours (Settings -> Expiry Check Interval, default 2).
+// Running it often is safe: a document or asset with an open work order (its Planner task) is skipped, reminders are
+// throttled per record, and an overlapping run is skipped.
+const EXPIRY_CHECK_HOURS = [1, 2, 4, 6, 12, 24];
+const DEFAULT_EXPIRY_CHECK_HOURS = 2;
+let expiryCheckTask = null;
+let checkRunning = false;
+
+const expiryCheckCron = (hours) => (hours >= 24 ? '0 6 * * *' : `0 */${hours} * * *`);
+
+async function loadExpiryCheckHours() {
+  const { rows } = await pool.query(`SELECT value FROM settings WHERE key = 'expiry_check_interval_hours'`);
+  const hours = Number(rows[0]?.value);
+  return EXPIRY_CHECK_HOURS.includes(hours) ? hours : DEFAULT_EXPIRY_CHECK_HOURS;
+}
+
+// (Re)creates the schedule from the saved setting; called at start-up and whenever the setting is saved.
+async function scheduleExpiryCheck() {
+  const hours = await loadExpiryCheckHours();
+  if (expiryCheckTask) expiryCheckTask.stop();
+  expiryCheckTask = cron.schedule(expiryCheckCron(hours), async () => {
+    try {
+      await runDailyCheck();
+    } catch (error) {
+      console.error('Expiry check failed:', error);
+    }
+  });
+  console.log(`Expiry check scheduled every ${hours} hour(s) (${expiryCheckCron(hours)})`);
+  return hours;
+}
+
+// One run at a time: a manual "Run now" and the schedule never overlap.
+async function runDailyCheck() {
+  if (checkRunning) {
+    console.log('Expiry check already running - skipped');
+    return { tasksCreated: 0, documentRemindersSent: 0, errors: 0, skipped: true };
   }
-});
+  checkRunning = true;
+  try {
+    return await runChecks();
+  } finally {
+    checkRunning = false;
+  }
+}
 
 module.exports = {
   runDailyCheck,
+  scheduleExpiryCheck,
+  EXPIRY_CHECK_HOURS,
   createTaskForWorkOrder,
   resolveEmailChain,
   getAdminFallbackEmail,

@@ -5,7 +5,7 @@ const packageJson = require('../package.json');
 const router = express.Router();
 
 const EDITABLE_KEYS = [
-  'daily_check_time',
+  'expiry_check_interval_hours',
   'working_hours_start',
   'working_hours_end',
   'timezone',
@@ -42,7 +42,7 @@ async function loadSettingsResponse() {
   ]);
 
   return {
-    daily_check_time: map.daily_check_time || '6',
+    expiry_check_interval_hours: [1, 2, 4, 6, 12, 24].includes(Number(map.expiry_check_interval_hours)) ? Number(map.expiry_check_interval_hours) : 2,
     working_hours_start: map.working_hours_start || '07:30',
     working_hours_end: map.working_hours_end || '16:30',
     timezone: map.timezone || 'Asia/Bahrain',
@@ -92,6 +92,11 @@ router.post('/', async (req, res) => {
   try {
     const updates = req.body || {};
 
+    const { EXPIRY_CHECK_HOURS, scheduleExpiryCheck } = require('../jobs/dailyCheck');
+    if (Object.prototype.hasOwnProperty.call(updates, 'expiry_check_interval_hours') && !EXPIRY_CHECK_HOURS.includes(Number(updates.expiry_check_interval_hours))) {
+      return res.status(400).json({ error: `Expiry check interval must be one of ${EXPIRY_CHECK_HOURS.join(', ')} hours` });
+    }
+
     for (const key of EDITABLE_KEYS) {
       if (Object.prototype.hasOwnProperty.call(updates, key)) {
         // The display name is free text: trim it and keep it a sensible length.
@@ -99,6 +104,9 @@ router.post('/', async (req, res) => {
         await upsertSetting(key, value);
       }
     }
+
+    // A new interval takes effect straight away.
+    if (Object.prototype.hasOwnProperty.call(updates, 'expiry_check_interval_hours')) await scheduleExpiryCheck();
 
     if (typeof updates.ai_api_key === 'string' && updates.ai_api_key.trim()) {
       await upsertSetting('ai_api_key', updates.ai_api_key.trim());

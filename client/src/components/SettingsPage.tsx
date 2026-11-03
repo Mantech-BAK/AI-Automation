@@ -33,7 +33,7 @@ interface DepartmentConfigGroup {
 }
 
 interface SettingsData {
-  daily_check_time: string;
+  expiry_check_interval_hours: number;
   working_hours_start: string;
   working_hours_end: string;
   timezone: string;
@@ -58,7 +58,7 @@ interface SettingsData {
 }
 
 const DEFAULT_SETTINGS: SettingsData = {
-  daily_check_time: '6',
+  expiry_check_interval_hours: 2,
   working_hours_start: '07:30',
   working_hours_end: '16:30',
   timezone: 'Asia/Bahrain',
@@ -90,10 +90,7 @@ const AI_MODEL_OPTIONS = [
   'gemma2-9b-it',
 ];
 
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
-  const label = hour === 0 ? '12am' : hour < 12 ? `${hour}am` : hour === 12 ? '12pm' : `${hour - 12}pm`;
-  return { value: String(hour), label };
-});
+const INTERVAL_OPTIONS = [1, 2, 4, 6, 12, 24].map((hours) => ({ value: hours, label: hours === 1 ? '1 hour' : `${hours} hours` }));
 
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
   return (
@@ -484,13 +481,13 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-slate-800 mb-6">System Settings</h2>
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Daily Check Time</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Expiry Check Interval</label>
                   <select
-                    value={settings.daily_check_time}
-                    onChange={(e) => updateField('daily_check_time', e.target.value)}
+                    value={settings.expiry_check_interval_hours}
+                    onChange={(e) => updateField('expiry_check_interval_hours', Number(e.target.value))}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   >
-                    {HOUR_OPTIONS.map((opt) => (
+                    {INTERVAL_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
@@ -529,7 +526,7 @@ export default function SettingsPage() {
               <div className="mt-6 flex items-center gap-3">
                 <button
                   onClick={() => saveSection('system', {
-                    daily_check_time: settings.daily_check_time,
+                    expiry_check_interval_hours: settings.expiry_check_interval_hours,
                     working_hours_start: settings.working_hours_start,
                     working_hours_end: settings.working_hours_end,
                     timezone: settings.timezone,
