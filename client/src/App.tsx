@@ -73,7 +73,7 @@ export interface NavFilter {
 // Equipment item type (as they did when they were a tab of the Asset page); the
 // Documents module needs the Document type. An empty allowed_item_types means
 // "no restriction" (matches routes/dashboard.js's buildPermissionConditions).
-const hasModuleAccess = canAccessModule;
+const hasModuleAccess = (module: ModuleId, user: SessionUser) => canAccessModule(user, module);
 
 // URLs: "/" is the module selection screen, "/<module>" a module's dashboard,
 // "/<module>/<nav id>" one of its pages (e.g. /documents/tasks) and "/<tool>" one of the
