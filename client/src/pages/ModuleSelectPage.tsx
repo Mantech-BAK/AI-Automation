@@ -158,6 +158,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold" title={user.name}>
               {initialsOf(user.name)}
             </div>
+            {canUseTool(user, 'settings') && (
             <button
               onClick={() => onOpenTool('settings')}
               title="Settings"
@@ -166,6 +167,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
               <Settings size={16} />
               <span className="hidden sm:inline">Settings</span>
             </button>
+            )}
             <button
               onClick={onSignOut}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 border border-white/10 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30 transition-colors"

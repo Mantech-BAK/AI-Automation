@@ -125,7 +125,7 @@ app.use('/api/workorders', requireAuth, workOrdersRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/meetings', requireAuth, requireFeature('scheduleMeeting', 'Schedule Meeting'), meetingsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
-app.use('/api/system', requireAuth, systemRouter);
+app.use('/api/system', requireAuth, (req, res, next) => (req.session.user.role === 'admin' ? next() : res.status(403).json({ error: 'Administrators only' })), systemRouter);
 app.use('/api/notifications-config', requireAuth, notificationsConfigRouter);
 app.use('/api/users', requireAuth, usersRouter);
 app.use('/api/vehicles', requireAuth, requireModule('Vehicles'), vehiclesRouter);

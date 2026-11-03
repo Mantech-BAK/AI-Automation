@@ -50,7 +50,8 @@ export function canSeeNavItem(user: AccessUser, module: ModuleId, item: ModuleNa
 }
 
 export function canUseTool(user: AccessUser, tool: ToolId): boolean {
-  if (tool === 'users') return user.role === 'admin';
+  // Settings (system controls, reset data) and Users management are administrators only.
+  if (tool === 'users' || tool === 'settings') return user.role === 'admin';
   if (user.role === 'admin' || !user.permissions) return true;
   if (tool === 'email') return user.permissions.features.emailSummary;
   if (tool === 'schedules') return user.permissions.features.scheduleMeeting;
