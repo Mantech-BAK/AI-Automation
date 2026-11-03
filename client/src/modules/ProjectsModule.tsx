@@ -1,9 +1,6 @@
 import type { NavFilter } from '../App';
-import EmailProcessing from '../components/EmailProcessing';
 import NotificationsPage from '../components/NotificationsPage';
 import SchedulesPage from '../components/SchedulesPage';
-import SettingsPage from '../components/SettingsPage';
-import UsersPage from '../components/UsersPage';
 import ProjectsDashboard from '../pages/ProjectsDashboard';
 import AllProjects from '../pages/projects/AllProjects';
 import Financials from '../pages/projects/Financials';
@@ -46,14 +43,8 @@ export default function ProjectsModule({ page, onNavigate, navFilter }: Projects
     // Tools shared with the other modules.
     case 'schedules':
       return <SchedulesPage />;
-    case 'email':
-      return <EmailProcessing onNavigate={onNavigate} />;
     case 'notifications':
       return <NotificationsPage module="projects" onNavigate={onNavigate} />;
-    case 'settings':
-      return <SettingsPage />;
-    case 'users':
-      return <UsersPage />;
     default:
       return <ProjectsDashboard onNavigate={onNavigate} initialProject={navFilter?.projectId} />;
   }

@@ -12,14 +12,15 @@ import SchedulesPage from './components/SchedulesPage';
 import NotificationsPage from './components/NotificationsPage';
 import CalendarPage from './components/CalendarPage';
 import SettingsPage from './components/SettingsPage';
-import UsersPage from './components/UsersPage';
+import SchedulePanel from './components/SchedulePanel';
+import SettingsUsers from './components/SettingsUsers';
 import LoginPage from './pages/LoginPage';
 import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
 import CostingModule from './modules/CostingModule';
 import NotificationBell from './pages/costing/NotificationBell';
 import { costingApi, type MasUser } from './lib/costing';
-import { MODULE_ORDER, allNavItems, isModuleId, type ModuleId } from './lib/modules';
+import { MODULE_ORDER, allNavItems, isModuleId, type BusinessModuleId, type ModuleId } from './lib/modules';
 import { apiFetch } from './lib/api';
 
 interface SessionUser {
@@ -69,7 +70,7 @@ export interface NavFilter {
 // Equipment item type (as they did when they were a tab of the Asset page); the
 // Documents module needs the Document type. An empty allowed_item_types means
 // "no restriction" (matches routes/dashboard.js's buildPermissionConditions).
-function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
+function hasModuleAccess(module: BusinessModuleId, user: SessionUser): boolean {
   if (user.role === 'admin') return true;
   // Project financials are opt-in: the user needs the 'Project' item type, an empty list is not enough.
   if (module === 'projects') return (user.allowed_item_types || []).includes('Project');
@@ -78,12 +79,6 @@ function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
   const allowedItemTypes = user.allowed_item_types || [];
   if (allowedItemTypes.length === 0) return true;
   return allowedItemTypes.includes(module === 'documents' ? 'Document' : 'Equipment');
-}
-
-// 'users' is admin-only; every other page is open once its module is.
-function hasPageAccess(page: string, user: SessionUser): boolean {
-  if (user.role === 'admin') return true;
-  return page !== 'users';
 }
 
 // URLs: "/" is the module selection screen, "/<module>" a module's dashboard
@@ -149,13 +144,16 @@ function App() {
     setRouteTick((tick) => tick + 1);
   };
 
-  const handleSelectModule = (module: ModuleId) => {
+  const handleSelectModule = (module: BusinessModuleId) => {
     if (user && !hasModuleAccess(module, user)) {
       setAccessDeniedMessage("You don't have permission to open that module.");
       return;
     }
     goToNavItem(module, 'dashboard');
   };
+
+  // The central Settings area (Schedule, Email Processing, Users, General) - opened from the main screen or any module's top bar.
+  const openSettings = (navId = 'schedule') => goToNavItem('settings', navId);
 
   const handleHome = () => {
     setActiveModule(null);
@@ -171,9 +169,10 @@ function App() {
   // opened from a Technicians row) still render, with nothing highlighted.
   const handleNavigate = (page: string, filter?: NavFilter) => {
     if (!activeModule) return;
-    if (user && !hasPageAccess(page, user)) {
-      goToNavItem(activeModule, 'dashboard');
-      setAccessDeniedMessage("You don't have permission to access that page.");
+    // Settings, email processing and users are central: from any module they open in the Settings area.
+    const settingsNavId = ({ settings: 'general', 'settings-schedule': 'schedule', email: 'email', users: 'users' } as Record<string, string>)[page];
+    if (settingsNavId) {
+      openSettings(settingsNavId);
       return;
     }
     const items = allNavItems(activeModule);
@@ -203,11 +202,13 @@ function App() {
 
   // Costing Sheet: find out who is selected (the session remembers the pick across refreshes).
   useEffect(() => {
-    if (activeModule !== 'costing' || !user || masUser !== undefined) return;
+    // Also needed by Settings -> Users, which manages the Costing Sheet users.
+    const needed = activeModule === 'costing' || (activeModule === 'settings' && activeNavId === 'users');
+    if (!needed || !user || masUser !== undefined) return;
     costingApi<{ user: MasUser }>('/me')
       .then((result) => setMasUser(result.user))
       .catch(() => setMasUser(null));
-  }, [activeModule, user, masUser]);
+  }, [activeModule, activeNavId, user, masUser]);
 
   useEffect(() => {
     let cancelled = false;
@@ -266,7 +267,7 @@ function App() {
   const accessibleModules = MODULE_ORDER.filter((id) => hasModuleAccess(id, user));
 
   // No module chosen yet - or a link/reload straight into one the user can't open.
-  if (!activeModule || !accessibleModules.includes(activeModule)) {
+  if (!activeModule || (activeModule !== 'settings' && !accessibleModules.includes(activeModule))) {
     return (
       <>
         {accessDeniedMessage && (
@@ -281,6 +282,7 @@ function App() {
           accessibleModules={accessibleModules}
           onSelectModule={handleSelectModule}
           onSignOut={handleSignOut}
+          onOpenSettings={() => openSettings()}
           user={user}
         />
       </>
@@ -294,7 +296,20 @@ function App() {
       return <ProjectsModule page={currentPage} onNavigate={handleNavigate} navFilter={navFilter} />;
     }
 
-    if (activeModule === 'costing' && currentPage !== 'settings' && currentPage !== 'users') {
+    if (activeModule === 'settings') {
+      switch (currentPage) {
+        case 'email':
+          return <EmailProcessing onNavigate={handleNavigate} />;
+        case 'users':
+          return <SettingsUsers isAdmin={user.role === 'admin'} costingUser={masUser} />;
+        case 'settings':
+          return <SettingsPage />;
+        default:
+          return <SchedulePanel />;
+      }
+    }
+
+    if (activeModule === 'costing') {
       return <CostingModule me={masUser} onLogin={setMasUser} onNavigate={goToCostingPath} />;
     }
 
@@ -302,8 +317,6 @@ function App() {
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard module={activeModule} onNavigate={handleNavigate} />;
-      case 'email':
-        return <EmailProcessing onNavigate={handleNavigate} />;
       case 'sites':
         return <SitesPage onNavigate={handleNavigate} />;
       case 'departments':
@@ -330,10 +343,6 @@ function App() {
         return <NotificationsPage module={activeModule} onNavigate={handleNavigate} />;
       case 'calendar':
         return <CalendarPage />;
-      case 'settings':
-        return <SettingsPage />;
-      case 'users':
-        return <UsersPage />;
       default:
         return <Dashboard module={activeModule} onNavigate={handleNavigate} />;
     }
@@ -346,7 +355,7 @@ function App() {
       onNavigate={(navId) => goToNavItem(activeModule, navId)}
       onHome={handleHome}
       onSignOut={handleSignOut}
-      role={user.role}
+      onOpenSettings={() => openSettings()}
       costingLevel={masUser?.role_level}
       topbarExtra={activeModule === 'costing' && masUser ? <NotificationBell me={masUser} onNavigate={goToCostingPath} /> : undefined}
     >

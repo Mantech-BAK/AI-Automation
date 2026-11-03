@@ -1,11 +1,14 @@
 const express = require('express');
 const { pool } = require('../db');
 const packageJson = require('../package.json');
+const { loadSchedule, DOC_INTERVAL_OPTIONS, GENERAL_INTERVAL_OPTIONS } = require('../utils/scheduler');
 
 const router = express.Router();
 
 const EDITABLE_KEYS = [
   'daily_check_time',
+  'doc_email_interval_minutes',
+  'general_email_interval_minutes',
   'working_hours_start',
   'working_hours_end',
   'timezone',
@@ -43,6 +46,7 @@ async function loadSettingsResponse() {
 
   return {
     daily_check_time: map.daily_check_time || '6',
+    schedule: { ...(await loadSchedule()), doc_interval_options: DOC_INTERVAL_OPTIONS, general_interval_options: GENERAL_INTERVAL_OPTIONS },
     working_hours_start: map.working_hours_start || '07:30',
     working_hours_end: map.working_hours_end || '16:30',
     timezone: map.timezone || 'Asia/Bahrain',
@@ -91,6 +95,17 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const updates = req.body || {};
+
+    // Schedule values must be one of the offered options (a bad value would otherwise silently reset to the default).
+    const invalid = [
+      ['doc_email_interval_minutes', DOC_INTERVAL_OPTIONS],
+      ['general_email_interval_minutes', GENERAL_INTERVAL_OPTIONS],
+    ].find(([key, options]) => Object.prototype.hasOwnProperty.call(updates, key) && !options.includes(Number(updates[key])));
+    if (invalid) return res.status(400).json({ error: `Invalid value for ${invalid[0]}` });
+    if (Object.prototype.hasOwnProperty.call(updates, 'daily_check_time')) {
+      const hour = Number(updates.daily_check_time);
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) return res.status(400).json({ error: 'Invalid daily check hour' });
+    }
 
     for (const key of EDITABLE_KEYS) {
       if (Object.prototype.hasOwnProperty.call(updates, key)) {

@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Cog,
   CircleDollarSign,
+  Clock,
   Contact,
   CreditCard,
   FileText,
@@ -32,11 +33,13 @@ import {
 } from 'lucide-react';
 import type { NavFilter } from '../App';
 
-export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects' | 'costing';
+// 'settings' is the central Settings area (Schedule, Email Processing, Users, General); the others are the business modules.
+export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects' | 'costing' | 'settings';
+export type BusinessModuleId = Exclude<ModuleId, 'settings'>;
 
 // The three modules built on the shared asset/task dashboards (Project Tracking
 // has its own pages under pages/projects).
-export type LegacyModuleId = Exclude<ModuleId, 'projects' | 'costing'>;
+export type LegacyModuleId = Exclude<ModuleId, 'projects' | 'costing' | 'settings'>;
 
 export type TabId = NonNullable<NavFilter['tab']>;
 export type TechnicianTabId = 'maintenance' | 'documentation' | 'vehicles';
@@ -68,15 +71,8 @@ export interface ModuleDefinition {
 
 const DASHBOARD: ModuleNavItem = { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' };
 
-// Meetings and email processing are shared tools, listed in every module.
+// Meetings are a shared tool, listed in every module (email processing and users live in Settings).
 const SCHEDULE_MEETING: ModuleNavItem = { id: 'schedules', label: 'Schedule Meeting', icon: Calendar, page: 'schedules' };
-const EMAIL_PROCESSING: ModuleNavItem = { id: 'email', label: 'Email Processing', icon: Mail, page: 'email' };
-
-// Settings and Users are system-wide, so every module's sidebar ends with them.
-export const SYSTEM_NAV: ModuleNavItem[] = [
-  { id: 'settings', label: 'Settings', icon: Settings, page: 'settings' },
-  { id: 'users', label: 'Users', icon: UserCog, page: 'users' },
-];
 
 export const MODULES: Record<ModuleId, ModuleDefinition> = {
   equipment: {
@@ -95,7 +91,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'employees', label: 'Employee Master', icon: Contact, page: 'employees' },
       SCHEDULE_MEETING,
       { id: 'calendar', label: 'Calendar', icon: CalendarDays, page: 'calendar' },
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -111,7 +106,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'tasks', label: 'Vehicle Tasks', icon: Wrench, page: 'tasks', tab: 'vehicles' },
       { id: 'incharge', label: 'Vehicle In-Charge', icon: UserCheck, page: 'technicians', technicianTab: 'vehicles' },
       SCHEDULE_MEETING,
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -127,7 +121,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'tasks', label: 'Document Tasks', icon: Wrench, page: 'tasks', tab: 'documents' },
       { id: 'responsible', label: 'Responsible Persons', icon: UserCheck, page: 'technicians', technicianTab: 'documentation' },
       SCHEDULE_MEETING,
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -137,7 +130,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     description: 'Monitor project financials, billing & collections',
     icon: BarChart3,
     gradient: 'from-teal-500 to-cyan-600',
-    // Settings is appended to every module's sidebar via SYSTEM_NAV.
     nav: [
       DASHBOARD,
       { id: 'all-projects', label: 'All Projects', icon: FolderOpen, page: 'project-all' },
@@ -150,8 +142,20 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'adjustments', label: 'Adjustments', icon: Scale, page: 'project-adjustments' },
       { id: 'retention', label: 'Retentions', icon: ShieldCheck, page: 'project-retention' },
       SCHEDULE_MEETING,
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
+    ],
+  },
+  settings: {
+    id: 'settings',
+    label: 'Settings',
+    description: 'Schedules, email processing and users',
+    icon: Settings,
+    gradient: 'from-slate-500 to-slate-700',
+    nav: [
+      { id: 'schedule', label: 'Schedule', icon: Clock, page: 'settings-schedule' },
+      { id: 'email', label: 'Email Processing', icon: Mail, page: 'email' },
+      { id: 'users', label: 'Users', icon: UserCog, page: 'users' },
+      { id: 'general', label: 'General', icon: Cog, page: 'settings' },
     ],
   },
   costing: {
@@ -160,29 +164,27 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     description: 'Prepare enquiries, costing sheets and quotations',
     icon: Calculator,
     gradient: 'from-indigo-500 to-violet-600',
-    // Settings is appended to every module's sidebar via SYSTEM_NAV.
     nav: [
       DASHBOARD,
       { id: 'enquiries', label: 'Enquiries', icon: ClipboardList, page: 'costing-enquiries' },
       { id: 'tasks', label: 'My Tasks', icon: ListTodo, page: 'costing-tasks' },
       { id: 'approvals', label: 'Pending Approvals', icon: ClipboardCheck, page: 'costing-approvals', minRoleLevel: 3 },
-      { id: 'admin', label: 'Users & Settings', icon: UserCog, page: 'costing-admin', minRoleLevel: 4 },
     ],
   },
 };
 
-export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents', 'projects', 'costing'];
+export const MODULE_ORDER: BusinessModuleId[] = ['equipment', 'vehicles', 'documents', 'projects', 'costing'];
 
 export function isModuleId(value: string | undefined): value is ModuleId {
-  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects' || value === 'costing';
+  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects' || value === 'costing' || value === 'settings';
 }
 
 export function allNavItems(module: ModuleId): ModuleNavItem[] {
-  return [...MODULES[module].nav, ...SYSTEM_NAV];
+  return MODULES[module].nav;
 }
 
 // Which module a notification belongs to, from its notification_type.
-export function moduleOfNotificationType(type: string): ModuleId {
+export function moduleOfNotificationType(type: string): BusinessModuleId {
   if (type.startsWith('document')) return 'documents';
   if (type.startsWith('vehicle')) return 'vehicles';
   if (type.startsWith('project')) return 'projects';

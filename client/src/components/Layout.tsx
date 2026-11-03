@@ -1,6 +1,6 @@
 import { ReactNode, useState } from 'react';
-import { ChevronRight, Home, LogOut, Menu, X } from 'lucide-react';
-import { MODULES, SYSTEM_NAV, type ModuleId, type ModuleNavItem } from '../lib/modules';
+import { ChevronRight, Home, LogOut, Menu, Settings as SettingsIcon, X } from 'lucide-react';
+import { MODULES, type ModuleId, type ModuleNavItem } from '../lib/modules';
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,26 +10,35 @@ interface LayoutProps {
   // Back to the module selection screen (logo / "All Modules" button).
   onHome: () => void;
   onSignOut?: () => void;
-  role?: string;
+  // Opens the central Settings area (shown as a button in the top bar of every module).
+  onOpenSettings?: () => void;
   // Costing Sheet: the selected costing user's role level (filters the sidebar) and content for the right of the top bar (bell).
   costingLevel?: number;
   topbarExtra?: ReactNode;
 }
 
-export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, role, costingLevel, topbarExtra }: LayoutProps) {
+export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, onOpenSettings, costingLevel, topbarExtra }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const definition = MODULES[module];
   const ModuleIcon = definition.icon;
 
   const moduleItems = definition.nav.filter((item) => !item.minRoleLevel || (costingLevel ?? 0) >= item.minRoleLevel);
-  // Users is admin-only; Settings is open to everyone, as before.
-  const systemItems = SYSTEM_NAV.filter((item) => item.id !== 'users' || role === 'admin');
-
   // Project Tracking has no title bar on any page (the dashboard opens with a greeting instead).
   const hideTopbar = module === 'projects';
 
-  const pageTitle = [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
+  const pageTitle = moduleItems.find((item) => item.id === activeNavId)?.label || definition.label;
+
+  const settingsButton = onOpenSettings && module !== 'settings' && (
+    <button
+      onClick={onOpenSettings}
+      title="Settings"
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm whitespace-nowrap flex-shrink-0 text-slate-600 border border-slate-200 bg-white hover:bg-slate-100 transition-colors"
+    >
+      <SettingsIcon size={15} />
+      Settings
+    </button>
+  );
 
   const signOutButton = (
     <button
@@ -132,9 +141,6 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
         {/* Navigation */}
         <nav className="flex-1 px-2.5 py-4 overflow-y-auto">
           <ul className="space-y-2">{moduleItems.map(renderItem)}</ul>
-          <div className="mt-4 pt-4 border-t border-slate-700">
-            <ul className="space-y-2">{systemItems.map(renderItem)}</ul>
-          </div>
         </nav>
 
       </aside>
@@ -151,15 +157,16 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
           )}
           <div className="ml-auto flex items-center gap-3">
             {topbarExtra}
+            {settingsButton}
             {signOutButton}
           </div>
         </header>
         )}
         {/* Project Tracking has no top bar, so its Sign Out floats in the top-right corner. */}
-        {hideTopbar && <div className="fixed top-1 right-3 z-30 [&>button]:py-1 [&>button]:text-xs">{signOutButton}</div>}
+        {hideTopbar && <div className="fixed top-1 right-3 z-30 flex items-center gap-2 [&>button]:py-1 [&>button]:text-xs">{settingsButton}{signOutButton}</div>}
 
         <div
-          className={`flex-1 p-4 lg:p-8 ${hideTopbar && activeNavId === 'settings' ? 'pt-16 lg:pt-8' : ''}`}
+          className="flex-1 p-4 lg:p-8"
           style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)' }}
         >
           {children}

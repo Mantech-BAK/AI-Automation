@@ -1,6 +1,5 @@
 const path = require('path');
 const dotenv = require('dotenv');
-const cron = require('node-cron');
 const { pool } = require('../db');
 const { getDelegatedToken, graphRequest } = require('../graph/client');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
@@ -1125,13 +1124,7 @@ async function runDailyCheck() {
   return { tasksCreated, documentRemindersSent, errors };
 }
 
-cron.schedule('0 6 * * *', async () => {
-  try {
-    await runDailyCheck();
-  } catch (error) {
-    console.error('Daily check failed:', error);
-  }
-});
+// The daily check is scheduled by utils/scheduler.js (hour set in Settings -> Schedule).
 
 module.exports = {
   runDailyCheck,
