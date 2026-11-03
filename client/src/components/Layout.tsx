@@ -23,7 +23,7 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
   const ModuleIcon = definition.icon;
 
   const moduleItems = definition.nav.filter((item) => !item.minRoleLevel || (costingLevel ?? 0) >= item.minRoleLevel);
-  // Users is admin-only; Settings is open to everyone, as before.
+  // Users is admin-only; Email Processing and Meeting Schedule are open to everyone.
   const systemItems = SYSTEM_NAV.filter((item) => item.id !== 'users' || role === 'admin');
 
   // Project Tracking has no title bar on any page (the dashboard opens with a greeting instead).

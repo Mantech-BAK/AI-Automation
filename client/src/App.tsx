@@ -294,7 +294,7 @@ function App() {
       return <ProjectsModule page={currentPage} onNavigate={handleNavigate} navFilter={navFilter} />;
     }
 
-    if (activeModule === 'costing' && currentPage !== 'settings' && currentPage !== 'users') {
+    if (activeModule === 'costing' && !['email', 'schedules', 'users'].includes(currentPage)) {
       return <CostingModule me={masUser} onLogin={setMasUser} onNavigate={goToCostingPath} />;
     }
 

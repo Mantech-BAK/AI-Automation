@@ -18,7 +18,6 @@ import {
   LayoutDashboard,
   Mail,
   MapPin,
-  Settings,
   ShieldCheck,
   ShoppingCart,
   Scale,
@@ -68,13 +67,11 @@ export interface ModuleDefinition {
 
 const DASHBOARD: ModuleNavItem = { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' };
 
-// Meetings and email processing are shared tools, listed in every module.
-const SCHEDULE_MEETING: ModuleNavItem = { id: 'schedules', label: 'Schedule Meeting', icon: Calendar, page: 'schedules' };
-const EMAIL_PROCESSING: ModuleNavItem = { id: 'email', label: 'Email Processing', icon: Mail, page: 'email' };
-
-// Settings and Users are system-wide, so every module's sidebar ends with them.
+// Email Processing, Meeting Schedule and Users sit in a group at the bottom of every module's sidebar (below a divider),
+// as flat items. Users is admin-only (see Layout).
 export const SYSTEM_NAV: ModuleNavItem[] = [
-  { id: 'settings', label: 'Settings', icon: Settings, page: 'settings' },
+  { id: 'email', label: 'Email Processing', icon: Mail, page: 'email' },
+  { id: 'schedules', label: 'Meeting Schedule', icon: Calendar, page: 'schedules' },
   { id: 'users', label: 'Users', icon: UserCog, page: 'users' },
 ];
 
@@ -93,9 +90,7 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'sites', label: 'Sites', icon: MapPin, page: 'sites' },
       { id: 'technicians', label: 'Technicians', icon: Users, page: 'technicians', technicianTab: 'maintenance' },
       { id: 'employees', label: 'Employee Master', icon: Contact, page: 'employees' },
-      SCHEDULE_MEETING,
       { id: 'calendar', label: 'Calendar', icon: CalendarDays, page: 'calendar' },
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -110,8 +105,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'vehicles', label: 'Vehicles', icon: Truck, page: 'equipment', tab: 'vehicles' },
       { id: 'tasks', label: 'Vehicle Tasks', icon: Wrench, page: 'tasks', tab: 'vehicles' },
       { id: 'incharge', label: 'Vehicle In-Charge', icon: UserCheck, page: 'technicians', technicianTab: 'vehicles' },
-      SCHEDULE_MEETING,
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -126,8 +119,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'documents', label: 'Documents', icon: FileText, page: 'equipment', tab: 'documents' },
       { id: 'tasks', label: 'Document Tasks', icon: Wrench, page: 'tasks', tab: 'documents' },
       { id: 'responsible', label: 'Responsible Persons', icon: UserCheck, page: 'technicians', technicianTab: 'documentation' },
-      SCHEDULE_MEETING,
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -137,7 +128,7 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     description: 'Monitor project financials, billing & collections',
     icon: BarChart3,
     gradient: 'from-teal-500 to-cyan-600',
-    // Settings is appended to every module's sidebar via SYSTEM_NAV.
+    // The bottom group (Email Processing, Meeting Schedule, Users) is appended via SYSTEM_NAV.
     nav: [
       DASHBOARD,
       { id: 'all-projects', label: 'All Projects', icon: FolderOpen, page: 'project-all' },
@@ -149,8 +140,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'payments', label: 'Payments', icon: CreditCard, page: 'project-payments' },
       { id: 'adjustments', label: 'Adjustments', icon: Scale, page: 'project-adjustments' },
       { id: 'retention', label: 'Retentions', icon: ShieldCheck, page: 'project-retention' },
-      SCHEDULE_MEETING,
-      EMAIL_PROCESSING,
       { id: 'notifications', label: 'Notifications', icon: Bell, page: 'notifications' },
     ],
   },
@@ -160,7 +149,7 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     description: 'Prepare enquiries, costing sheets and quotations',
     icon: Calculator,
     gradient: 'from-indigo-500 to-violet-600',
-    // Settings is appended to every module's sidebar via SYSTEM_NAV.
+    // The bottom group (Email Processing, Meeting Schedule, Users) is appended via SYSTEM_NAV.
     nav: [
       DASHBOARD,
       { id: 'enquiries', label: 'Enquiries', icon: ClipboardList, page: 'costing-enquiries' },
