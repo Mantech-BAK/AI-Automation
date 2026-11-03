@@ -9,6 +9,9 @@ const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
 const { sendDuplicateEmail } = require('../jobs/documentEmailProcessor');
 const { fetchBakUsers } = require('../utils/bakUsers');
 const { syncDocumentPlannerTask } = require('../utils/documentPlanner');
+const { ownCondition, scopedCtes, assetInScope, requireFeature, isScoped } = require('../utils/permissions');
+// A user limited to their own data owns what they add (otherwise they could not see it afterwards).
+const ownerOf = (req) => (isScoped(req) ? req.session.user.email : null);
 
 const DUPLICATE_UI_MESSAGE = 'This document already exists.';
 const escapeHtml = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -74,7 +77,10 @@ async function createPlannerTaskFromActionItem(actionItem) {
 
 router.get('/overview', async (req, res) => {
   try {
+    const params = [];
+    const ctes = scopedCtes(req, params);
     const query = `
+      ${ctes ? `WITH ${ctes}` : ''}
       SELECT
         (SELECT COUNT(*) FROM work_orders) AS "totalTasks",
         (SELECT COUNT(*) FROM work_orders WHERE status = 'open' AND (due_date IS NULL OR due_date >= CURRENT_DATE)) AS "pending",
@@ -85,7 +91,7 @@ router.get('/overview', async (req, res) => {
         (SELECT COUNT(*) FROM employees WHERE is_technician = true) AS "technicians"
     `;
 
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, params);
     return res.json(rows[0] || {});
   } catch (error) {
     console.error('Overview query failed:', error);
@@ -95,7 +101,10 @@ router.get('/overview', async (req, res) => {
 
 router.get('/overview/maintenance', async (req, res) => {
   try {
+    const params = [];
+    const ctes = scopedCtes(req, params);
     const query = `
+      ${ctes ? `WITH ${ctes}` : ''}
       SELECT
         (SELECT COUNT(*) FROM work_orders wo
            JOIN assets a ON a.id = wo.asset_id
@@ -115,7 +124,7 @@ router.get('/overview/maintenance', async (req, res) => {
            WHERE at.name = 'Equipment' AND wo.status = 'completed') AS "completed"
     `;
 
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, params);
     return res.json(rows[0] || {});
   } catch (error) {
     console.error('Maintenance overview query failed:', error);
@@ -125,7 +134,10 @@ router.get('/overview/maintenance', async (req, res) => {
 
 router.get('/overview/documentation', async (req, res) => {
   try {
+    const params = [];
+    const ctes = scopedCtes(req, params);
     const query = `
+      ${ctes ? `WITH ${ctes}` : ''}
       SELECT
         (SELECT COUNT(*) FROM assets a
            JOIN asset_types at ON at.id = a.type_id
@@ -143,7 +155,7 @@ router.get('/overview/documentation', async (req, res) => {
            WHERE at.name = 'Document' AND a.expiry_date IS NOT NULL AND a.expiry_date < CURRENT_DATE) AS "expired"
     `;
 
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, params);
     return res.json(rows[0] || {});
   } catch (error) {
     console.error('Documentation overview query failed:', error);
@@ -155,9 +167,11 @@ router.get('/overview/documentation', async (req, res) => {
 // with one round trip instead of stitching together several overview calls.
 router.get('/summary', async (req, res) => {
   try {
+    const params = [];
+    const ctes = scopedCtes(req, params);
     const { rows } = await pool.query(
       `
-      WITH vehicle_categories AS (
+      WITH ${ctes ? `${ctes},` : ''} vehicle_categories AS (
         -- Broader than utils/vehicleCategories.js's fixed list on purpose:
         -- any category whose name mentions "vehicle" or "transport" counts,
         -- and assets of either type (the vehicle's own Equipment record and
@@ -225,7 +239,8 @@ router.get('/summary', async (req, res) => {
           +
           (SELECT COUNT(*) FROM assets WHERE category_id IN (SELECT id FROM vehicle_categories) AND expiry_date < CURRENT_DATE)
         ) AS vehicle_overdue
-      `
+      `,
+      params
     );
 
     return res.json(rows[0] || {});
@@ -238,6 +253,7 @@ router.get('/summary', async (req, res) => {
 router.get('/tasks/history/:asset_id', async (req, res) => {
   try {
     const { asset_id } = req.params;
+    if (!(await assetInScope(pool, req, asset_id))) return res.json([]);
 
     const { rows } = await pool.query(
       `
@@ -297,6 +313,9 @@ router.get('/tasks', async (req, res) => {
       conditions.push(`wo.task_type = $${params.length}`);
     }
 
+    const ownTasks = ownCondition(req, params, 'a');
+    if (ownTasks) conditions.push(ownTasks);
+
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows } = await pool.query(
@@ -346,6 +365,8 @@ router.get('/tasks', async (req, res) => {
 
 router.get('/tasks/completed', async (req, res) => {
   try {
+    const cparams = [];
+    const cown = ownCondition(req, cparams, 'a');
     const { rows: tasks } = await pool.query(`
       SELECT
         wo.id,
@@ -357,19 +378,22 @@ router.get('/tasks/completed', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN employees t ON wo.technician_id = t.id
-      WHERE wo.status = 'completed'
+      WHERE wo.status = 'completed'${cown ? ` AND ${cown}` : ''}
       ORDER BY wo.completed_at DESC
       LIMIT 20
-    `);
+    `, cparams);
 
+    const mparams = [];
+    const mctes = scopedCtes(req, mparams);
     const { rows: monthRows } = await pool.query(`
+      ${mctes ? `WITH ${mctes}` : ''}
       SELECT
         COUNT(*) AS total_this_month,
         COUNT(*) FILTER (WHERE status = 'completed') AS completed_this_month
       FROM work_orders
       WHERE due_date >= date_trunc('month', CURRENT_DATE)::date
         AND due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date
-    `);
+    `, mparams);
 
     return res.json({
       tasks,
@@ -422,6 +446,8 @@ router.get('/assets', async (req, res) => {
     }
 
     conditions.push(...buildPermissionConditions(req, params));
+    const ownAssets = ownCondition(req, params, 'assets');
+    if (ownAssets) conditions.push(ownAssets);
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -472,6 +498,7 @@ router.get('/assets', async (req, res) => {
 
 router.get('/documents/:id/versions', async (req, res) => {
   try {
+    if (!(await assetInScope(pool, req, req.params.id))) return res.json([]);
     const { rows } = await pool.query(
       `SELECT id, onedrive_url, expiry_date, issue_date, uploaded_at, file_name
        FROM document_versions WHERE asset_id = $1 ORDER BY uploaded_at DESC, id DESC`,
@@ -514,6 +541,7 @@ router.get('/documents/assignable-users', async (req, res) => {
 // Assigns (or clears) the responsible person of one document. sent_by is never touched.
 router.patch('/documents/:id/responsible-person', async (req, res) => {
   try {
+    if (!(await assetInScope(pool, req, req.params.id))) return res.status(403).json({ error: "You can only change your own documents" });
     const value = String(req.body?.responsible_person ?? '').trim() || null;
     const { rows } = await pool.query(
       `UPDATE assets SET responsible_person = $1, updated_at = NOW()
@@ -534,7 +562,10 @@ router.patch('/documents/:id/responsible-person', async (req, res) => {
 
 router.get('/documents/responsible-persons', async (req, res) => {
   try {
+    const params = [];
+    const ctes = scopedCtes(req, params);
     const { rows } = await pool.query(`
+      ${ctes ? `WITH ${ctes}` : ''}
       SELECT
         responsible_person,
         COUNT(*) AS total_documents,
@@ -545,7 +576,7 @@ router.get('/documents/responsible-persons', async (req, res) => {
         AND responsible_person IS NOT NULL
       GROUP BY responsible_person
       ORDER BY overdue DESC, expiring_soon DESC
-    `);
+    `, params);
     await addResolvedNames(rows);
     return res.json(rows);
   } catch (error) {
@@ -654,6 +685,8 @@ router.get('/departments/list', async (req, res) => {
 router.get('/departments/:name/tasks', async (req, res) => {
   try {
     const { name } = req.params;
+    const dparams = [name];
+    const down = ownCondition(req, dparams, 'a');
 
     const { rows } = await pool.query(
       `
@@ -675,10 +708,10 @@ router.get('/departments/:name/tasks', async (req, res) => {
         END AS days_overdue
       FROM work_orders wo
       JOIN assets a ON a.id = wo.asset_id
-      WHERE a.site_location ILIKE $1
+      WHERE a.site_location ILIKE $1${down ? ` AND ${down}` : ''}
       ORDER BY wo.due_date NULLS LAST, wo.id
     `,
-      [name]
+      dparams
     );
 
     return res.json(rows);
@@ -730,7 +763,10 @@ router.get('/origins', async (req, res) => {
 
 router.get('/notifications', async (req, res) => {
   try {
+    const params = [];
+    const ctes = scopedCtes(req, params);
     const { rows } = await pool.query(`
+      ${ctes ? `WITH ${ctes}` : ''}
       SELECT
         nl.*,
         wo.status AS work_order_status,
@@ -758,9 +794,9 @@ router.get('/notifications', async (req, res) => {
       LEFT JOIN work_orders wo ON nl.work_order_id = wo.id
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN assets a_notes ON a_notes.id = (nl.notes::json->>'asset_id')::integer
-      WHERE nl.sent_at::date = CURRENT_DATE
+      WHERE nl.sent_at::date = CURRENT_DATE${ctes ? ' AND (a.id IS NOT NULL OR a_notes.id IS NOT NULL)' : ''}
       ORDER BY nl.sent_at DESC
-    `);
+    `, params);
     return res.json(rows);
   } catch (error) {
     console.error('Notifications query failed:', error);
@@ -770,8 +806,11 @@ router.get('/notifications', async (req, res) => {
 
 router.get('/sites', async (req, res) => {
   try {
+    const params = [VEHICLE_CATEGORIES];
+    const ctes = scopedCtes(req, params);
     const { rows } = await pool.query(
       `
+      ${ctes ? `WITH ${ctes}` : ''}
       SELECT
         a.site_location,
         COUNT(DISTINCT CASE WHEN at.name = 'Equipment' THEN a.id END) AS equipment_count,
@@ -785,7 +824,7 @@ router.get('/sites', async (req, res) => {
       GROUP BY a.site_location
       ORDER BY a.site_location
     `,
-      [VEHICLE_CATEGORIES]
+      params
     );
     return res.json(rows);
   } catch (error) {
@@ -802,6 +841,8 @@ router.get('/sites/tasks', async (req, res) => {
       return res.status(400).json({ error: 'date query parameter in YYYY-MM-DD format is required' });
     }
 
+    const sparams = [date];
+    const sown = ownCondition(req, sparams, 'a');
     const { rows } = await pool.query(
       `
       SELECT
@@ -812,11 +853,11 @@ router.get('/sites/tasks', async (req, res) => {
         COUNT(*) FILTER (WHERE wo.due_date < $1 AND wo.status NOT IN ('completed', 'rejected')) AS overdue_tasks
       FROM work_orders wo
       JOIN assets a ON a.id = wo.asset_id
-      WHERE wo.created_at::date <= $1 AND wo.due_date >= $1
+      WHERE wo.created_at::date <= $1 AND wo.due_date >= $1${sown ? ` AND ${sown}` : ''}
       GROUP BY a.site_location
       ORDER BY a.site_location
     `,
-      [date]
+      sparams
     );
 
     return res.json(rows);
@@ -889,7 +930,7 @@ router.delete('/sites/:id', async (req, res) => {
   }
 });
 
-router.get('/email-summaries', async (req, res) => {
+router.get('/email-summaries', requireFeature('emailSummary', 'Email Summarization'), async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
@@ -923,6 +964,8 @@ router.get('/email-summaries', async (req, res) => {
 
 router.get('/schedules', async (req, res) => {
   try {
+    const params = [];
+    const own = ownCondition(req, params, 'a');
     const { rows } = await pool.query(`
       SELECT
         wo.*,
@@ -933,9 +976,9 @@ router.get('/schedules', async (req, res) => {
       FROM work_orders wo
       LEFT JOIN assets a ON wo.asset_id = a.id
       LEFT JOIN employees t ON wo.technician_id = t.id
-      WHERE wo.status NOT IN ('completed', 'rejected')
+      WHERE wo.status NOT IN ('completed', 'rejected')${own ? ` AND ${own}` : ''}
       ORDER BY wo.due_date ASC
-    `);
+    `, params);
     return res.json(rows);
   } catch (error) {
     console.error('Schedules query failed:', error);
@@ -990,7 +1033,7 @@ router.post('/assets/add', async (req, res) => {
              OR ($3::text IS NOT NULL AND LOWER(TRIM(a.license_no)) = LOWER($3))
              OR ($4::text IS NOT NULL AND LOWER(TRIM(a.document_number)) = LOWER($4)))
          LIMIT 1`,
-        [equipment_name || '', crNo, licenseNo, documentNo, responsible_person || null]
+        [equipment_name || '', crNo, licenseNo, documentNo, responsible_person || ownerOf(req)]
       );
       if (duplicates.length > 0) {
         const name = String(equipment_name || '');
@@ -1055,7 +1098,7 @@ router.post('/assets/add', async (req, res) => {
         reminder_days || null,
         frequency_days || 365,
         tolerance_days || 0,
-        responsible_person || null,
+        responsible_person || ownerOf(req),
         remarks || null,
         parent_asset_id || null,
         crNo,
@@ -1082,6 +1125,7 @@ router.post('/assets/add', async (req, res) => {
 router.put('/assets/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    if (!(await assetInScope(pool, req, id))) return res.status(403).json({ error: 'You can only change your own records' });
     const {
       equipment_name,
       site_location,

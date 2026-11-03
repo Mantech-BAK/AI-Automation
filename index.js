@@ -19,6 +19,7 @@ const settingsRouter = require('./routes/settings');
 const systemRouter = require('./routes/system');
 const notificationsConfigRouter = require('./routes/notifications-config');
 const usersRouter = require('./routes/users');
+const { requireModule, requireFeature } = require('./utils/permissions');
 const vehiclesRouter = require('./routes/vehicles');
 const projectsRouter = require('./routes/projects');
 const costingRouter = require('./routes/costing');
@@ -120,14 +121,14 @@ app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/employees', requireAuth, employeesRouter);
 app.use('/api/workorders', requireAuth, workOrdersRouter);
 app.use('/api/email', emailRouter);
-app.use('/api/meetings', requireAuth, meetingsRouter);
+app.use('/api/meetings', requireAuth, requireFeature('scheduleMeeting', 'Schedule Meeting'), meetingsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/system', requireAuth, systemRouter);
 app.use('/api/notifications-config', requireAuth, notificationsConfigRouter);
 app.use('/api/users', requireAuth, usersRouter);
-app.use('/api/vehicles', requireAuth, vehiclesRouter);
-app.use('/api/projects', requireAuth, projectsRouter);
-app.use('/api/costing', requireAuth, costingRouter);
+app.use('/api/vehicles', requireAuth, requireModule('Vehicles'), vehiclesRouter);
+app.use('/api/projects', requireAuth, requireModule('Projects'), projectsRouter);
+app.use('/api/costing', requireAuth, requireModule('Costing Sheet'), costingRouter);
 
 app.use(express.static(clientDistPath));
 
@@ -141,6 +142,9 @@ require('./db/documentColumns')
   .ensureDocumentColumns(pool)
   .then(() => require('./utils/documentPlanner').reconcileDocumentPlannerTasks())
   .catch((error) => console.error('Document column setup failed:', error.message));
+require('./db/userPermissions')
+  .ensureUserPermissionsColumn(pool)
+  .catch((error) => console.error('User permissions column setup failed:', error.message));
 require('./db/costingSchema')
   .ensureCostingSchema(pool)
   .catch((error) => console.error('Costing schema setup failed:', error.message));

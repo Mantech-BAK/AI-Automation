@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { apiFetch } from '../lib/api';
+import type { Permissions } from '../lib/permissions';
 
 interface SessionUser {
   id: number;
@@ -9,6 +10,7 @@ interface SessionUser {
   allowed_departments: string[];
   allowed_item_types: string[];
   allowed_categories: string[];
+  permissions?: Permissions | null;
 }
 
 interface LoginPageProps {

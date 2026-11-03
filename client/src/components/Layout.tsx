@@ -13,15 +13,19 @@ interface LayoutProps {
   // Costing Sheet: the selected costing user's role level (filters the sidebar) and content for the right of the top bar (bell).
   costingLevel?: number;
   topbarExtra?: ReactNode;
+  // Role-based access: which of the module's sidebar entries the signed-in user may open (all when omitted).
+  canSeeItem?: (item: ModuleNavItem) => boolean;
 }
 
-export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, costingLevel, topbarExtra }: LayoutProps) {
+export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, costingLevel, topbarExtra, canSeeItem }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const definition = MODULES[module];
   const ModuleIcon = definition.icon;
 
-  const moduleItems = definition.nav.filter((item) => !item.minRoleLevel || (costingLevel ?? 0) >= item.minRoleLevel);
+  const moduleItems = definition.nav.filter(
+    (item) => (!item.minRoleLevel || (costingLevel ?? 0) >= item.minRoleLevel) && (!canSeeItem || canSeeItem(item))
+  );
 
   // Project Tracking has no title bar on any page (the dashboard opens with a greeting instead).
   const hideTopbar = module === 'projects';

@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { pool } = require('../db');
+const { sanitizePermissions } = require('../utils/permissions');
 
 const router = express.Router();
 
@@ -14,10 +15,18 @@ function isValidItemTypesArray(value) {
   return Array.isArray(value) && value.every((v) => VALID_ITEM_TYPES.includes(v));
 }
 
+// Only administrators manage users.
+router.use((req, res, next) => {
+  if (req.session?.user?.role !== 'admin') return res.status(403).json({ error: 'Administrators only' });
+  next();
+});
+
+const USER_COLUMNS = 'id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, permissions, created_at';
+
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, created_at
+      `SELECT ${USER_COLUMNS}
        FROM users ORDER BY created_at DESC`
     );
     return res.json(rows);
@@ -30,6 +39,12 @@ router.get('/', async (req, res) => {
 router.post('/add', async (req, res) => {
   try {
     const { name, email, password, role, allowed_departments, allowed_item_types, allowed_categories } = req.body;
+    let permissions = null;
+    try {
+      if (req.body.permissions !== undefined && req.body.permissions !== null) permissions = sanitizePermissions(req.body.permissions);
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
+    }
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
@@ -54,9 +69,9 @@ router.post('/add', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role, allowed_departments, allowed_item_types, allowed_categories)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, created_at`,
+      `INSERT INTO users (name, email, password_hash, role, allowed_departments, allowed_item_types, allowed_categories, permissions)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${USER_COLUMNS}`,
       [
         name,
         email,
@@ -65,6 +80,7 @@ router.post('/add', async (req, res) => {
         JSON.stringify(allowed_departments || []),
         JSON.stringify(allowed_item_types || []),
         JSON.stringify(allowed_categories || []),
+        permissions ? JSON.stringify(permissions) : null,
       ]
     );
 
@@ -82,8 +98,14 @@ router.put('/:id/update', async (req, res) => {
   try {
     const { id } = req.params;
     const { role, allowed_departments, allowed_item_types, allowed_categories } = req.body;
+    let permissions;
+    try {
+      if (req.body.permissions !== undefined) permissions = req.body.permissions === null ? null : sanitizePermissions(req.body.permissions);
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
+    }
 
-    if (role === undefined && allowed_departments === undefined && allowed_item_types === undefined && allowed_categories === undefined) {
+    if (role === undefined && allowed_departments === undefined && allowed_item_types === undefined && allowed_categories === undefined && permissions === undefined) {
       return res.status(400).json({ error: 'Provide role and/or permission fields to update' });
     }
 
@@ -104,7 +126,7 @@ router.put('/:id/update', async (req, res) => {
     }
 
     const { rows: existingRows } = await pool.query(
-      `SELECT role, allowed_departments, allowed_item_types, allowed_categories FROM users WHERE id = $1`,
+      `SELECT role, allowed_departments, allowed_item_types, allowed_categories, permissions FROM users WHERE id = $1`,
       [id]
     );
     const existing = existingRows[0];
@@ -117,16 +139,18 @@ router.put('/:id/update', async (req, res) => {
     const nextDepartments = allowed_departments !== undefined ? allowed_departments : existing.allowed_departments;
     const nextItemTypes = allowed_item_types !== undefined ? allowed_item_types : existing.allowed_item_types;
     const nextCategories = allowed_categories !== undefined ? allowed_categories : existing.allowed_categories;
+    const nextPermissions = permissions !== undefined ? permissions : existing.permissions;
 
     const { rows } = await pool.query(
-      `UPDATE users SET role = $1, allowed_departments = $2, allowed_item_types = $3, allowed_categories = $4
-       WHERE id = $5
-       RETURNING id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, created_at`,
+      `UPDATE users SET role = $1, allowed_departments = $2, allowed_item_types = $3, allowed_categories = $4, permissions = $5
+       WHERE id = $6
+       RETURNING ${USER_COLUMNS}`,
       [
         nextRole,
         JSON.stringify(nextDepartments || []),
         JSON.stringify(nextItemTypes || []),
         JSON.stringify(nextCategories || []),
+        nextPermissions ? JSON.stringify(nextPermissions) : null,
         id,
       ]
     );

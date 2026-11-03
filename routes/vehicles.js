@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
+const { ownCondition } = require('../utils/permissions');
 const { toTitleCase } = require('../utils/text');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
 const { completeDocumentAsset } = require('../utils/assetCompletion');
@@ -77,6 +78,8 @@ function mapTaskRow(row) {
 
 router.get('/', async (req, res) => {
   try {
+    const params = [VEHICLE_CATEGORIES];
+    const own = ownCondition(req, params, 'v');
     const { rows } = await pool.query(
       `
       SELECT
@@ -93,10 +96,11 @@ router.get('/', async (req, res) => {
       JOIN asset_types t ON t.id = v.type_id AND t.name = 'Equipment'
       JOIN asset_categories ac ON ac.id = v.category_id AND ac.name = ANY($1::text[])
       LEFT JOIN assets child ON child.parent_asset_id = v.id
+      ${own ? `WHERE ${own}` : ''}
       GROUP BY v.id, ac.name
       ORDER BY v.equipment_name
     `,
-      [VEHICLE_CATEGORIES]
+      params
     );
     await addResolvedNames(rows);
     return res.json(rows.map(mapVehicleRow));

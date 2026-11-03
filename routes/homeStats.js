@@ -2,6 +2,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { scopedCtes, hasModule } = require('../utils/permissions');
 
 const router = express.Router();
 
@@ -12,7 +13,10 @@ const daysParam = (req, fallback) => {
 
 const countRoute = (fallbackDays, sql) => async (req, res) => {
   try {
-    const { rows } = await pool.query(sql, [daysParam(req, fallbackDays)]);
+    const params = [daysParam(req, fallbackDays)];
+    // Users limited to their own data count only their own records.
+    const ctes = scopedCtes(req, params);
+    const { rows } = await pool.query(ctes ? `WITH ${ctes} ${sql}` : sql, params);
     return res.json({ count: Number(rows[0].count) });
   } catch (error) {
     console.error('Home count query failed:', req.path, error.message);
@@ -57,8 +61,7 @@ router.get('/vehicles/in-service', requireAuth, countRoute(0, `
 
 // Project Tracking: same access rule as the module itself (admin, or "Project" in the user's item types).
 const projectAccess = (req, res, next) => {
-  const user = req.session?.user;
-  if (user?.role === 'admin' || (Array.isArray(user?.allowed_item_types) && user.allowed_item_types.includes('Project'))) return next();
+  if (hasModule(req.session?.user, 'Projects')) return next();
   return res.status(403).json({ error: "You don't have permission to access Project Tracking" });
 };
 router.get('/projects/on-track', requireAuth, projectAccess, countRoute(0, `SELECT COUNT(*) AS count FROM projects WHERE management_flag = 'On Track' AND $1::int >= 0`));

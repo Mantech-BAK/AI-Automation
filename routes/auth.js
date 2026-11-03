@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { pool } = require('../db');
 const { updateEnvFile } = require('../graph/client');
+const { refreshSessionUser, toSessionUser } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.post('/login', async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, password_hash
+      `SELECT id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, permissions, password_hash
        FROM users WHERE email = $1`,
       [email]
     );
@@ -42,15 +43,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    req.session.user = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      allowed_departments: user.allowed_departments || [],
-      allowed_item_types: user.allowed_item_types || [],
-      allowed_categories: user.allowed_categories || [],
-    };
+    req.session.user = toSessionUser(user);
 
     return res.json({ success: true, user: req.session.user });
   } catch (error) {
@@ -74,8 +67,8 @@ router.post('/logout', (req, res) => {
   });
 });
 
-router.get('/me', (req, res) => {
-  const user = req.session?.user;
+router.get('/me', async (req, res) => {
+  const user = await refreshSessionUser(req);
   if (!user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }

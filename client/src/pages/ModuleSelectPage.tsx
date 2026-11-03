@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, BarChart3, Calculator, ChevronRight, FileText, LogOut, Lock, Settings, TrendingUp, Truck, Wrench, type LucideIcon } from 'lucide-react';
 import { TOOLS, type ModuleId, type ToolId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
+import { canUseTool, type Permissions } from '../lib/permissions';
 
 interface ModuleSelectPageProps {
   // Modules the signed-in user may open (based on their allowed item types).
@@ -10,7 +11,7 @@ interface ModuleSelectPageProps {
   onSignOut: () => void;
   // Opens one of the tools shown below the module tiles.
   onOpenTool: (tool: ToolId) => void;
-  user: { name: string; role: string };
+  user: { name: string; role: string; permissions?: Permissions | null };
 }
 
 // Tile order on this page (differs from MODULE_ORDER, which the sidebar / routing use).
@@ -111,6 +112,9 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
     };
   }, []);
 
+  // Users only see the modules they were given access to.
+  const visibleTiles = TILE_ORDER.filter((id) => accessibleModules.includes(id));
+
   const statTile = (def: StatDef) => {
     const count = counts[def.key];
     const described = count && !count.failed ? def.describe(count.value) : null;
@@ -176,7 +180,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 lg:px-8 py-10 space-y-5">
         {/* Module tiles */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-5">
-          {TILE_ORDER.map((id) => {
+          {visibleTiles.map((id) => {
             const tile = TILES[id];
             const Icon = tile.icon;
             const allowed = accessibleModules.includes(id);
@@ -207,9 +211,9 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
         {/* Tools: not part of any module - a smaller, outlined second row under the module tiles */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-6">
-          {TOOLS.filter((tool) => tool.tile !== false).map((tool) => {
+          {TOOLS.filter((tool) => tool.tile !== false && canUseTool(user, tool.id)).map((tool) => {
             const Icon = tool.icon;
-            const allowed = !tool.adminOnly || user.role === 'admin';
+            const allowed = true;
             return (
               <button
                 key={tool.id}
@@ -231,8 +235,8 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
         {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 76px below the tiles) */}
         <div className="pt-14 space-y-5">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][0]))}</div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][1]))}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{visibleTiles.map((id) => statTile(STATS[id][0]))}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{visibleTiles.map((id) => statTile(STATS[id][1]))}</div>
         </div>
 
       </main>

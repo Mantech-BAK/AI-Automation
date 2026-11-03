@@ -22,6 +22,7 @@ import NotificationBell from './pages/costing/NotificationBell';
 import { costingApi, type MasUser } from './lib/costing';
 import { MODULE_ORDER, TOOLS, allNavItems, isModuleId, isToolId, type ModuleId, type ToolId } from './lib/modules';
 import { apiFetch } from './lib/api';
+import { canAccessModule, canSeeNavItem, canUseTool, type Permissions } from './lib/permissions';
 
 interface SessionUser {
   id: number;
@@ -31,6 +32,8 @@ interface SessionUser {
   allowed_departments: string[];
   allowed_item_types: string[];
   allowed_categories: string[];
+  // null = account from before role-based access.
+  permissions?: Permissions | null;
 }
 
 export type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
@@ -70,16 +73,7 @@ export interface NavFilter {
 // Equipment item type (as they did when they were a tab of the Asset page); the
 // Documents module needs the Document type. An empty allowed_item_types means
 // "no restriction" (matches routes/dashboard.js's buildPermissionConditions).
-function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
-  if (user.role === 'admin') return true;
-  // Project financials are opt-in: the user needs the 'Project' item type, an empty list is not enough.
-  if (module === 'projects') return (user.allowed_item_types || []).includes('Project');
-  // Costing Sheet has its own user picker and role-based access (Director / GM / Manager / staff), so every MAS user can open it.
-  if (module === 'costing') return true;
-  const allowedItemTypes = user.allowed_item_types || [];
-  if (allowedItemTypes.length === 0) return true;
-  return allowedItemTypes.includes(module === 'documents' ? 'Document' : 'Equipment');
-}
+const hasModuleAccess = canAccessModule;
 
 // URLs: "/" is the module selection screen, "/<module>" a module's dashboard,
 // "/<module>/<nav id>" one of its pages (e.g. /documents/tasks) and "/<tool>" one of the
@@ -139,7 +133,7 @@ function App() {
   };
 
   const openTool = (tool: ToolId) => {
-    if (user && tool === 'users' && user.role !== 'admin') {
+    if (user && !canUseTool(user, tool)) {
       setAccessDeniedMessage("You don't have permission to open that page.");
       return;
     }
@@ -197,8 +191,22 @@ function App() {
     const match =
       items.find((item) => item.page === page && (item.tab === undefined || item.tab === filter?.tab)) ??
       items.find((item) => item.page === page);
+    if (user && match && !canSeeNavItem(user, activeModule, match)) {
+      setAccessDeniedMessage("You don't have permission to open that page.");
+      return;
+    }
     goToNavItem(activeModule, match?.id ?? page, filter);
   };
+
+  // A link / reload straight into a page the user has no sidebar access to: back to the module's dashboard.
+  useEffect(() => {
+    if (!user || !activeModule || !canAccessModule(user, activeModule)) return;
+    const item = allNavItems(activeModule).find((entry) => entry.id === activeNavId);
+    if (item && !canSeeNavItem(user, activeModule, item)) {
+      setAccessDeniedMessage("You don't have permission to open that page.");
+      goToNavItem(activeModule, 'dashboard');
+    }
+  }, [user, activeModule, activeNavId]);
 
   const handleViewEmployee = (empId: string) => {
     setEmployeeFilter(empId);
@@ -284,7 +292,7 @@ function App() {
   const accessibleModules = MODULE_ORDER.filter((id) => hasModuleAccess(id, user));
 
   // A home-page tool (outside every module).
-  if (!activeModule && activeTool && (activeTool !== 'users' || user.role === 'admin')) {
+  if (!activeModule && activeTool && canUseTool(user, activeTool)) {
     const tool = TOOLS.find((item) => item.id === activeTool)!;
     return (
       <ToolLayout title={tool.label} onHome={handleHome} onSignOut={handleSignOut}>
@@ -370,6 +378,7 @@ function App() {
       onNavigate={(navId) => goToNavItem(activeModule, navId)}
       onHome={handleHome}
       onSignOut={handleSignOut}
+      canSeeItem={(item) => canSeeNavItem(user, activeModule, item)}
       costingLevel={masUser?.role_level}
       topbarExtra={activeModule === 'costing' && masUser ? <NotificationBell me={masUser} onNavigate={goToCostingPath} /> : undefined}
     >
