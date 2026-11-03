@@ -311,6 +311,7 @@ router.get('/tasks', async (req, res) => {
         a.site_location,
         a.site_location AS department,
         a.department AS asset_department,
+        a.company_name,
         a.responsible_person,
         a.type_of_service,
         a.frequency_days,
@@ -739,7 +740,7 @@ router.get('/notifications', async (req, res) => {
         CASE nl.notification_type
           WHEN 'document_renewed' THEN
             'Document Renewed - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown document')
-              || ' - ' || COALESCE(nl.notes::json->>'department', a_notes.site_location, 'Unknown department')
+              || ' - ' || COALESCE(nl.notes::json->>'company', nl.notes::json->>'department', a_notes.company_name, a_notes.site_location, 'Unknown company')
               || ' - Next expiry: ' || COALESCE(nl.notes::json->>'new_expiry', 'N/A')
           WHEN 'document_renewed_via_email' THEN
             'Document Auto-Renewed via Email - ' || COALESCE(nl.notes::json->>'document_name', a_notes.equipment_name, 'Unknown document')
@@ -965,6 +966,7 @@ router.post('/assets/add', async (req, res) => {
       cr_no,
       license_no,
       document_number,
+      company_name,
     } = req.body;
 
     // Documents: refuse a second record for the same document - same name AND same responsible person,
@@ -1032,9 +1034,10 @@ router.post('/assets/add', async (req, res) => {
          cr_no,
          license_no,
          document_number,
-         processed_at
+         processed_at,
+         company_name
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                 CASE WHEN $22::boolean THEN NOW() END)
+                 CASE WHEN $22::boolean THEN NOW() END, $23)
        RETURNING *`,
       [
         equipment_name,
@@ -1059,6 +1062,7 @@ router.post('/assets/add', async (req, res) => {
         licenseNo,
         documentNo,
         isDocument,
+        isDocument ? String(company_name ?? '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim() || null : null,
       ]
     );
 

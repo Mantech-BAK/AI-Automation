@@ -108,7 +108,8 @@ async function logCompletionNotification(workOrder, assetBefore, updatedDates) {
   const notes = JSON.stringify({
     asset_id: assetBefore.id,
     document_name: assetBefore.equipment_name,
-    department: assetBefore.site_location,
+    // documents are filed under a company, equipment under a department/site
+    ...(workOrder.task_type === 'document' ? { company: assetBefore.company_name } : { department: assetBefore.site_location }),
     old_expiry: oldExpiry,
     new_expiry: newExpiry,
     completed_by: assetBefore.responsible_person,
@@ -157,7 +158,7 @@ async function processWorkOrder(workOrder) {
   console.log(`Marking work order ${workOrder.id} as completed`);
 
   const { rows: assetRows } = await pool.query(
-    `SELECT id, equipment_name, site_location, responsible_person, expiry_date, next_due_date, parent_asset_id
+    `SELECT id, equipment_name, site_location, company_name, responsible_person, expiry_date, next_due_date, parent_asset_id
      FROM assets WHERE id = $1`,
     [workOrder.asset_id]
   );

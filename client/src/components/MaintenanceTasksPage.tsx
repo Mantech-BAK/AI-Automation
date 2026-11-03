@@ -32,6 +32,7 @@ interface MaintenanceTask {
   site_location?: string | null;
   department?: string | null;
   asset_department?: string | null;
+  company_name?: string | null;
   responsible_person?: string | null;
   resolved_responsible_name?: string | null;
   frequency_days?: number | null;
@@ -765,7 +766,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Document Name</th>
-                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                       <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
@@ -794,7 +795,7 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
                               <p className="font-medium text-slate-800">{task.document_name || '-'}</p>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{task.department || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{task.company_name || '-'}</td>
                           <td className={`px-6 py-4 text-sm ${getExpiryColorClass(task.expiry_date)}`}>
                             {task.expiry_date ? new Date(task.expiry_date).toLocaleDateString() : '-'}
                           </td>
@@ -982,8 +983,8 @@ export default function MaintenanceTasksPage({ lockedTab, initialFilter, onNavig
                   <p className="text-slate-800 font-medium">{selectedTask.site_location || '-'}</p>
                 </div>
                 <div>
-                  <p className="text-slate-400 text-xs uppercase tracking-wide">Department</p>
-                  <p className="text-slate-800 font-medium">{selectedTask.asset_department || selectedTask.department || '-'}</p>
+                  <p className="text-slate-400 text-xs uppercase tracking-wide">{selectedTask.task_type === 'document' ? 'Company' : 'Department'}</p>
+                  <p className="text-slate-800 font-medium">{selectedTask.task_type === 'document' ? selectedTask.company_name || '-' : selectedTask.asset_department || selectedTask.department || '-'}</p>
                 </div>
                 <div>
                   <p className="text-slate-400 text-xs uppercase tracking-wide">Technician</p>

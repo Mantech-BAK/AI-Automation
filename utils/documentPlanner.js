@@ -51,12 +51,12 @@ async function createDocumentPlannerTask(doc, assigneeId) {
     {
       planId,
       bucketId: buckets.value[0].id,
-      title: `Document Renewal Required - ${doc.equipment_name} (${doc.site_location}) - Expires ${formatDMY(doc.expiry_date)}`,
+      title: `Document Renewal Required - ${doc.equipment_name} (${doc.company_name || 'No company'}) - Expires ${formatDMY(doc.expiry_date)}`,
       startDateTime: dueDateTime,
       dueDateTime,
       assignments: assigneeId ? { [assigneeId]: { '@odata.type': 'microsoft.graph.plannerAssignment', orderHint: ' !' } } : {},
       details: {
-        description: `Document type: ${doc.type_name || 'N/A'}\nDepartment: ${doc.site_location}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`,
+        description: `Document type: ${doc.type_name || 'N/A'}\nCompany: ${doc.company_name || 'N/A'}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`,
       },
     },
     'app'

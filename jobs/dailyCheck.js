@@ -900,10 +900,10 @@ async function runDailyCheck() {
       const notes = JSON.stringify({
         asset_id: doc.id,
         document_name: doc.equipment_name,
-        department: doc.site_location,
+        company: doc.company_name,
         expiry_date: doc.expiry_date,
       });
-      const documentDescription = `Document type: ${doc.type_name || 'N/A'}\nDepartment: ${doc.site_location}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`;
+      const documentDescription = `Document type: ${doc.type_name || 'N/A'}\nCompany: ${doc.company_name || 'N/A'}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`;
       const documentEmailChain = await resolveEmailChain(doc.responsible_person);
       const ccEmails = await getDepartmentCcEmails(doc.department || doc.site_location);
       // Document escalation: once actually overdue, address the responsible
@@ -943,7 +943,7 @@ async function runDailyCheck() {
           // Plain Outlook reminder appointment on the shared calendar - not a
           // Teams meeting, so no online-meeting link is attached.
           await createCalendarEvent(doc, null, null, null, null, {
-            title: `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location} - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
+            title: `Document Renewal Reminder - ${doc.equipment_name} - ${doc.company_name || 'No company'} - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
             description: documentDescription,
             singleRecipientEmail: SERVICE_ACCOUNT_EMAIL,
             timeZone: 'Arab Standard Time',
@@ -968,8 +968,8 @@ async function runDailyCheck() {
           await logNotification(workOrder.id, 'document_task_created');
         }
 
-        const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location}`;
-        const emailBody = `Item: ${doc.equipment_name}\nDepartment: ${doc.site_location}\nExpiry date: ${doc.expiry_date}\n${daysRemaining} day(s) remaining\nResponsible person: ${doc.responsible_person || 'N/A'}`;
+        const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.company_name || 'No company'}`;
+        const emailBody = `Item: ${doc.equipment_name}\nCompany: ${doc.company_name || 'N/A'}\nExpiry date: ${doc.expiry_date}\n${daysRemaining} day(s) remaining\nResponsible person: ${doc.responsible_person || 'N/A'}`;
 
         try {
           await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
@@ -977,7 +977,7 @@ async function runDailyCheck() {
           console.warn('Email sending skipped and continue running');
         }
 
-        const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Department: ${doc.site_location}<br/>Expiry date: ${doc.expiry_date}<br/>${daysRemaining} day(s) remaining<br/>Responsible person: ${doc.responsible_person || 'N/A'}`;
+        const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Company: ${doc.company_name || 'N/A'}<br/>Expiry date: ${doc.expiry_date}<br/>${daysRemaining} day(s) remaining<br/>Responsible person: ${doc.responsible_person || 'N/A'}`;
         try {
           await postTeamsMessage(teamsBody);
         } catch (error) {
@@ -1010,8 +1010,8 @@ async function runDailyCheck() {
         : daysRemaining === 0
           ? 'due today'
           : `${Math.abs(daysRemaining)} day(s) overdue`;
-      const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.site_location}`;
-      const emailBody = `Item: ${doc.equipment_name}\nDepartment: ${doc.site_location}\nExpiry date: ${doc.expiry_date}\n${daysLabel}\nResponsible person: ${doc.responsible_person || 'N/A'}`;
+      const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.company_name || 'No company'}`;
+      const emailBody = `Item: ${doc.equipment_name}\nCompany: ${doc.company_name || 'N/A'}\nExpiry date: ${doc.expiry_date}\n${daysLabel}\nResponsible person: ${doc.responsible_person || 'N/A'}`;
 
       try {
         await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
@@ -1019,7 +1019,7 @@ async function runDailyCheck() {
         console.warn('Email sending skipped and continue running');
       }
 
-      const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Department: ${doc.site_location}<br/>Expiry date: ${doc.expiry_date}<br/>${daysLabel}<br/>Responsible person: ${doc.responsible_person || 'N/A'}`;
+      const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Company: ${doc.company_name || 'N/A'}<br/>Expiry date: ${doc.expiry_date}<br/>${daysLabel}<br/>Responsible person: ${doc.responsible_person || 'N/A'}`;
       try {
         await postTeamsMessage(teamsBody);
       } catch (error) {

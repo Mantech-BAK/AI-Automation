@@ -233,6 +233,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     category_id: '',
     type_id: '',
     department_id: '',
+    company_name: '',
     registration_date: '',
     expiry_date: '',
     reminder_days: '7',
@@ -331,7 +332,8 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
         type_of_service: formData.type_of_service || 'general',
         category_id: formData.category_id ? Number(formData.category_id) : null,
         type_id: formData.type_id ? Number(formData.type_id) : null,
-        department_id: formData.department_id ? Number(formData.department_id) : null,
+        department_id: isDocumentType ? null : formData.department_id ? Number(formData.department_id) : null,
+        company_name: isDocumentType ? formData.company_name.trim() || null : null,
         registration_date: formData.registration_date || null,
         expiry_date: formData.expiry_date || null,
         reminder_days: formData.reminder_days ? Number(formData.reminder_days) : null,
@@ -381,6 +383,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
       category_id: '',
       type_id: '',
       department_id: '',
+      company_name: '',
       registration_date: '',
       expiry_date: '',
       reminder_days: '7',
@@ -954,20 +957,33 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-              <select
-                value={formData.department_id}
-                onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                disabled={lookupOptionsLoading}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
-              >
-                <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select a department'}</option>
-                {departmentOptions.map((option) => (
-                  <option key={option.id} value={option.id}>{option.name}</option>
-                ))}
-              </select>
-            </div>
+            {isDocumentType ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Company</label>
+                <input
+                  type="text"
+                  value={formData.company_name}
+                  onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  placeholder="e.g., AL JUMAN BULK MATERIALS W.L.L"
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+                <select
+                  value={formData.department_id}
+                  onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
+                  disabled={lookupOptionsLoading}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-50"
+                >
+                  <option value="">{lookupOptionsLoading ? 'Loading...' : 'Select a department'}</option>
+                  {departmentOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Registration Date</label>
               <input
