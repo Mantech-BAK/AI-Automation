@@ -140,6 +140,7 @@ export default function UsersPage() {
     if (step === 0 && !editing) {
       if (!account.name.trim() || !account.email.trim() || !account.password.trim()) return 'Name, email, and password are required';
     }
+    if (step === 0 && !account.designation.trim()) return 'Designation is required';
     if (step === 1 && draft.modules.length === 0) return 'Choose at least one module';
     return null;
   }
@@ -163,6 +164,26 @@ export default function UsersPage() {
     const problem = validateStep();
     if (problem) {
       setFormError(problem);
+      return;
+    }
+    // An administrator has no module / feature choices: only the designation can change.
+    if (editing && editing.role === 'admin') {
+      setSubmitting(true);
+      try {
+        const response = await apiFetch(`/api/users/${editing.id}/update`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ designation: account.designation }),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json?.error || 'Failed to save user');
+        setWizardOpen(false);
+        await fetchUsers();
+      } catch (submitError) {
+        setFormError(submitError instanceof Error ? submitError.message : 'Failed to save user');
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -316,7 +337,7 @@ export default function UsersPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  {user.role !== 'admin' && (
+                  {(
                     <button
                       onClick={() => openEditWizard(user)}
                       className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
@@ -461,7 +482,7 @@ export default function UsersPage() {
                   name="new-user-designation"
                   autoComplete="off"
                   list="designation-options"
-                  placeholder="Choose or type, e.g. Salesman"
+                  placeholder="Required - choose or type, e.g. Salesman"
                   value={account.designation}
                   onChange={(e) => setAccount({ ...account, designation: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"

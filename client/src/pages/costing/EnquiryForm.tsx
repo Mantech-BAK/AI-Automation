@@ -149,15 +149,16 @@ export default function EnquiryForm({ me, enquiryId, onNavigate }: { me: MasUser
           <Field label="Assigned To">
             <select value={form.assigned_to} onChange={(e) => set({ assigned_to: e.target.value })} className={inputCls} aria-label="Assigned To">
               {lookup.assignable.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} - {u.role_name}</option>
+                <option key={u.id} value={u.id}>{u.name}{u.designation ? ` - ${u.designation}` : ''}</option>
               ))}
             </select>
           </Field>
           <Field label="Salesman">
             <select value={form.salesman_id} onChange={(e) => set({ salesman_id: e.target.value })} className={inputCls} aria-label="Salesman">
-              <option value="">None</option>
+              {lookup.salesmen.length === 0 && <option value="" disabled>No user with the designation Salesman yet</option>}
+              {lookup.salesmen.length > 0 && <option value="" disabled>Select a salesman</option>}
               {lookup.salesmen.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} - {u.role_name}</option>
+                <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
           </Field>

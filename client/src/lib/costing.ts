@@ -51,6 +51,8 @@ export interface MasUser {
   role_level: number;
   department_name: string | null;
   manager_name: string | null;
+  // From the Users screen (matched by e-mail).
+  designation?: string | null;
 }
 
 export interface Department {

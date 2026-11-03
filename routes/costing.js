@@ -37,11 +37,39 @@ const addDays = (isoDate, days) => {
 
 const USER_SELECT = `
   SELECT u.id, u.name, u.email, u.role_id, u.department_id, u.manager_id, u.is_active,
-         r.name AS role_name, r.level AS role_level, d.name AS department_name, m.name AS manager_name
+         r.name AS role_name, r.level AS role_level, d.name AS department_name, m.name AS manager_name,
+         (SELECT mu.designation FROM users mu WHERE LOWER(mu.email) = LOWER(u.email) LIMIT 1) AS designation
   FROM mas_users u
   JOIN roles r ON r.id = u.role_id
   LEFT JOIN departments d ON d.id = u.department_id
   LEFT JOIN mas_users m ON m.id = u.manager_id`;
+
+// The costing people are the registered users (Users screen): one costing profile per user, matched by e-mail. The
+// designation picks the costing role; a user without a recognised designation is a Sales Engineer.
+const ROLE_BY_DESIGNATION = {
+  director: 'Director', admin: 'Director', 'general manager': 'General Manager', gm: 'General Manager',
+  manager: 'Manager', 'sales manager': 'Manager', estimator: 'Estimator',
+};
+let lastSync = 0;
+async function syncMasUsers() {
+  if (Date.now() - lastSync < 30000) return;
+  lastSync = Date.now();
+  const people = (await pool.query('SELECT name, email, designation FROM users WHERE email IS NOT NULL')).rows;
+  const roles = new Map((await pool.query('SELECT id, name FROM roles')).rows.map((row) => [row.name, row.id]));
+  for (const person of people) {
+    const designation = String(person.designation || '').trim().toLowerCase();
+    const roleId = roles.get(ROLE_BY_DESIGNATION[designation] || 'Sales Engineer');
+    if (!roleId) continue;
+    const existing = (await pool.query('SELECT id FROM mas_users WHERE LOWER(email) = LOWER($1) LIMIT 1', [person.email])).rows[0];
+    if (!existing) {
+      await pool.query('INSERT INTO mas_users (name, email, role_id) VALUES ($1, $2, $3)', [person.name, person.email, roleId]);
+    } else if (designation) {
+      await pool.query('UPDATE mas_users SET name = $1, role_id = $2 WHERE id = $3', [person.name, roleId, existing.id]);
+    } else {
+      await pool.query('UPDATE mas_users SET name = $1 WHERE id = $2', [person.name, existing.id]);
+    }
+  }
+}
 
 // Everyone below `userId` in the manager_id chain (including the user).
 async function subtreeIds(userId) {
@@ -60,7 +88,13 @@ async function subtreeIds(userId) {
 // them; every other role sees only their own records.
 async function loadMasUser(req, res, next) {
   try {
-    const id = req.session?.masUserId;
+    let id = req.session?.masUserId;
+    if (!id && req.session?.user?.email) {
+      // Whoever is signed in is the costing user - no picking a name.
+      await syncMasUsers();
+      id = (await pool.query('SELECT id FROM mas_users WHERE is_active AND LOWER(email) = LOWER($1) LIMIT 1', [req.session.user.email])).rows[0]?.id;
+      if (id) req.session.masUserId = id;
+    }
     if (!id) return res.status(401).json({ error: 'Select your name to continue', needsLogin: true });
     const { rows } = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [id]);
     const user = rows[0];
@@ -89,8 +123,10 @@ const isGmOrAbove = (user) => user.role_level >= 4;
 
 router.get('/login-users', async (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
+  await syncMasUsers();
   const { rows } = await pool.query(`${USER_SELECT} WHERE u.is_active ORDER BY r.level DESC, u.name`);
-  return res.json(rows);
+  const mine = String(req.session.user.email || '').toLowerCase();
+  return res.json(req.session.user.role === 'admin' ? rows : rows.filter((row) => String(row.email || '').toLowerCase() === mine));
 });
 
 router.post('/login', async (req, res) => {
@@ -99,6 +135,9 @@ router.post('/login', async (req, res) => {
   if (!id) return res.status(400).json({ error: 'user_id is required' });
   const { rows } = await pool.query(`${USER_SELECT} WHERE u.id = $1 AND u.is_active`, [id]);
   if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
+  if (req.session.user.role !== 'admin' && String(rows[0].email || '').toLowerCase() !== String(req.session.user.email || '').toLowerCase()) {
+    return res.status(403).json({ error: 'You can only use your own costing profile' });
+  }
   req.session.masUserId = id;
   return res.json({ user: rows[0] });
 });
@@ -166,18 +205,16 @@ router.get('/roles', async (req, res) => {
   return res.json(rows);
 });
 
-// Who the logged-in user may assign an enquiry to: Director/GM anyone, a Manager their team, everyone else only themselves.
-async function assignableUsers(me) {
-  if (isGmOrAbove(me)) return (await pool.query(`${USER_SELECT} WHERE u.is_active ORDER BY u.name`)).rows;
-  if (isManagerOrAbove(me)) {
-    const ids = await subtreeIds(me.id);
-    return (await pool.query(`${USER_SELECT} WHERE u.is_active AND u.id = ANY($1) ORDER BY u.name`, [ids])).rows;
-  }
-  return (await pool.query(`${USER_SELECT} WHERE u.id = $1`, [me.id])).rows;
+// Who an enquiry can be assigned to: every registered user (Users screen). No designation filter is defined for
+// Assigned To yet, so nobody is left out.
+async function assignableUsers() {
+  await syncMasUsers();
+  return (await pool.query(`${USER_SELECT} WHERE u.is_active ORDER BY u.name`)).rows;
 }
 
 // Salesmen: costing users whose MAS login (same e-mail) has the designation 'Salesman' in the Users screen.
 async function salesmenOf() {
+  await syncMasUsers();
   return (await pool.query(
     `${USER_SELECT} WHERE u.is_active AND EXISTS (
        SELECT 1 FROM users mu WHERE LOWER(mu.email) = LOWER(u.email) AND LOWER(TRIM(mu.designation)) = 'salesman')

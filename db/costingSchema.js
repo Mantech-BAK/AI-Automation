@@ -166,19 +166,15 @@ async function seedCosting(pool) {
     await pool.query('INSERT INTO roles (name, level) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING', [name, level]);
   }
 
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS count FROM mas_users');
-  if (rows[0].count > 0) return;
-
-  const roleId = async (name) => (await pool.query('SELECT id FROM roles WHERE name = $1', [name])).rows[0].id;
-  const deptId = async (name) => (name ? (await pool.query('SELECT id FROM departments WHERE name = $1', [name])).rows[0].id : null);
-  const add = async (name, role, department, managerId) =>
-    (await pool.query('INSERT INTO mas_users (name, role_id, department_id, manager_id) VALUES ($1, $2, $3, $4) RETURNING id', [name, await roleId(role), await deptId(department), managerId])).rows[0].id;
-
-  const ahmed = await add('Ahmed Al Farsi', 'Director', null, null);
-  const dhanaraju = await add('Dhanaraju', 'General Manager', null, ahmed);
-  const salim = await add('Salim', 'Manager', 'ELV', dhanaraju);
-  await add('Yasir', 'Sales Engineer', 'ELV', salim);
-  await add('Ravi', 'Estimator', 'ELV', salim);
+  // People come from the Users screen (routes/costing.js syncs them). The demo people this used to create are removed
+  // when nothing references them; one that is already used by an enquiry, task or sheet is kept.
+  for (const name of ['Ahmed Al Farsi', 'Dhanaraju', 'Salim', 'Yasir', 'Ravi']) {
+    try {
+      await pool.query('DELETE FROM mas_users WHERE name = $1 AND email IS NULL', [name]);
+    } catch (error) {
+      if (error.code !== '23503') throw error;
+    }
+  }
 }
 
 module.exports = { ensureCostingSchema, seedCosting };

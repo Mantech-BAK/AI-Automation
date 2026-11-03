@@ -56,6 +56,9 @@ router.post('/add', async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
+    if (!designation) {
+      return res.status(400).json({ error: 'Designation is required' });
+    }
 
     if (role && role !== 'admin' && role !== 'user') {
       return res.status(400).json({ error: 'Role must be admin or user' });
