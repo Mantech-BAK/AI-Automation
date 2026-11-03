@@ -1178,6 +1178,8 @@ async function processDocumentEmails() {
     );
     const messages = Array.isArray(data?.value) ? data.value : [];
     summary.emailsChecked = messages.length;
+    console.log(`[RUN] ${messages.length} unread email(s) with attachments received since ${since.slice(0, 10)} (last 30 days)`);
+    messages.forEach((m) => console.log(`[RUN]   "${m.subject}" from ${m.from?.emailAddress?.address || 'unknown'}`));
 
     // TEMP DEBUG: same query without the unread condition, log only (not processed).
     try {
@@ -1204,14 +1206,14 @@ async function processDocumentEmails() {
         // The same email arriving again (same Message-ID) is skipped before any download or AI call.
         const messageKey = message.internetMessageId || message.id;
         if (await wasEmailProcessed(messageKey)) {
-          console.log(`Email already processed (Message-ID ${messageKey}) - skipped: "${message.subject}"`);
+          console.log(`[SKIP] "${message.subject}" — reason: already processed earlier (Message-ID ${messageKey}); marked as read`);
           await graphRequest('PATCH', `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}`, { isRead: true }, 'app');
           continue;
         }
 
         const attachmentList = await graphRequest(
           'GET',
-          `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}/attachments?$select=id,name,contentType`,
+          `/users/${serviceAccount()}/messages/${encodeURIComponent(message.id)}/attachments?$select=id,name,contentType,isInline,size`,
           null,
           'app'
         );
@@ -1220,9 +1222,14 @@ async function processDocumentEmails() {
         );
 
         // Emails without PDFs are left untouched for the general email processor.
-        if (pdfs.length === 0) continue;
+        if (pdfs.length === 0) {
+          const found = (attachmentList?.value || []).map((a) => `${a.name} (${a.contentType || 'no type'}${a.isInline ? ', inline' : ''}, ${a.size ?? '?'} bytes)`);
+          console.log(`[SKIP] "${message.subject}" — reason: no PDF attachment (name must end in .pdf or type contain pdf). Attachments: ${found.length ? found.join('; ') : 'none returned by Graph'}`);
+          continue;
+        }
 
         summary.pdfsFound += pdfs.length;
+        console.log(`[EMAIL] "${message.subject}" — ${pdfs.length} PDF(s): ${pdfs.map((p) => p.name).join('; ')}`);
         const senderAddress = message.from?.emailAddress?.address || null;
 
         for (const attachment of pdfs) {
@@ -1235,6 +1242,7 @@ async function processDocumentEmails() {
           }
 
           for (const result of results) {
+          console.log(`[RESULT] "${attachment.name}" -> ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
 
           // Duplicates (nothing was saved) are reported in the summary email, in their own section.
           if (senderAddress) {
