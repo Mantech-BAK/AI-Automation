@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Calculator, ChevronRight, FileText, LogOut, Lock, TrendingUp, Truck, Wrench, type LucideIcon } from 'lucide-react';
-import { type ModuleId } from '../lib/modules';
+import { AlertTriangle, BarChart3, Calculator, ChevronRight, FileText, LogOut, Lock, Settings, TrendingUp, Truck, Wrench, type LucideIcon } from 'lucide-react';
+import { TOOLS, type ModuleId, type ToolId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
 
 interface ModuleSelectPageProps {
@@ -8,6 +8,8 @@ interface ModuleSelectPageProps {
   accessibleModules: ModuleId[];
   onSelectModule: (module: ModuleId) => void;
   onSignOut: () => void;
+  // Opens one of the tools shown below the module tiles.
+  onOpenTool: (tool: ToolId) => void;
   user: { name: string; role: string };
 }
 
@@ -92,7 +94,7 @@ const initialsOf = (name: string) =>
 
 const roleLabel = (role: string) => (role ? role.charAt(0).toUpperCase() + role.slice(1) : '');
 
-export default function ModuleSelectPage({ accessibleModules, onSelectModule, onSignOut, user }: ModuleSelectPageProps) {
+export default function ModuleSelectPage({ accessibleModules, onSelectModule, onSignOut, onOpenTool, user }: ModuleSelectPageProps) {
   // key -> count; undefined = still loading
   const [counts, setCounts] = useState<Record<string, Count | undefined>>({});
 
@@ -153,6 +155,14 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
               {initialsOf(user.name)}
             </div>
             <button
+              onClick={() => onOpenTool('settings')}
+              title="Settings"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 border border-white/10 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <Settings size={16} />
+              <span className="hidden sm:inline">Settings</span>
+            </button>
+            <button
               onClick={onSignOut}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 border border-white/10 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30 transition-colors"
             >
@@ -195,11 +205,36 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
           })}
         </div>
 
+        {/* Tools: not part of any module - a smaller, outlined second row under the module tiles */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-6">
+          {TOOLS.filter((tool) => tool.tile !== false).map((tool) => {
+            const Icon = tool.icon;
+            const allowed = !tool.adminOnly || user.role === 'admin';
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                disabled={!allowed}
+                onClick={() => onOpenTool(tool.id)}
+                title={allowed ? tool.label : `${tool.label} - administrators only`}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-600 text-left transition-all duration-200 ${
+                  allowed ? 'hover:bg-white/5 hover:border-slate-400 active:scale-[0.98]' : 'opacity-50 cursor-not-allowed'
+                }`}
+              >
+                <Icon size={18} className="text-slate-300 flex-shrink-0" />
+                <span className="min-w-0 flex-1 text-sm font-medium text-slate-200 truncate">{tool.label}</span>
+                {allowed ? <ChevronRight size={16} className="text-slate-500 flex-shrink-0" /> : <Lock size={14} className="text-slate-500 flex-shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 76px below the tiles) */}
         <div className="pt-14 space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][0]))}</div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{TILE_ORDER.map((id) => statTile(STATS[id][1]))}</div>
         </div>
+
       </main>
     </div>
   );

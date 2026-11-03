@@ -1,6 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { ChevronRight, Home, LogOut, Menu, X } from 'lucide-react';
-import { MODULES, SYSTEM_NAV, type ModuleId, type ModuleNavItem } from '../lib/modules';
+import { MODULES, type ModuleId, type ModuleNavItem } from '../lib/modules';
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,26 +10,23 @@ interface LayoutProps {
   // Back to the module selection screen (logo / "All Modules" button).
   onHome: () => void;
   onSignOut?: () => void;
-  role?: string;
   // Costing Sheet: the selected costing user's role level (filters the sidebar) and content for the right of the top bar (bell).
   costingLevel?: number;
   topbarExtra?: ReactNode;
 }
 
-export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, role, costingLevel, topbarExtra }: LayoutProps) {
+export default function Layout({ children, module, activeNavId, onNavigate, onHome, onSignOut, costingLevel, topbarExtra }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const definition = MODULES[module];
   const ModuleIcon = definition.icon;
 
   const moduleItems = definition.nav.filter((item) => !item.minRoleLevel || (costingLevel ?? 0) >= item.minRoleLevel);
-  // Users is admin-only; Email Processing and Meeting Schedule are open to everyone.
-  const systemItems = SYSTEM_NAV.filter((item) => item.id !== 'users' || role === 'admin');
 
   // Project Tracking has no title bar on any page (the dashboard opens with a greeting instead).
   const hideTopbar = module === 'projects';
 
-  const pageTitle = [...moduleItems, ...SYSTEM_NAV].find((item) => item.id === activeNavId)?.label || definition.label;
+  const pageTitle = moduleItems.find((item) => item.id === activeNavId)?.label || definition.label;
 
   const signOutButton = (
     <button
@@ -132,9 +129,6 @@ export default function Layout({ children, module, activeNavId, onNavigate, onHo
         {/* Navigation */}
         <nav className="flex-1 px-2.5 py-4 overflow-y-auto">
           <ul className="space-y-2">{moduleItems.map(renderItem)}</ul>
-          <div className="mt-4 pt-4 border-t border-slate-700">
-            <ul className="space-y-2">{systemItems.map(renderItem)}</ul>
-          </div>
         </nav>
 
       </aside>

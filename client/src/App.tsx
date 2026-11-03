@@ -11,15 +11,16 @@ import MaintenanceTasksPage from './components/MaintenanceTasksPage';
 import SchedulesPage from './components/SchedulesPage';
 import NotificationsPage from './components/NotificationsPage';
 import CalendarPage from './components/CalendarPage';
-import SettingsPage from './components/SettingsPage';
 import UsersPage from './components/UsersPage';
+import ToolLayout from './components/ToolLayout';
+import SettingsPage from './components/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
 import CostingModule from './modules/CostingModule';
 import NotificationBell from './pages/costing/NotificationBell';
 import { costingApi, type MasUser } from './lib/costing';
-import { MODULE_ORDER, allNavItems, isModuleId, type ModuleId } from './lib/modules';
+import { MODULE_ORDER, TOOLS, allNavItems, isModuleId, isToolId, type ModuleId, type ToolId } from './lib/modules';
 import { apiFetch } from './lib/api';
 
 interface SessionUser {
@@ -80,22 +81,18 @@ function hasModuleAccess(module: ModuleId, user: SessionUser): boolean {
   return allowedItemTypes.includes(module === 'documents' ? 'Document' : 'Equipment');
 }
 
-// 'users' is admin-only; every other page is open once its module is.
-function hasPageAccess(page: string, user: SessionUser): boolean {
-  if (user.role === 'admin') return true;
-  return page !== 'users';
-}
-
-// URLs: "/" is the module selection screen, "/<module>" a module's dashboard
-// and "/<module>/<nav id>" one of its pages (e.g. /documents/tasks).
-function parsePath(pathname: string): { module: ModuleId | null; navId: string } {
+// URLs: "/" is the module selection screen, "/<module>" a module's dashboard,
+// "/<module>/<nav id>" one of its pages (e.g. /documents/tasks) and "/<tool>" one of the
+// home-page tools (/email, /schedules, /users).
+function parsePath(pathname: string): { module: ModuleId | null; navId: string; tool: ToolId | null } {
   const [first, second] = pathname.split('/').filter(Boolean);
-  if (!isModuleId(first)) return { module: null, navId: 'dashboard' };
+  if (isToolId(first)) return { module: null, navId: 'dashboard', tool: first };
+  if (!isModuleId(first)) return { module: null, navId: 'dashboard', tool: null };
   // /costing/sheet/... belongs to Enquiries in the sidebar; /costing/login is the user picker.
-  if (first === 'costing' && second === 'sheet') return { module: first, navId: 'enquiries' };
-  if (first === 'costing' && second === 'login') return { module: first, navId: 'dashboard' };
+  if (first === 'costing' && second === 'sheet') return { module: first, navId: 'enquiries', tool: null };
+  if (first === 'costing' && second === 'login') return { module: first, navId: 'dashboard', tool: null };
   const known = allNavItems(first).some((item) => item.id === second);
-  return { module: first, navId: known ? second : 'dashboard' };
+  return { module: first, navId: known ? second : 'dashboard', tool: null };
 }
 
 function buildPath(module: ModuleId | null, navId: string): string {
@@ -107,6 +104,8 @@ function App() {
   const initialRoute = parsePath(window.location.pathname);
   const [activeModule, setActiveModule] = useState<ModuleId | null>(initialRoute.module);
   const [activeNavId, setActiveNavId] = useState(initialRoute.navId);
+  // Email Processing / Meeting Schedule / Users: opened from the home page, outside every module.
+  const [activeTool, setActiveTool] = useState<ToolId | null>(initialRoute.tool);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [employeeFilter, setEmployeeFilter] = useState('');
@@ -133,9 +132,22 @@ function App() {
   const goToNavItem = (module: ModuleId, navId: string, filter?: NavFilter | null) => {
     setActiveModule(module);
     setActiveNavId(navId);
+    setActiveTool(null);
     setNavFilter(filter ?? null);
     setAccessDeniedMessage(null);
     pushRoute(module, navId, filter?.projectId);
+  };
+
+  const openTool = (tool: ToolId) => {
+    if (user && tool === 'users' && user.role !== 'admin') {
+      setAccessDeniedMessage("You don't have permission to open that page.");
+      return;
+    }
+    setActiveModule(null);
+    setActiveTool(tool);
+    setNavFilter(null);
+    setAccessDeniedMessage(null);
+    if (window.location.pathname !== `/${tool}`) window.history.pushState(null, '', `/${tool}`);
   };
 
   // Costing Sheet detail URLs (/costing/sheet/12): keeps the sidebar highlight in step with the URL.
@@ -159,6 +171,7 @@ function App() {
 
   const handleHome = () => {
     setActiveModule(null);
+    setActiveTool(null);
     setActiveNavId('dashboard');
     setNavFilter(null);
     setAccessDeniedMessage(null);
@@ -170,10 +183,14 @@ function App() {
   // sidebar highlights it; pages the module has no entry for (e.g. Employees,
   // opened from a Technicians row) still render, with nothing highlighted.
   const handleNavigate = (page: string, filter?: NavFilter) => {
-    if (!activeModule) return;
-    if (user && !hasPageAccess(page, user)) {
-      goToNavItem(activeModule, 'dashboard');
-      setAccessDeniedMessage("You don't have permission to access that page.");
+    // Email Processing, Meeting Schedule and Users are not part of any module: dashboard tiles open them as tools.
+    if (isToolId(page)) {
+      openTool(page);
+      return;
+    }
+    if (!activeModule) {
+      // From a tool (e.g. a task created from an email) into the Equipment module's page.
+      if (activeTool) goToNavItem('equipment', page, filter);
       return;
     }
     const items = allNavItems(activeModule);
@@ -194,6 +211,7 @@ function App() {
       const route = parsePath(window.location.pathname);
       setActiveModule(route.module);
       setActiveNavId(route.navId);
+      setActiveTool(route.tool);
       setNavFilter(null);
       setRouteTick((tick) => tick + 1);
     };
@@ -265,6 +283,19 @@ function App() {
 
   const accessibleModules = MODULE_ORDER.filter((id) => hasModuleAccess(id, user));
 
+  // A home-page tool (outside every module).
+  if (!activeModule && activeTool && (activeTool !== 'users' || user.role === 'admin')) {
+    const tool = TOOLS.find((item) => item.id === activeTool)!;
+    return (
+      <ToolLayout title={tool.label} onHome={handleHome} onSignOut={handleSignOut}>
+        {activeTool === 'email' && <EmailProcessing onNavigate={handleNavigate} />}
+        {activeTool === 'schedules' && <SchedulesPage />}
+        {activeTool === 'users' && <UsersPage />}
+        {activeTool === 'settings' && <SettingsPage />}
+      </ToolLayout>
+    );
+  }
+
   // No module chosen yet - or a link/reload straight into one the user can't open.
   if (!activeModule || !accessibleModules.includes(activeModule)) {
     return (
@@ -281,6 +312,7 @@ function App() {
           accessibleModules={accessibleModules}
           onSelectModule={handleSelectModule}
           onSignOut={handleSignOut}
+          onOpenTool={openTool}
           user={user}
         />
       </>
@@ -294,7 +326,7 @@ function App() {
       return <ProjectsModule page={currentPage} onNavigate={handleNavigate} navFilter={navFilter} />;
     }
 
-    if (activeModule === 'costing' && !['email', 'schedules', 'users'].includes(currentPage)) {
+    if (activeModule === 'costing') {
       return <CostingModule me={masUser} onLogin={setMasUser} onNavigate={goToCostingPath} />;
     }
 
@@ -302,8 +334,6 @@ function App() {
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard module={activeModule} onNavigate={handleNavigate} />;
-      case 'email':
-        return <EmailProcessing onNavigate={handleNavigate} />;
       case 'sites':
         return <SitesPage onNavigate={handleNavigate} />;
       case 'departments':
@@ -324,16 +354,10 @@ function App() {
         return <EmployeesPage initialSearch={employeeFilter} />;
       case 'tasks':
         return <MaintenanceTasksPage lockedTab={lockedTab} initialFilter={navFilter} onNavigate={handleNavigate} />;
-      case 'schedules':
-        return <SchedulesPage />;
       case 'notifications':
         return <NotificationsPage module={activeModule} onNavigate={handleNavigate} />;
       case 'calendar':
         return <CalendarPage />;
-      case 'settings':
-        return <SettingsPage />;
-      case 'users':
-        return <UsersPage />;
       default:
         return <Dashboard module={activeModule} onNavigate={handleNavigate} />;
     }
@@ -346,7 +370,6 @@ function App() {
       onNavigate={(navId) => goToNavItem(activeModule, navId)}
       onHome={handleHome}
       onSignOut={handleSignOut}
-      role={user.role}
       costingLevel={masUser?.role_level}
       topbarExtra={activeModule === 'costing' && masUser ? <NotificationBell me={masUser} onNavigate={goToCostingPath} /> : undefined}
     >

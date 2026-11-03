@@ -15,7 +15,6 @@ import {
   Bell,
   Calendar,
   CalendarClock,
-  Settings,
   Loader2,
   LucideIcon,
   Car,
@@ -370,15 +369,13 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
     color: 'grey',
     onClick: () => onNavigate('notifications'),
   };
-  const settingsTile: TileDef = { key: 'settings', label: 'Settings', value: null, icon: Settings, color: 'grey', onClick: () => onNavigate('settings') };
 
   const equipmentSystemTiles: TileDef[] = [
     { key: 'emails-processed', label: 'Emails Processed', value: summary.emails_today, icon: Mail, color: 'grey', onClick: () => onNavigate('email') },
     notificationsTile,
     { key: 'upcoming-meetings', label: 'Upcoming Meetings', value: null, icon: Calendar, color: 'grey', onClick: () => onNavigate('schedules') },
-    settingsTile,
   ];
-  const simpleSystemTiles: TileDef[] = [notificationsTile, settingsTile];
+  const simpleSystemTiles: TileDef[] = [notificationsTile];
 
   const donuts: Record<LegacyModuleId, JSX.Element> = {
     equipment: (

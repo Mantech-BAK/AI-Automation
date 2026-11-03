@@ -17,6 +17,7 @@ import {
   HandCoins,
   LayoutDashboard,
   Mail,
+  Settings,
   MapPin,
   ShieldCheck,
   ShoppingCart,
@@ -67,13 +68,27 @@ export interface ModuleDefinition {
 
 const DASHBOARD: ModuleNavItem = { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' };
 
-// Email Processing, Meeting Schedule and Users sit in a group at the bottom of every module's sidebar (below a divider),
-// as flat items. Users is admin-only (see Layout).
-export const SYSTEM_NAV: ModuleNavItem[] = [
-  { id: 'email', label: 'Email Processing', icon: Mail, page: 'email' },
-  { id: 'schedules', label: 'Meeting Schedule', icon: Calendar, page: 'schedules' },
-  { id: 'users', label: 'Users', icon: UserCog, page: 'users' },
+// Pages that belong to no module: tiles in a second row on the home page, each with its own route (/email, /schedules, /users).
+export type ToolId = 'email' | 'schedules' | 'users' | 'settings';
+export interface ToolDefinition {
+  id: ToolId;
+  label: string;
+  subtitle: string;
+  icon: LucideIcon;
+  adminOnly?: boolean;
+  // false = reachable by route / the top-bar button only, no tile on the home page.
+  tile?: boolean;
+}
+export const TOOLS: ToolDefinition[] = [
+  { id: 'email', label: 'Email Processing', subtitle: 'Mailbox & summaries', icon: Mail },
+  { id: 'schedules', label: 'Meeting Schedule', subtitle: 'Book & track meetings', icon: Calendar },
+  { id: 'users', label: 'Users', subtitle: 'Accounts & access', icon: UserCog, adminOnly: true },
+  { id: 'settings', label: 'Settings', subtitle: 'System settings', icon: Settings, tile: false },
 ];
+
+export function isToolId(value: string | undefined): value is ToolId {
+  return value === 'email' || value === 'schedules' || value === 'users' || value === 'settings';
+}
 
 export const MODULES: Record<ModuleId, ModuleDefinition> = {
   equipment: {
@@ -128,7 +143,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     description: 'Monitor project financials, billing & collections',
     icon: BarChart3,
     gradient: 'from-teal-500 to-cyan-600',
-    // The bottom group (Email Processing, Meeting Schedule, Users) is appended via SYSTEM_NAV.
     nav: [
       DASHBOARD,
       { id: 'all-projects', label: 'All Projects', icon: FolderOpen, page: 'project-all' },
@@ -149,7 +163,6 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
     description: 'Prepare enquiries, costing sheets and quotations',
     icon: Calculator,
     gradient: 'from-indigo-500 to-violet-600',
-    // The bottom group (Email Processing, Meeting Schedule, Users) is appended via SYSTEM_NAV.
     nav: [
       DASHBOARD,
       { id: 'enquiries', label: 'Enquiries', icon: ClipboardList, page: 'costing-enquiries' },
@@ -167,7 +180,7 @@ export function isModuleId(value: string | undefined): value is ModuleId {
 }
 
 export function allNavItems(module: ModuleId): ModuleNavItem[] {
-  return [...MODULES[module].nav, ...SYSTEM_NAV];
+  return MODULES[module].nav;
 }
 
 // Which module a notification belongs to, from its notification_type.
