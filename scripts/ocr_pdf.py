@@ -9,6 +9,11 @@ Progress and errors go to stderr; the exit code is non-zero when no text could b
 """
 import gc
 import os
+
+# One CPU thread for torch / numpy: fewer worker buffers, so less memory. Set before torch is imported.
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+
 import subprocess
 import sys
 
@@ -42,6 +47,9 @@ def ocr_pages(path):
     from pdf2image import convert_from_path, pdfinfo_from_path
     import easyocr
     import numpy
+    import torch
+
+    torch.set_num_threads(1)
 
     # POPPLER_PATH is only needed where poppler's bin folder is not on PATH (e.g. a Windows dev machine).
     poppler_path = os.environ.get('POPPLER_PATH') or None

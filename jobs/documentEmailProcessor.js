@@ -981,11 +981,16 @@ async function sendDuplicateEmail(toAddress, info, override = null) {
   }
 }
 
-// The summary email for one sender: documents grouped by status - Failed (red), Duplicates (amber), Successfully
-// processed (green) - each section only when it has items. Table layout with inline styles only, so Outlook renders it.
+// The summary email for one sender: documents grouped by status - Successfully processed (green), Failed (red),
+// Duplicates (amber) - each section only when it has items, then a one-line total. Table layout with inline styles only, so Outlook renders it.
 // results: [{ status, fileName, documentName, company, expiry, reasonCode, reason }]
 function buildSummaryEmail(results) {
   const sections = [
+    {
+      key: 'success', title: 'Successfully Processed', icon: '✅', solid: '#16a34a', tint: '#f0fdf4', line: '#bbf7d0',
+      items: results.filter((r) => r.status === 'created' || r.status === 'updated'),
+      detail: (r) => (r.status === 'updated' ? `Expiry updated to ${formatDMY(r.expiry)}` : `Expires ${formatDMY(r.expiry)}`),
+    },
     {
       key: 'failed', title: 'Failed', icon: '❌', solid: '#dc2626', tint: '#fef2f2', line: '#fecaca',
       items: results.filter((r) => r.status === 'failed'),
@@ -997,12 +1002,17 @@ function buildSummaryEmail(results) {
       detail: () => 'Already exists in system',
       footer: 'If a duplicate is a renewal or update, please contact the administrator.',
     },
-    {
-      key: 'success', title: 'Successfully Processed', icon: '✅', solid: '#16a34a', tint: '#f0fdf4', line: '#bbf7d0',
-      items: results.filter((r) => r.status === 'created' || r.status === 'updated'),
-      detail: (r) => (r.status === 'updated' ? `Expiry updated to ${formatDMY(r.expiry)}` : `Expires ${formatDMY(r.expiry)}`),
-    },
   ].filter((section) => section.items.length > 0);
+
+  const created = results.filter((r) => r.status === 'created' || r.status === 'updated').length;
+  const added = results.filter((r) => r.status === 'created').length;
+  const renewed = results.filter((r) => r.status === 'updated').length;
+  const duplicates = results.filter((r) => r.status === 'duplicate').length;
+  const failed = results.filter((r) => r.status === 'failed').length;
+  const totalLine =
+    `Total: ${results.length} document${results.length === 1 ? '' : 's'} processed \u2014 ${added} new, ` +
+    (renewed ? `${renewed} updated, ` : '') +
+    `${duplicates} duplicate${duplicates === 1 ? '' : 's'}, ${failed} failed`;
 
   const font = "font-family:'Segoe UI',Arial,Helvetica,sans-serif;";
   const renderSection = (section) => {
@@ -1030,11 +1040,8 @@ function buildSummaryEmail(results) {
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td align="center" style="padding:16px;">` +
     `<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:640px;max-width:100%;"><tr><td style="${font}font-size:14px;color:#1f2937;padding-bottom:14px;">` +
     `Summary of the ${results.length} document${results.length === 1 ? '' : 's'} received from you:</td></tr>` +
-    `<tr><td>${sections.map(renderSection).join('')}</td></tr></table></td></tr></table>`;
-
-  const created = results.filter((r) => r.status === 'created' || r.status === 'updated').length;
-  const duplicates = results.filter((r) => r.status === 'duplicate').length;
-  const failed = results.filter((r) => r.status === 'failed').length;
+    `<tr><td>${sections.map(renderSection).join('')}</td></tr>` +
+    `<tr><td style="${font}font-size:14px;font-weight:bold;color:#1f2937;padding:6px 0 0 0;">${escapeHtml(totalLine)}</td></tr></table></td></tr></table>`;
   const parts = [
     created ? `${created} created` : null,
     duplicates ? `${duplicates} duplicate${duplicates === 1 ? '' : 's'}` : null,
