@@ -236,6 +236,12 @@ function App() {
   }, [activeModule, user, masUser]);
 
   useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener('session-expired', onExpired);
+    return () => window.removeEventListener('session-expired', onExpired);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     apiFetch('/api/auth/me')

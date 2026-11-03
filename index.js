@@ -88,6 +88,8 @@ app.use(
 
 app.use(
   session({
+    // Sessions live in Postgres so a deploy / restart does not sign everyone out (the in-memory store did).
+    store: new (require('connect-pg-simple')(session))({ pool, createTableIfMissing: true }),
     secret: process.env.SESSION_SECRET || 'maintenance-system-secret',
     resave: false,
     saveUninitialized: false,

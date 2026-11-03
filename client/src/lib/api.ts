@@ -10,5 +10,9 @@ export function apiUrl(path: string): string {
 // fetch() against the API: prefixes the base URL and always sends the session
 // cookie (the frontend and API live on different origins in production).
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(apiUrl(path), { ...init, credentials: 'include' });
+  return fetch(apiUrl(path), { ...init, credentials: 'include' }).then((response) => {
+    // The session is gone (expired, or the server restarted): let the app send the user back to the login screen.
+    if (response.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event('session-expired'));
+    return response;
+  });
 }
