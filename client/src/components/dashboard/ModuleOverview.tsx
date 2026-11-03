@@ -15,6 +15,7 @@ import {
   Bell,
   Calendar,
   CalendarClock,
+  Settings,
   Loader2,
   LucideIcon,
   Car,
@@ -359,7 +360,7 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
     { key: 'total-sites', label: 'Total Sites', value: summary.total_sites, icon: MapPin, color: 'teal', onClick: () => onNavigate('sites') },
   ];
 
-  // Cross-module shortcuts: every module gets Notifications (Settings is central, in the top bar);
+  // Cross-module shortcuts: every module gets Notifications and Settings;
   // general email processing and meetings belong to Equipment Maintenance.
   const notificationsTile: TileDef = {
     key: 'notifications',
@@ -369,13 +370,15 @@ export default function ModuleOverview({ module, onNavigate }: DashboardProps) {
     color: 'grey',
     onClick: () => onNavigate('notifications'),
   };
+  const settingsTile: TileDef = { key: 'settings', label: 'Settings', value: null, icon: Settings, color: 'grey', onClick: () => onNavigate('settings') };
 
   const equipmentSystemTiles: TileDef[] = [
     { key: 'emails-processed', label: 'Emails Processed', value: summary.emails_today, icon: Mail, color: 'grey', onClick: () => onNavigate('email') },
     notificationsTile,
     { key: 'upcoming-meetings', label: 'Upcoming Meetings', value: null, icon: Calendar, color: 'grey', onClick: () => onNavigate('schedules') },
+    settingsTile,
   ];
-  const simpleSystemTiles: TileDef[] = [notificationsTile];
+  const simpleSystemTiles: TileDef[] = [notificationsTile, settingsTile];
 
   const donuts: Record<LegacyModuleId, JSX.Element> = {
     equipment: (

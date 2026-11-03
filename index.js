@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const session = require('express-session');
+const cron = require('node-cron');
 const path = require('path');
 
 const { pool } = require('./db');
@@ -23,8 +24,6 @@ const projectsRouter = require('./routes/projects');
 const costingRouter = require('./routes/costing');
 const { startStatusTracker } = require('./jobs/statusTracker');
 const { processEmails } = require('./jobs/emailProcessor');
-const { runDailyCheck } = require('./jobs/dailyCheck');
-const { startScheduler } = require('./utils/scheduler');
 const { processDocumentEmails, removeDuplicateDocuments } = require('./jobs/documentEmailProcessor');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -149,9 +148,23 @@ removeDuplicateDocuments().catch((error) => {
   console.error('Duplicate document clean-up failed:', error.message);
 });
 
-// Background schedules (document emails, general emails, daily check): intervals are saved in Settings -> Schedule.
-// Documents run before the general email processor so PDF emails are handled (and marked read) first.
-startScheduler({ processDocumentEmails, processEmails, runDailyCheck });
+// One combined schedule: documents first (every 5 minutes), then the general email processor (every 30 minutes,
+// at :00 and :30), so PDF emails are handled (and marked read) before the generic summariser looks at the mailbox.
+// Each step is isolated so one failing doesn't skip the other.
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await processDocumentEmails();
+  } catch (error) {
+    console.error('Document email processor job failed:', error.message, error.stack);
+  }
+
+  if (new Date().getMinutes() % 30 !== 0) return;
+  try {
+    await processEmails();
+  } catch (error) {
+    console.error('Email processor job failed:', error.message, error.stack);
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
