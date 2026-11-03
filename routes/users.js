@@ -7,6 +7,12 @@ const router = express.Router();
 
 const VALID_ITEM_TYPES = ['Equipment', 'Document', 'Project'];
 
+// Free text (Salesman, Engineer, ...): trimmed, blank means none.
+function cleanDesignation(value) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  return text || null;
+}
+
 function isStringArray(value) {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
 }
@@ -21,7 +27,7 @@ router.use((req, res, next) => {
   next();
 });
 
-const USER_COLUMNS = 'id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, permissions, created_at';
+const USER_COLUMNS = 'id, email, name, role, allowed_departments, allowed_item_types, allowed_categories, permissions, designation, created_at';
 
 router.get('/', async (req, res) => {
   try {
@@ -39,6 +45,7 @@ router.get('/', async (req, res) => {
 router.post('/add', async (req, res) => {
   try {
     const { name, email, password, role, allowed_departments, allowed_item_types, allowed_categories } = req.body;
+    const designation = cleanDesignation(req.body.designation);
     let permissions = null;
     try {
       if (req.body.permissions !== undefined && req.body.permissions !== null) permissions = sanitizePermissions(req.body.permissions);
@@ -69,8 +76,8 @@ router.post('/add', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role, allowed_departments, allowed_item_types, allowed_categories, permissions)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO users (name, email, password_hash, role, allowed_departments, allowed_item_types, allowed_categories, permissions, designation)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING ${USER_COLUMNS}`,
       [
         name,
@@ -81,6 +88,7 @@ router.post('/add', async (req, res) => {
         JSON.stringify(allowed_item_types || []),
         JSON.stringify(allowed_categories || []),
         permissions ? JSON.stringify(permissions) : null,
+        designation,
       ]
     );
 
@@ -105,7 +113,7 @@ router.put('/:id/update', async (req, res) => {
       return res.status(400).json({ error: validationError.message });
     }
 
-    if (role === undefined && allowed_departments === undefined && allowed_item_types === undefined && allowed_categories === undefined && permissions === undefined) {
+    if (role === undefined && allowed_departments === undefined && allowed_item_types === undefined && allowed_categories === undefined && permissions === undefined && req.body.designation === undefined) {
       return res.status(400).json({ error: 'Provide role and/or permission fields to update' });
     }
 
@@ -126,7 +134,7 @@ router.put('/:id/update', async (req, res) => {
     }
 
     const { rows: existingRows } = await pool.query(
-      `SELECT role, allowed_departments, allowed_item_types, allowed_categories, permissions FROM users WHERE id = $1`,
+      `SELECT role, allowed_departments, allowed_item_types, allowed_categories, permissions, designation FROM users WHERE id = $1`,
       [id]
     );
     const existing = existingRows[0];
@@ -140,10 +148,11 @@ router.put('/:id/update', async (req, res) => {
     const nextItemTypes = allowed_item_types !== undefined ? allowed_item_types : existing.allowed_item_types;
     const nextCategories = allowed_categories !== undefined ? allowed_categories : existing.allowed_categories;
     const nextPermissions = permissions !== undefined ? permissions : existing.permissions;
+    const nextDesignation = req.body.designation !== undefined ? cleanDesignation(req.body.designation) : existing.designation;
 
     const { rows } = await pool.query(
-      `UPDATE users SET role = $1, allowed_departments = $2, allowed_item_types = $3, allowed_categories = $4, permissions = $5
-       WHERE id = $6
+      `UPDATE users SET role = $1, allowed_departments = $2, allowed_item_types = $3, allowed_categories = $4, permissions = $5, designation = $6
+       WHERE id = $7
        RETURNING ${USER_COLUMNS}`,
       [
         nextRole,
@@ -151,6 +160,7 @@ router.put('/:id/update', async (req, res) => {
         JSON.stringify(nextItemTypes || []),
         JSON.stringify(nextCategories || []),
         nextPermissions ? JSON.stringify(nextPermissions) : null,
+        nextDesignation,
         id,
       ]
     );

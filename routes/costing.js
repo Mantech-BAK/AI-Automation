@@ -176,13 +176,22 @@ async function assignableUsers(me) {
   return (await pool.query(`${USER_SELECT} WHERE u.id = $1`, [me.id])).rows;
 }
 
+// Salesmen: costing users whose MAS login (same e-mail) has the designation 'Salesman' in the Users screen.
+async function salesmenOf() {
+  return (await pool.query(
+    `${USER_SELECT} WHERE u.is_active AND EXISTS (
+       SELECT 1 FROM users mu WHERE LOWER(mu.email) = LOWER(u.email) AND LOWER(TRIM(mu.designation)) = 'salesman')
+     ORDER BY u.name`
+  )).rows;
+}
+
 router.get('/lookup', async (req, res) => {
   const [departments, assignable, salesmen] = await Promise.all([
     pool.query('SELECT id, name FROM departments ORDER BY id'),
     assignableUsers(req.masUser),
-    pool.query(`${USER_SELECT} WHERE u.is_active ORDER BY u.name`),
+    salesmenOf(),
   ]);
-  return res.json({ departments: departments.rows, assignable, salesmen: salesmen.rows });
+  return res.json({ departments: departments.rows, assignable, salesmen });
 });
 
 // ------------------------------------------------------------------ notifications
@@ -263,6 +272,8 @@ async function validateEnquiryBody(req, body) {
   const assignedTo = toId(body.assigned_to) || req.masUser.id;
   const allowed = await assignableUsers(req.masUser);
   if (!allowed.some((user) => user.id === assignedTo)) return "You can't assign an enquiry to that user";
+  const salesmanId = toId(body.salesman_id);
+  if (salesmanId && !(await salesmenOf()).some((user) => user.id === salesmanId)) return 'The salesman must be a registered user with the designation Salesman';
   if (body.status !== undefined && !ENQUIRY_STATUSES.includes(body.status)) return `Status must be one of ${ENQUIRY_STATUSES.join(', ')}`;
   return null;
 }

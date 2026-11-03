@@ -19,8 +19,12 @@ interface AppUser {
   role: string;
   allowed_item_types: string[];
   permissions: Permissions | null;
+  designation: string | null;
   created_at: string;
 }
+
+// Suggestions only: the field accepts any text.
+const DESIGNATIONS = ['Salesman', 'Sales Manager', 'Engineer', 'Technician', 'Manager', 'Admin'];
 
 const STEPS = ['Modules', 'Features', 'Sidebar', 'Data'] as const;
 
@@ -64,7 +68,7 @@ export default function UsersPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editing, setEditing] = useState<AppUser | null>(null);
   const [step, setStep] = useState(0);
-  const [account, setAccount] = useState({ name: '', email: '', password: '', role: 'user' });
+  const [account, setAccount] = useState({ name: '', email: '', password: '', role: 'user', designation: '' });
   const [draft, setDraft] = useState<Permissions>(emptyPermissions());
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -92,7 +96,7 @@ export default function UsersPage() {
 
   function openAddWizard() {
     setEditing(null);
-    setAccount({ name: '', email: '', password: '', role: 'user' });
+    setAccount({ name: '', email: '', password: '', role: 'user', designation: '' });
     setDraft(emptyPermissions());
     setStep(0);
     setFormError(null);
@@ -101,8 +105,9 @@ export default function UsersPage() {
 
   function openEditWizard(user: AppUser) {
     setEditing(user);
+    setAccount({ name: user.name, email: user.email, password: '', role: user.role, designation: user.designation || '' });
     setDraft(permissionsOf(user));
-    setStep(1);
+    setStep(0);
     setFormError(null);
     setWizardOpen(true);
   }
@@ -132,7 +137,7 @@ export default function UsersPage() {
   }
 
   function validateStep(): string | null {
-    if (step === 0) {
+    if (step === 0 && !editing) {
       if (!account.name.trim() || !account.email.trim() || !account.password.trim()) return 'Name, email, and password are required';
     }
     if (step === 1 && draft.modules.length === 0) return 'Choose at least one module';
@@ -175,7 +180,7 @@ export default function UsersPage() {
         ? await apiFetch(`/api/users/${editing.id}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...legacy, permissions }),
+            body: JSON.stringify({ ...legacy, permissions, designation: account.designation }),
           })
         : await apiFetch('/api/users/add', {
             method: 'POST',
@@ -307,6 +312,7 @@ export default function UsersPage() {
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-800 truncate">{user.name}</p>
                     <p className="text-sm text-slate-500 truncate">{user.email}</p>
+                    {user.designation && <p className="text-xs text-cyan-700 truncate">{user.designation}</p>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
@@ -371,8 +377,8 @@ export default function UsersPage() {
         <div className="space-y-5">
           {!isAdminAccount && (
             <ol className="flex items-center gap-2 text-xs">
-              {[...(editing ? [] : ['Account']), ...STEPS].map((label, index) => {
-                const number = editing ? index + 1 : index;
+              {['Account', ...STEPS].map((label, index) => {
+                const number = index;
                 const done = number < step;
                 const current = number === step;
                 return (
@@ -382,10 +388,10 @@ export default function UsersPage() {
                         current ? 'bg-cyan-600 text-white' : done ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-400'
                       }`}
                     >
-                      {done ? <Check size={11} /> : editing ? number : number + 1}
+                      {done ? <Check size={11} /> : number + 1}
                     </span>
                     <span className={`truncate ${current ? 'text-slate-800 font-medium' : 'text-slate-400'}`}>{label}</span>
-                    {index < (editing ? STEPS.length : STEPS.length + 1) - 1 && <span className="text-slate-300">/</span>}
+                    {index < STEPS.length && <span className="text-slate-300">/</span>}
                   </li>
                 );
               })}
@@ -405,6 +411,7 @@ export default function UsersPage() {
                   name="new-user-name"
                   autoComplete="off"
                   value={account.name}
+                  disabled={!!editing}
                   onChange={(e) => setAccount({ ...account, name: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
@@ -416,10 +423,12 @@ export default function UsersPage() {
                   name="new-user-email"
                   autoComplete="off"
                   value={account.email}
+                  disabled={!!editing}
                   onChange={(e) => setAccount({ ...account, email: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
               </div>
+              {!editing && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
                 <input
@@ -431,6 +440,8 @@ export default function UsersPage() {
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
               </div>
+              )}
+              {!editing && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
                 <select
@@ -441,6 +452,25 @@ export default function UsersPage() {
                   <option value="admin">Admin - full access, sees everything</option>
                   <option value="user">User - access set in the next steps</option>
                 </select>
+              </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+                <input
+                  type="text"
+                  name="new-user-designation"
+                  autoComplete="off"
+                  list="designation-options"
+                  placeholder="Choose or type, e.g. Salesman"
+                  value={account.designation}
+                  onChange={(e) => setAccount({ ...account, designation: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+                <datalist id="designation-options">
+                  {DESIGNATIONS.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
               </div>
             </div>
           )}
@@ -542,10 +572,10 @@ export default function UsersPage() {
 
           <div className="flex justify-between gap-2 pt-2">
             <button
-              onClick={() => (step > (editing ? 1 : 0) ? setStep(step - 1) : setWizardOpen(false))}
+              onClick={() => (step > 0 ? setStep(step - 1) : setWizardOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
             >
-              {step > (editing ? 1 : 0) ? 'Back' : 'Cancel'}
+              {step > 0 ? 'Back' : 'Cancel'}
             </button>
             {step === lastStep || isAdminAccount ? (
               <button
