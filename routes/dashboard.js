@@ -8,6 +8,7 @@ const { toTitleCase } = require('../utils/text');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
 const { sendDuplicateEmail } = require('../jobs/documentEmailProcessor');
 const { fetchBakUsers } = require('../utils/bakUsers');
+const { syncDocumentPlannerTask } = require('../utils/documentPlanner');
 
 const DUPLICATE_UI_MESSAGE = 'This document already exists.';
 const escapeHtml = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -521,7 +522,9 @@ router.patch('/documents/:id/responsible-person', async (req, res) => {
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Document not found' });
     await addResolvedNames(rows);
-    return res.json(rows[0]);
+    // Keep the document's Planner task assigned to the new person (never fails the save).
+    const planner = value ? await syncDocumentPlannerTask(rows[0].id) : { status: 'skipped', reason: 'no responsible person' };
+    return res.json({ ...rows[0], planner_sync: planner });
   } catch (error) {
     console.error('Assign responsible person failed:', error);
     return res.status(500).json({ error: 'Failed to assign responsible person' });

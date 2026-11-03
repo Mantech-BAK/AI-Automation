@@ -9,7 +9,17 @@ async function ensureDocumentColumns(pool) {
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS license_no VARCHAR;
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS sent_by VARCHAR;
+    ALTER TABLE assets ADD COLUMN IF NOT EXISTS planner_task_id VARCHAR;
   `);
+
+  // Documents whose renewal task was created before assets.planner_task_id existed: take the id from the open work order.
+  await pool.query(
+    `UPDATE assets a SET planner_task_id = wo.planner_task_id
+     FROM work_orders wo
+     WHERE wo.asset_id = a.id AND wo.task_type = 'document' AND wo.status NOT IN ('completed', 'rejected')
+       AND wo.planner_task_id IS NOT NULL AND a.planner_task_id IS NULL
+       AND a.type_id = (SELECT id FROM asset_types WHERE name = 'Document')`
+  );
 
   // sent_by = who emailed the document (read-only); responsible_person = who it is assigned to (editable).
   // Until now responsible_person held the sender: move it to sent_by and leave responsible_person empty so it can

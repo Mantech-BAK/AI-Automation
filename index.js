@@ -139,6 +139,7 @@ startStatusTracker();
 // Documents module columns (cr_no, license_no, processed_at) - idempotent; then the duplicate clean-up.
 require('./db/documentColumns')
   .ensureDocumentColumns(pool)
+  .then(() => require('./utils/documentPlanner').reconcileDocumentPlannerTasks())
   .catch((error) => console.error('Document column setup failed:', error.message));
 require('./db/costingSchema')
   .ensureCostingSchema(pool)

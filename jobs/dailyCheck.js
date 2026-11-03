@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const { pool } = require('../db');
 const { getDelegatedToken, graphRequest } = require('../graph/client');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
+const { createDocumentPlannerTask } = require('../utils/documentPlanner');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -922,9 +923,11 @@ async function runDailyCheck() {
       );
 
       if (existingOrder.rows.length === 0) {
-        // Assign the Planner task to the responsible person's own Graph
-        // identity when it can be resolved; MY_USER_ID stays the fallback.
-        const documentAssigneeGraphId = await resolveGraphUserId(documentEmailChain.to);
+        // Assign the Planner task to the responsible person's own Graph identity. When there is no responsible
+        // person, or the lookup fails (logged with the email), the task is created unassigned - never on MY_USER_ID.
+        const documentAssigneeGraphId = doc.responsible_person
+          ? await resolveGraphUserId(documentEmailChain.to)
+          : null;
 
         // Planner task + calendar event MUST run before the work_order insert
         // below so a Graph failure is visible in the logs immediately, rather
@@ -933,12 +936,8 @@ async function runDailyCheck() {
         // permanently skipped.
         let plannerTaskId = null;
         try {
-          plannerTaskId = await createPlannerTask(doc, {
-            title: `Document Renewal Required - ${doc.equipment_name} (${doc.site_location}) - Expires ${formatDateDDMMYYYY(doc.expiry_date)}`,
-            dueDateTime: `${doc.expiry_date}T09:00:00Z`,
-            description: documentDescription,
-            assigneeId: documentAssigneeGraphId || MY_USER_ID,
-          });
+          plannerTaskId = await createDocumentPlannerTask(doc, documentAssigneeGraphId);
+          await pool.query(`UPDATE assets SET planner_task_id = $1 WHERE id = $2`, [plannerTaskId, doc.id]);
           console.log(`Created Planner task for document: ${doc.equipment_name} expiring ${doc.expiry_date}`);
 
           // Plain Outlook reminder appointment on the shared calendar - not a
