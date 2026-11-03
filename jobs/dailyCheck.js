@@ -4,7 +4,7 @@ const cron = require('node-cron');
 const { pool } = require('../db');
 const { getDelegatedToken, graphRequest } = require('../graph/client');
 const { VEHICLE_CATEGORIES } = require('../utils/vehicleCategories');
-const { createDocumentPlannerTask } = require('../utils/documentPlanner');
+const { createDocumentPlannerTask, resolveDisplayName } = require('../utils/documentPlanner');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -905,6 +905,10 @@ async function runDailyCheck() {
       });
       const documentDescription = `Document type: ${doc.type_name || 'N/A'}\nCompany: ${doc.company_name || 'N/A'}\nResponsible: ${doc.responsible_person || 'N/A'}\nExpires: ${doc.expiry_date}\nDays remaining: ${daysRemaining} days`;
       const documentEmailChain = await resolveEmailChain(doc.responsible_person);
+      // Reminders show the person's name (Graph displayName), not their email; the email when the lookup fails.
+      const responsibleName = (await resolveDisplayName(documentEmailChain.to)) || doc.responsible_person || 'N/A';
+      const documentLink = doc.onedrive_url ? `\nDocument: ${doc.onedrive_url}` : '';
+      const documentLinkHtml = doc.onedrive_url ? `<br/>Document: <a href="${doc.onedrive_url}">${doc.onedrive_url}</a>` : '';
       const ccEmails = await getDepartmentCcEmails(doc.department || doc.site_location);
       // Document escalation: once actually overdue, address the responsible
       // person's manager instead of (or in addition to) the person themself.
@@ -969,7 +973,7 @@ async function runDailyCheck() {
         }
 
         const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.company_name || 'No company'}`;
-        const emailBody = `Item: ${doc.equipment_name}\nCompany: ${doc.company_name || 'N/A'}\nExpiry date: ${doc.expiry_date}\n${daysRemaining} day(s) remaining\nResponsible person: ${doc.responsible_person || 'N/A'}`;
+        const emailBody = `Item: ${doc.equipment_name}\nCompany: ${doc.company_name || 'N/A'}\nExpiry date: ${doc.expiry_date}\n${daysRemaining} day(s) remaining\nResponsible person: ${responsibleName}${documentLink}`;
 
         try {
           await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
@@ -977,7 +981,7 @@ async function runDailyCheck() {
           console.warn('Email sending skipped and continue running');
         }
 
-        const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Company: ${doc.company_name || 'N/A'}<br/>Expiry date: ${doc.expiry_date}<br/>${daysRemaining} day(s) remaining<br/>Responsible person: ${doc.responsible_person || 'N/A'}`;
+        const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Company: ${doc.company_name || 'N/A'}<br/>Expiry date: ${doc.expiry_date}<br/>${daysRemaining} day(s) remaining<br/>Responsible person: ${responsibleName}${documentLinkHtml}`;
         try {
           await postTeamsMessage(teamsBody);
         } catch (error) {
@@ -1011,7 +1015,7 @@ async function runDailyCheck() {
           ? 'due today'
           : `${Math.abs(daysRemaining)} day(s) overdue`;
       const subject = `Document Renewal Reminder - ${doc.equipment_name} - ${doc.company_name || 'No company'}`;
-      const emailBody = `Item: ${doc.equipment_name}\nCompany: ${doc.company_name || 'N/A'}\nExpiry date: ${doc.expiry_date}\n${daysLabel}\nResponsible person: ${doc.responsible_person || 'N/A'}`;
+      const emailBody = `Item: ${doc.equipment_name}\nCompany: ${doc.company_name || 'N/A'}\nExpiry date: ${doc.expiry_date}\n${daysLabel}\nResponsible person: ${responsibleName}${documentLink}`;
 
       try {
         await sendMail(toEmail, subject, emailBody, 'app', ccEmails);
@@ -1019,7 +1023,7 @@ async function runDailyCheck() {
         console.warn('Email sending skipped and continue running');
       }
 
-      const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Company: ${doc.company_name || 'N/A'}<br/>Expiry date: ${doc.expiry_date}<br/>${daysLabel}<br/>Responsible person: ${doc.responsible_person || 'N/A'}`;
+      const teamsBody = `<b>Document Renewal Reminder</b><br/>Item: ${doc.equipment_name}<br/>Company: ${doc.company_name || 'N/A'}<br/>Expiry date: ${doc.expiry_date}<br/>${daysLabel}<br/>Responsible person: ${responsibleName}${documentLinkHtml}`;
       try {
         await postTeamsMessage(teamsBody);
       } catch (error) {

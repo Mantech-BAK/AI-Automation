@@ -26,6 +26,18 @@ async function resolveGraphUserId(email) {
   return null;
 }
 
+// Graph displayName for an email (GET /users/{email}); the email itself when the lookup fails.
+async function resolveDisplayName(email) {
+  if (!email) return null;
+  try {
+    const user = await graphRequest('GET', `/users/${encodeURIComponent(email)}`, null, 'app');
+    if (user?.displayName) return user.displayName;
+  } catch (error) {
+    console.warn(`Could not resolve display name for ${email}: ${error.message}`);
+  }
+  return email;
+}
+
 // The document plus the fields the task title/description need; expiry_date as YYYY-MM-DD text.
 async function loadDocument(assetId) {
   const { rows } = await pool.query(
@@ -182,4 +194,4 @@ async function reconcileDocumentPlannerTasks() {
   await pool.query(`INSERT INTO app_flags (key) VALUES ('document_planner_assignees_v1') ON CONFLICT DO NOTHING`);
 }
 
-module.exports = { resolveGraphUserId, createDocumentPlannerTask, syncDocumentPlannerTask, reconcileDocumentPlannerTasks };
+module.exports = { resolveGraphUserId, resolveDisplayName, createDocumentPlannerTask, syncDocumentPlannerTask, reconcileDocumentPlannerTasks };
