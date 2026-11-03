@@ -1063,12 +1063,19 @@ function buildSummaryEmail(results) {
 // Sends ONE summary email per unique sender at the end of a run, covering all of that sender's documents across
 // every email they sent. Never throws.
 // entries: [{ subject, result, to }] collected as PDFs are processed.
+// Returns the sender addresses that are done (summary sent, or deliberately not sent); a sender whose send failed is left out
+// so its entries stay queued and are retried on the next run.
 async function sendSummaryEmails(entriesBySender) {
   const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
+  const handled = [];
 
   for (const [senderAddress, entries] of entriesBySender) {
     // Avoid mailing ourselves (and a possible reply loop).
-    if (senderAddress.toLowerCase() === ownAddress) continue;
+    if (senderAddress.toLowerCase() === ownAddress) {
+      console.log(`Summary not sent: the documents came from the processing mailbox itself (${senderAddress})`);
+      handled.push(senderAddress);
+      continue;
+    }
 
     const results = entries.map((entry) => entry.result);
 
@@ -1092,9 +1099,29 @@ async function sendSummaryEmails(entriesBySender) {
         'app'
       );
       console.log(`Summary email sent to ${senderAddress} (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To)`);
+      handled.push(senderAddress);
     } catch (error) {
-      console.warn(`Could not send summary email to ${senderAddress}: ${error.message}`);
+      console.warn(`Could not send summary email to ${senderAddress} (will retry on the next run): ${error.message}`);
     }
+  }
+  return handled;
+}
+
+// Results waiting for their summary email. They are saved as each email is processed, so a restart or crash in the middle
+// of a long run (OCR can take minutes per PDF) no longer loses the summary: the next run sends what is left.
+async function flushSummaryQueue() {
+  await pool.query(`DELETE FROM document_summary_queue WHERE created_at < NOW() - INTERVAL '3 days'`);
+  const { rows } = await pool.query(`SELECT id, sender, subject, recipients, result FROM document_summary_queue ORDER BY id`);
+  if (rows.length === 0) return;
+
+  const entriesBySender = new Map();
+  for (const row of rows) {
+    if (!entriesBySender.has(row.sender)) entriesBySender.set(row.sender, []);
+    entriesBySender.get(row.sender).push({ subject: row.subject, result: row.result, to: row.recipients || [] });
+  }
+  const handled = await sendSummaryEmails(entriesBySender);
+  if (handled.length > 0) {
+    await pool.query(`DELETE FROM document_summary_queue WHERE sender = ANY($1::text[]) AND id <= $2`, [handled, rows[rows.length - 1].id]);
   }
 }
 
@@ -1105,6 +1132,11 @@ async function ensureProcessedEmailsTable() {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS processed_emails (
        message_id VARCHAR PRIMARY KEY, subject VARCHAR, sender VARCHAR, processed_at TIMESTAMP DEFAULT NOW()
+     )`
+  );
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS document_summary_queue (
+       id SERIAL PRIMARY KEY, sender VARCHAR NOT NULL, subject VARCHAR, recipients JSONB, result JSONB NOT NULL, created_at TIMESTAMP DEFAULT NOW()
      )`
   );
   processedEmailsReady = true;
@@ -1136,8 +1168,6 @@ async function processDocumentEmails() {
   try {
     await cleanupOrphanedTempFiles();
 
-    // sender address -> [{ subject, result }] for the single end-of-run summary
-    const entriesBySender = new Map();
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const filter = `hasAttachments eq true and isRead eq false and receivedDateTime ge ${since}`;
     const data = await graphRequest(
@@ -1166,6 +1196,8 @@ async function processDocumentEmails() {
     }
 
     await ensureProcessedEmailsTable();
+    // Summaries a previous run did not get to send (restart / crash mid-run).
+    await flushSummaryQueue().catch((error) => console.warn(`Could not send queued summary emails: ${error.message}`));
 
     for (const message of messages) {
       try {
@@ -1206,12 +1238,10 @@ async function processDocumentEmails() {
 
           // Duplicates (nothing was saved) are reported in the summary email, in their own section.
           if (senderAddress) {
-            if (!entriesBySender.has(senderAddress)) entriesBySender.set(senderAddress, []);
-            entriesBySender.get(senderAddress).push({
-              subject: message.subject,
-              result,
-              to: addressesOf(message.toRecipients),
-            });
+            await pool.query(
+              `INSERT INTO document_summary_queue (sender, subject, recipients, result) VALUES ($1, $2, $3, $4)`,
+              [senderAddress, message.subject || null, JSON.stringify(addressesOf(message.toRecipients)), JSON.stringify(result)]
+            );
           } else {
             console.warn(`No sender address on "${message.subject}", it will not be included in a summary email`);
           }
@@ -1230,7 +1260,7 @@ async function processDocumentEmails() {
       }
     }
 
-    await sendSummaryEmails(entriesBySender);
+    await flushSummaryQueue();
   } finally {
     isProcessing = false;
   }
@@ -1246,4 +1276,4 @@ async function processDocumentEmails() {
   return summary;
 }
 
-module.exports = { buildSummaryEmail, processExtractedDocument, splitDocuments, DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
+module.exports = { flushSummaryQueue, buildSummaryEmail, processExtractedDocument, splitDocuments, DUPLICATE_SUBJECT, DUPLICATE_UI_MESSAGE, buildDuplicateEmail, sendDuplicateEmail, formatDMYHM, documentNameFromFilename, processDocumentEmails, removeDuplicateDocuments, compareExtractedData, isDateKey, looksLikeDate, parseJsonObject, isUnknownOwner, cleanupOrphanedTempFiles };
