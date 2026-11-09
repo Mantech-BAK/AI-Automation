@@ -351,23 +351,18 @@ function documentNameFromFilename(fileName) {
   return stripped || null;
 }
 
-function safeFilePart(value) {
-  return String(value || 'Unknown').replace(/[\\/:*?"<>|#%~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Unknown';
-}
-
-function buildFileName(companyName, documentName, expiryDate) {
-  return `${safeFilePart(companyName)}_${safeFilePart(documentName)}_${expiryDate}.pdf`;
-}
 
 // Uploads the PDF to the service account's OneDrive. Never throws - a failed
 // upload must not stop the document from being recorded.
-async function uploadToOneDrive(pdfBuffer, companyName, documentName, expiryDate) {
+// The file keeps the attachment's own filename. If a file with that name is already in the folder (the same document re-sent),
+// OneDrive keeps both instead of overwriting the earlier version.
+async function uploadToOneDrive(pdfBuffer, fileName) {
+  const documentName = fileName;
   try {
-    const fileName = buildFileName(companyName, documentName, expiryDate);
     const itemPath = `${ONEDRIVE_FOLDER}/${fileName}`.split('/').map(encodeURIComponent).join('/');
     const token = await getAppOnlyToken();
     const response = await fetch(
-      `https://graph.microsoft.com/v1.0/users/${serviceAccount()}/drive/root:/${itemPath}:/content`,
+      `https://graph.microsoft.com/v1.0/users/${serviceAccount()}/drive/root:/${itemPath}:/content?@microsoft.graph.conflictBehavior=rename`,
       {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/pdf' },
@@ -440,7 +435,7 @@ async function updateExistingDocument(assetId, doc, oneDriveUrl) {
     if (oneDriveUrl) {
       await client.query(
         `INSERT INTO document_versions (asset_id, onedrive_url, expiry_date, issue_date, file_name) VALUES ($1, $2, $3, $4, $5)`,
-        [assetId, oneDriveUrl, doc.expiry_date, doc.registration_date, buildFileName(doc.owner_name, doc.document_name, doc.expiry_date)]
+        [assetId, oneDriveUrl, doc.expiry_date, doc.registration_date, doc.file_name]
       );
     }
 
@@ -499,7 +494,7 @@ async function createNewDocument(doc, oneDriveUrl) {
   if (oneDriveUrl) {
     await pool.query(
       `INSERT INTO document_versions (asset_id, onedrive_url, expiry_date, issue_date, file_name) VALUES ($1, $2, $3, $4, $5)`,
-      [rows[0].id, oneDriveUrl, doc.expiry_date, doc.registration_date, buildFileName(doc.owner_name, doc.document_name, doc.expiry_date)]
+      [rows[0].id, oneDriveUrl, doc.expiry_date, doc.registration_date, doc.file_name]
     );
   }
   return rows[0].id;
@@ -622,8 +617,9 @@ async function findExistingDocument(extractedData, documentName, responsiblePers
   // (the AI spells identifiers differently on every run, so identifiers alone cannot catch a re-sent file).
   if (documentName && responsiblePerson) {
     const { rows } = await pool.query(
-      `${base} AND LOWER(TRIM(a.equipment_name)) = LOWER(TRIM($2)) AND LOWER(TRIM(COALESCE(a.sent_by, a.responsible_person))) = LOWER(TRIM($3)) ORDER BY a.id LIMIT 1`,
-      [exclude, documentName, responsiblePerson]
+      `${base} AND LOWER(TRIM(a.equipment_name)) = ANY($2::text[]) AND LOWER(TRIM(COALESCE(a.sent_by, a.responsible_person))) = LOWER(TRIM($3)) ORDER BY a.id LIMIT 1`,
+      // The filename itself, and the shortened form older records were stored under (".pdf" and leading codes removed).
+      [exclude, [documentName, documentNameFromFilename(documentName)].filter(Boolean).map((name) => name.trim().toLowerCase()), responsiblePerson]
     );
     if (rows.length > 0) return found(rows[0], 'name + sent by', `${documentName} / ${responsiblePerson}`);
   }
@@ -750,8 +746,8 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
       throw error;
     }
   }
-  const baseName =
-    documentNameFromFilename(attachment.name) || String(attachment.name || '').replace(/\.pdf$/i, '').trim();
+  // The attachment's filename exactly as received - every document found in this PDF carries it unchanged.
+  const baseName = attachment.name;
   if (items.length > 1) console.log(`"${attachment.name}" contains ${items.length} documents`);
 
   // The PDF is uploaded once (when the first document that needs it is saved) and the link is shared.
@@ -759,7 +755,7 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   const getOneDriveUrl = async (doc) => {
     if (!shared.uploaded) {
       shared.uploaded = true;
-      shared.url = await uploadToOneDrive(pdfBuffer, doc.owner_name, items.length > 1 ? baseName : doc.document_name, doc.expiry_date);
+      shared.url = await uploadToOneDrive(pdfBuffer, baseName);
     }
     return shared.url;
   };
@@ -795,20 +791,16 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     return null;
   };
 
-  // Single document: the attachment filename is the name everywhere (Groq's extracted name varies from run
-  // to run). Several documents in one PDF share that filename, so each uses the name the AI found for it.
-  let documentName = baseName || firstString('document_name') || String(attachment.name || '').replace(/\.pdf$/i, '').trim();
-  if (total > 1) {
-    documentName = firstString('document_name', 'document_type') || `${baseName} (${index + 1})`;
-    if (usedNames.has(documentName.toLowerCase())) documentName = `${documentName} (${index + 1})`;
-  }
-  usedNames.add(documentName.toLowerCase());
+  // The name is the attachment filename exactly as received (the AI's name varies from run to run). Several documents
+  // found in one PDF all carry that same filename - nothing is appended or renamed.
+  const documentName = baseName;
 
   // The whole AI response is kept as extracted_data; a few well-known keys are
   // also copied into dedicated columns.
   const doc = {
     extracted_data: raw,
     document_name: documentName,
+    file_name: attachment.name,
     registration_date: cleanDate(raw.registration_date) || cleanDate(raw.issue_date) || cleanDate(raw.date_of_issue),
     expiry_date: cleanDate(raw.expiry_date),
     owner_name: firstString('company_name', 'owner_name', 'owner', 'company'),
@@ -1028,7 +1020,7 @@ function buildSummaryEmail(results) {
   const renderSection = (section) => {
     const rows = section.items
       .map((r) => {
-        const name = r.documentName || r.fileName || 'Unknown document';
+        const name = r.fileName || r.documentName || 'Unknown document';
         const label = r.company ? `${escapeHtml(name)} — ${escapeHtml(r.company)}` : escapeHtml(name);
         return (
           `<tr><td bgcolor="${section.tint}" style="background-color:${section.tint};padding:10px 14px;border-bottom:1px solid ${section.line};${font}font-size:14px;color:#1f2937;">` +
