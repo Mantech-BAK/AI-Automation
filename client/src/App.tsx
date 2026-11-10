@@ -18,7 +18,6 @@ import LoginPage from './pages/LoginPage';
 import ProjectsModule from './modules/ProjectsModule';
 import ModuleSelectPage from './pages/ModuleSelectPage';
 import CostingModule from './modules/CostingModule';
-import AttendancePage from './pages/AttendancePage';
 import NotificationBell from './pages/costing/NotificationBell';
 import { costingApi, type MasUser } from './lib/costing';
 import { MODULE_ORDER, TOOLS, allNavItems, isModuleId, isToolId, type ModuleId, type ToolId } from './lib/modules';
@@ -343,10 +342,6 @@ function App() {
 
     if (activeModule === 'costing') {
       return <CostingModule me={masUser} onNavigate={goToCostingPath} />;
-    }
-
-    if (activeModule === 'attendance') {
-      return <AttendancePage />;
     }
 
     // The other modules share the asset / task / document pages below.

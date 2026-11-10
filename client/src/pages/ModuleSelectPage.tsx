@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Calculator, ChevronRight, Clock, FileText, LogOut, Lock, Settings, TrendingUp, Truck, Wrench, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, BarChart3, Calculator, ChevronRight, FileText, LogOut, Lock, Settings, TrendingUp, Truck, Wrench, type LucideIcon } from 'lucide-react';
 import { TOOLS, type ModuleId, type ToolId } from '../lib/modules';
 import { apiFetch } from '../lib/api';
 import { canUseTool, type Permissions } from '../lib/permissions';
@@ -15,7 +15,7 @@ interface ModuleSelectPageProps {
 }
 
 // Tile order on this page (differs from MODULE_ORDER, which the sidebar / routing use).
-const TILE_ORDER: ModuleId[] = ['equipment', 'documents', 'vehicles', 'projects', 'costing', 'attendance'];
+const TILE_ORDER: ModuleId[] = ['equipment', 'documents', 'vehicles', 'projects', 'costing'];
 
 const TILES: Record<ModuleId, { name: string; subtitle: string; icon: LucideIcon; from: string; to: string }> = {
   equipment: { name: 'Equipment', subtitle: 'Maintenance & assets', icon: Wrench, from: '#3B82F6', to: '#6366F1' },
@@ -23,7 +23,6 @@ const TILES: Record<ModuleId, { name: string; subtitle: string; icon: LucideIcon
   vehicles: { name: 'Vehicles', subtitle: 'Fleet & service', icon: Truck, from: '#14B8A6', to: '#06B6D4' },
   projects: { name: 'Projects', subtitle: 'Delivery tracking', icon: BarChart3, from: '#A855F7', to: '#EC4899' },
   costing: { name: 'Costing Sheet', subtitle: 'Enquiries & quotations', icon: Calculator, from: '#22C55E', to: '#10B981' },
-  attendance: { name: 'Attendance', subtitle: 'Punches & approvals', icon: Clock, from: '#F43F5E', to: '#DB2777' },
 };
 
 type Tone = 'good' | 'warn' | 'bad';
@@ -42,8 +41,7 @@ interface StatDef {
 
 const none = (zero: string, some: string, tone: Tone) => (value: number) => (value === 0 ? { text: zero, tone: 'good' as Tone } : { text: some, tone });
 
-// Attendance has no tiles here: its numbers live in the attendance back office itself.
-const STATS: Partial<Record<ModuleId, [StatDef, StatDef]>> = {
+const STATS: Record<ModuleId, [StatDef, StatDef]> = {
   equipment: [
     { key: 'eq-active', label: 'Active Work Orders', url: '/api/equipment/active-work-orders', describe: (v) => ({ text: v === 0 ? 'Nothing open' : 'In progress', tone: 'good' }) },
     { key: 'eq-overdue', label: 'Overdue Inspections', url: '/api/equipment/overdue', describe: none('None overdue', 'Needs attention', 'bad') },
@@ -104,7 +102,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
   useEffect(() => {
     let cancelled = false;
     // One call per tile: a failing endpoint leaves only its own tile as a dash.
-    for (const def of TILE_ORDER.flatMap((id) => STATS[id] ?? [])) {
+    for (const def of TILE_ORDER.flatMap((id) => STATS[id])) {
       fetchCount(def.url).then((value) => {
         if (!cancelled) setCounts((current) => ({ ...current, [def.key]: value }));
       });
@@ -116,8 +114,6 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
   // Users only see the modules they were given access to.
   const visibleTiles = TILE_ORDER.filter((id) => accessibleModules.includes(id));
-  // Five tiles fit one row as before; a sixth (Attendance) needs a sixth column.
-  const wide = visibleTiles.length > 5;
 
   const statTile = (def: StatDef) => {
     const count = counts[def.key];
@@ -185,7 +181,7 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 lg:px-8 py-10 space-y-5">
         {/* Module tiles */}
-        <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${wide ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-4 sm:gap-5`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-5">
           {visibleTiles.map((id) => {
             const tile = TILES[id];
             const Icon = tile.icon;
@@ -237,14 +233,8 @@ export default function ModuleSelectPage({ accessibleModules, onSelectModule, on
 
         {/* Stat tiles: one pair per module, in the same column as its module tile (a separate section, 76px below the tiles) */}
         <div className="pt-14 space-y-5">
-          {[0, 1].map((row) => (
-            <div key={row} className={`grid grid-cols-2 md:grid-cols-3 ${wide ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-5`}>
-              {visibleTiles.map((id) => {
-                const def = STATS[id]?.[row];
-                return def ? statTile(def) : <div key={`${id}-${row}`} />;
-              })}
-            </div>
-          ))}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{visibleTiles.map((id) => statTile(STATS[id][0]))}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">{visibleTiles.map((id) => statTile(STATS[id][1]))}</div>
         </div>
 
       </main>
