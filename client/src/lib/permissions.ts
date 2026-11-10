@@ -23,6 +23,7 @@ export const MODULE_PERMISSION_NAMES: Record<ModuleId, string> = {
   vehicles: 'Vehicles',
   projects: 'Projects',
   costing: 'Costing Sheet',
+  attendance: 'Attendance',
 };
 
 export const FEATURE_OPTIONS: { key: keyof Permissions['features']; label: string; description: string }[] = [
@@ -36,6 +37,8 @@ export function canAccessModule(user: AccessUser, module: ModuleId): boolean {
   const itemTypes = user.allowed_item_types || [];
   // Project financials are opt-in: the user needs the 'Project' item type, an empty list is not enough.
   if (module === 'projects') return itemTypes.includes('Project');
+  // Attendance is opt-in too: only administrators and users given the module explicitly.
+  if (module === 'attendance') return false;
   // Costing Sheet has its own user picker and role-based access, so every MAS user could open it.
   if (module === 'costing') return true;
   if (itemTypes.length === 0) return true;

@@ -4,7 +4,7 @@
 // Admins bypass everything. A user without a permissions object (created before this existed) keeps the legacy
 // behaviour (allowed_item_types, no feature or data restrictions).
 
-const MODULE_NAMES = ['Equipment', 'Documents', 'Vehicles', 'Projects', 'Costing Sheet'];
+const MODULE_NAMES = ['Equipment', 'Documents', 'Vehicles', 'Projects', 'Costing Sheet', 'Attendance'];
 const FEATURES = ['emailSummary', 'scheduleMeeting'];
 
 function isAdmin(user) {
@@ -44,6 +44,7 @@ function hasModule(user, moduleName) {
   if (isAdmin(user)) return true;
   if (user.permissions) return user.permissions.modules.includes(moduleName);
   if (moduleName === 'Projects') return (user.allowed_item_types || []).includes('Project');
+  if (moduleName === 'Attendance') return false; // opt-in: administrators and users given the module explicitly
   return true;
 }
 

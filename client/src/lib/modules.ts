@@ -2,6 +2,7 @@ import {
   Bell,
   BarChart3,
   Calculator,
+  Clock,
   ClipboardCheck,
   ClipboardList,
   ListTodo,
@@ -32,11 +33,11 @@ import {
 } from 'lucide-react';
 import type { NavFilter } from '../App';
 
-export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects' | 'costing';
+export type ModuleId = 'equipment' | 'vehicles' | 'documents' | 'projects' | 'costing' | 'attendance';
 
 // The three modules built on the shared asset/task dashboards (Project Tracking
 // has its own pages under pages/projects).
-export type LegacyModuleId = Exclude<ModuleId, 'projects' | 'costing'>;
+export type LegacyModuleId = Exclude<ModuleId, 'projects' | 'costing' | 'attendance'>;
 
 export type TabId = NonNullable<NavFilter['tab']>;
 export type TechnicianTabId = 'maintenance' | 'documentation' | 'vehicles';
@@ -171,12 +172,21 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
       { id: 'admin', label: 'Users & Settings', icon: UserCog, page: 'costing-admin', minRoleLevel: 4 },
     ],
   },
+  attendance: {
+    id: 'attendance',
+    label: 'Attendance',
+    description: 'Punches, tasks, approvals and attendance reports',
+    icon: Clock,
+    gradient: 'from-rose-500 to-pink-600',
+    // One page: the attendance back office, shown in an iframe. The entry keeps the id 'dashboard' so /attendance opens it.
+    nav: [{ id: 'dashboard', label: 'Attendance', icon: Clock, page: 'attendance' }],
+  },
 };
 
-export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents', 'projects', 'costing'];
+export const MODULE_ORDER: ModuleId[] = ['equipment', 'vehicles', 'documents', 'projects', 'costing', 'attendance'];
 
 export function isModuleId(value: string | undefined): value is ModuleId {
-  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects' || value === 'costing';
+  return value === 'equipment' || value === 'vehicles' || value === 'documents' || value === 'projects' || value === 'costing' || value === 'attendance';
 }
 
 export function allNavItems(module: ModuleId): ModuleNavItem[] {
