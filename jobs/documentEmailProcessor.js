@@ -9,7 +9,8 @@ const Groq = require('groq-sdk');
 const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const { pool } = require('../db');
 const { graphRequest, getAppOnlyToken } = require('../graph/client');
-const { findCrNo, findLicenseNo, stripPrintedFields } = require('../utils/documentFields');
+const { findCrNo, findLicenseNo, stripPrintedFields, findIdentifiersInText } = require('../utils/documentFields');
+const { segmentPages, describePages } = require('../utils/pdfSegmentation');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -188,8 +189,8 @@ ${truncatedText}`);
   return parseJsonObject(content);
 }
 
-// Only the first pages of a PDF are ever read (here, in scripts/ocr_pdf.py and so in the text sent to the AI).
-const MAX_PDF_PAGES = 2;
+// A PDF can hold many documents: the first pages are read (here and in scripts/ocr_pdf.py, LAST_PAGE) and split by document.
+const MAX_PDF_PAGES = 20;
 
 // Text of a PDF page by page. pdf-parse joins pages into one string; the custom page renderer keeps each page's own text.
 async function readPdfPages(pdfBuffer) {
@@ -242,7 +243,6 @@ function readPdfViaScript(pdfBuffer, label) {
           return resolve({ failure, ocrAttempted });
         }
         const pages = String(stdout).split('\f');
-        while (pages.length > 1 && !pages[pages.length - 1].trim()) pages.pop();
         resolve({ text: pages.join('\n'), pages, ocrAttempted });
       }
     );
@@ -251,15 +251,6 @@ function readPdfViaScript(pdfBuffer, label) {
 
 const textForAi = (pages) =>
   pages.map((page, i) => `=== PAGE ${i + 1} of ${pages.length} ===\n${String(page).trim().slice(0, MAX_PAGE_CHARS)}`).join('\n\n');
-
-// A PDF whose pages each start with the same title (e.g. two licences of the same kind) holds one document per page.
-function pagesAreSeparateDocuments(pages) {
-  if (pages.length < 2 || pages.length > 10) return false;
-  if (pages.some((page) => String(page).trim().length < MIN_TEXT_CHARS)) return false;
-  const title = (page) => String(page).split('\n').map((line) => line.trim()).find(Boolean)?.toLowerCase();
-  const first = title(pages[0]);
-  return Boolean(first) && pages.every((page) => title(page) === first);
-}
 
 const MIN_TEXT_CHARS = 100;
 // Fewer characters than this from OCR means the scan was unreadable.
@@ -672,25 +663,85 @@ function splitDocuments(aiResult) {
   return list.map((item) => ({ ...shared, ...item }));
 }
 
-// Result: { status: 'updated' | 'created' | 'duplicate' | 'failed', fileName, documentName?, expiry?, reason?, reasonCode? }
-// reasonCode ('scanned' | 'invalid_json' | 'no_expiry') picks the wording of the summary email.
+// A PDF starts with "%PDF-" (allowing a little junk before it, which PDF readers accept).
+function isPdfBuffer(buffer) {
+  return buffer.subarray(0, 1024).toString('latin1').includes('%PDF-');
+}
+
+// What is wrong with a PDF that could not be opened, in words for the sender.
+function classifyPdfError(error, pdfBuffer) {
+  const description = `${error?.name || ''} ${error?.message || ''}`;
+  if (/password/i.test(description) || (pdfBuffer && /\/Encrypt\b/.test(pdfBuffer.toString('latin1')))) {
+    return { code: 'password_protected', reason: 'The PDF is password-protected, so it cannot be read. Please remove the password and send it again.' };
+  }
+  if (/invalid pdf|bad xref|\bxref\b|corrupt|unexpected end|format ?error|invalidpdf|missing pdf|stream|trailer|not a pdf/i.test(description)) {
+    return { code: 'corrupted', reason: 'The PDF file is corrupted and cannot be opened. Please send a fresh copy.' };
+  }
+  return { code: 'unreadable', reason: `The PDF could not be read (${String(error?.message || 'unknown error').replace(/\s+/g, ' ').slice(0, 120)}).` };
+}
+
+// pdf-parse fallback with retries for unexpected errors; a password or a corrupted file is final and not retried.
+async function readPdfPagesChecked(pdfBuffer, label) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await readPdfPages(pdfBuffer);
+    } catch (error) {
+      lastError = error;
+      console.warn(`${label} failed (attempt ${attempt}/3): ${error.name || 'Error'}: ${error.message}`);
+      if (classifyPdfError(error, pdfBuffer).code !== 'unreadable') break;
+      if (attempt < 3) await sleep(2000);
+    }
+  }
+  throw lastError;
+}
+
+// Runs the AI on one piece of text; returns { items } or { failure: { reason, reasonCode } } - never throws.
+async function extractItems(label, text) {
+  try {
+    const aiResult = await withRetries(`AI extraction for ${label}`, () => extractDocumentData(text));
+    return { items: splitDocuments(aiResult) };
+  } catch (error) {
+    console.error(`AI extraction failed for ${label}: ${error.message}`);
+    if (error instanceof InvalidAiJsonError) return { failure: { reason: 'The document content could not be read by the analysis service. Please resend.', reasonCode: 'invalid_json' } };
+    return { failure: { reason: `The document could not be analysed (${String(error.message || 'service error').slice(0, 120)}). Please resend.`, reasonCode: 'ai_error' } };
+  }
+}
+
+// Result: { status: 'updated' | 'created' | 'duplicate' | 'failed', fileName, documentName?, pages?, expiry?, reason?, reasonCode? }
+// reasonCode picks the wording of the reply email. A PDF can hold several documents: one result per document, in page order.
 async function processPdf(messageId, attachment, senderName, senderAddress) {
-  const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode });
+  const fail = (reason, reasonCode, extra = {}) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode, ...extra });
 
   const attachmentUrl = `/users/${serviceAccount()}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`;
   const full = await graphRequest('GET', attachmentUrl, null, 'app');
 
   if (!full.contentBytes) {
-    return [fail('attachment has no content')];
+    return [fail('The attachment is empty (no content was received). Please send the file again.', 'empty')];
   }
 
   const pdfBuffer = Buffer.from(full.contentBytes, 'base64');
+  if (!isPdfBuffer(pdfBuffer)) {
+    return [fail('Unsupported file: it is named like a PDF but is not a valid PDF. Please send the document as a PDF.', 'unsupported')];
+  }
+
   // Text layer or OCR through scripts/ocr_pdf.py; pdf-parse is the fallback when the script cannot run.
   const scriptResult = await readPdfViaScript(pdfBuffer, attachment.name);
-  let { text, pages } = scriptResult.pages
-    ? scriptResult
-    : await withRetries(`PDF text extraction for "${attachment.name}"`, () => readPdfPages(pdfBuffer));
+  let text;
+  let pages;
+  if (scriptResult.pages) {
+    ({ text, pages } = scriptResult);
+  } else {
+    try {
+      ({ text, pages } = await readPdfPagesChecked(pdfBuffer, `PDF text extraction for "${attachment.name}"`));
+    } catch (error) {
+      const problem = classifyPdfError(error, pdfBuffer);
+      console.warn(`[FAIL] "${attachment.name}": ${problem.reason}`);
+      return [fail(problem.reason, problem.code)];
+    }
+  }
   console.log(`"${attachment.name}": ${pages.length} page(s), text per page: ${pages.map((p) => String(p).trim().length).join(', ')} chars`);
+  if (pages.length >= MAX_PDF_PAGES) console.log(`"${attachment.name}": only the first ${MAX_PDF_PAGES} pages are read`);
 
   // Scanned PDFs have little or no text layer - try Microsoft's conversion.
   if (!text || text.trim().length < MIN_TEXT_CHARS) {
@@ -700,55 +751,60 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
     if (!converted || converted.trim().length < MIN_TEXT_CHARS) {
       // Every extraction path failed - say why, using what the OCR script reported.
       if (scriptResult.failure === 'killed') {
-        console.warn(`Failed — OCR process was killed (memory limit) ("${attachment.name}")`);
+        console.warn(`[FAIL] "${attachment.name}": OCR process was killed (memory limit)`);
         return [fail('OCR processing failed (memory limit) — try splitting the PDF into smaller files', 'ocr_killed')];
       }
       if (scriptResult.ocrAttempted) {
-        console.warn(`Failed — OCR ran but found less than ${MIN_OCR_CHARS} characters ("${attachment.name}")`);
+        console.warn(`[FAIL] "${attachment.name}": OCR ran but found less than ${MIN_OCR_CHARS} characters`);
         return [fail('Scan quality too low — please rescan at minimum 300 DPI and send again', 'low_quality')];
       }
-      console.warn(`Failed — scanned image PDF — Microsoft could not extract text — please use a text-based PDF ("${attachment.name}")`);
+      console.warn(`[FAIL] "${attachment.name}": image-only PDF, no text could be extracted`);
       return [fail('scanned image PDF — Microsoft could not extract text — please use a text-based PDF', 'scanned')];
     }
     text = converted;
     pages = [converted];
   }
 
-  let aiResult;
-  try {
-    aiResult = await withRetries(`AI extraction for "${attachment.name}"`, () => extractDocumentData(pages.length > 1 ? textForAi(pages) : text));
-  } catch (error) {
-    if (error instanceof InvalidAiJsonError) {
-      console.error(`AI returned invalid JSON for "${attachment.name}":`, error.message);
-      return [fail(error.message, 'invalid_json')];
-    }
-    throw error;
-  }
+  // Which pages belong to which document. Pages are grouped by identity (licence / CR number, title, page marker).
+  const groups = pages.length > 1 ? segmentPages(pages) : [{ pages: [1], unreadable: false, reason: 'single page' }];
+  console.log(
+    `"${attachment.name}": ${groups.length} document(s) by page - ` +
+      groups.map((g) => `${describePages(g.pages)}${g.unreadable ? ' (no readable text)' : ''} [${g.reason}]`).join('; ')
+  );
 
-  // One PDF can hold several documents (e.g. a CR certificate and a licence): each becomes its own record,
-  // all linked to the same PDF file.
-  let items = splitDocuments(aiResult);
+  // In page order: either documents to save ({ items }) or a reason a group of pages could not be used ({ failure }).
+  const entries = [];
+  const wholePdf = groups.length === 1 && !groups[0].unreadable;
 
-  // Safety net: pages that share the same title are separate documents. If the model merged them into fewer
-  // items than pages, read each page on its own.
-  if (items.length < pages.length && pagesAreSeparateDocuments(pages)) {
-    console.log(`"${attachment.name}": ${pages.length} pages with the same title but only ${items.length} document(s) returned - extracting page by page`);
-    try {
-      const perPage = [];
-      for (let i = 0; i < pages.length; i++) {
-        const pageResult = await withRetries(`AI extraction for "${attachment.name}" page ${i + 1}`, () => extractDocumentData(String(pages[i]).trim()));
-        perPage.push(...splitDocuments(pageResult));
+  if (wholePdf) {
+    const label = `"${attachment.name}"`;
+    const extracted = await extractItems(label, pages.length > 1 ? textForAi(pages) : text);
+    if (extracted.failure) return [fail(extracted.failure.reason, extracted.failure.reasonCode)];
+    // Normally one document; the AI may still find several in the text (a CR certificate and a licence on one page).
+    entries.push(...extracted.items.map((item) => ({ item, pages: groups[0].pages, text: pages.join('\n') })));
+  } else {
+    for (const group of groups) {
+      if (group.unreadable) {
+        const number = group.pages[0];
+        const why = 'It has no text layer and no text could be read from it (image-only page)';
+        console.warn(`[FAIL] "${attachment.name}" ${describePages(group.pages)}: ${why}`);
+        entries.push({ failure: fail(`${describePages(group.pages)} could not be read. ${why}. Please send a clearer copy of that page.`, 'unreadable_page', { pages: [number] }) });
+        continue;
       }
-      items = perPage;
-    } catch (error) {
-      console.error(`Page-by-page extraction failed for "${attachment.name}":`, error.message);
-      if (error instanceof InvalidAiJsonError) return [fail(error.message, 'invalid_json')];
-      throw error;
+      const groupText = group.pages.length > 1 ? textForAi(group.pages.map((n) => pages[n - 1])) : String(pages[group.pages[0] - 1]).trim();
+      const extracted = await extractItems(`"${attachment.name}" ${describePages(group.pages)}`, groupText);
+      if (extracted.failure) {
+        entries.push({ failure: fail(`${describePages(group.pages)}: ${extracted.failure.reason}`, extracted.failure.reasonCode, { pages: group.pages }) });
+        continue;
+      }
+      for (const item of extracted.items) entries.push({ item, pages: group.pages, text: group.pages.map((n) => pages[n - 1]).join('\n') });
     }
   }
+
   // The attachment's filename exactly as received - every document found in this PDF carries it unchanged.
   const baseName = attachment.name;
-  if (items.length > 1) console.log(`"${attachment.name}" contains ${items.length} documents`);
+  const documentCount = entries.filter((entry) => entry.item).length;
+  if (entries.length > 1) console.log(`"${attachment.name}" contains ${entries.length} document(s)`);
 
   // The PDF is uploaded once (when the first document that needs it is saved) and the link is shared.
   const shared = { uploaded: false, url: null };
@@ -764,21 +820,33 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
   const usedNames = new Set();
   // Records created or matched by an earlier document of this same PDF: a later page never merges into them.
   const claimedIds = new Set();
-  for (let index = 0; index < items.length; index++) {
-    try {
-      results.push(await processExtractedDocument({ raw: items[index], index, total: items.length, attachment, baseName, usedNames, claimedIds, senderName, senderAddress, getOneDriveUrl }));
-    } catch (error) {
-      console.error(`Failed to save document ${index + 1} of "${attachment.name}":`, error.message);
-      results.push({ status: 'failed', fileName: attachment.name, reason: error.message });
+  let index = 0;
+  for (const entry of entries) {
+    if (entry.failure) {
+      results.push(entry.failure);
+      continue;
     }
+    try {
+      results.push(
+        await processExtractedDocument({
+          raw: entry.item, index, total: documentCount, attachment, baseName, usedNames, claimedIds, senderName, senderAddress, getOneDriveUrl,
+          pageNumbers: pages.length > 1 ? entry.pages : [], text: entry.text,
+        })
+      );
+    } catch (error) {
+      // One document failing must never stop the others.
+      console.error(`[FAIL] Could not save document ${index + 1} of "${attachment.name}": ${error.message}`);
+      results.push(fail(`The document could not be saved (${String(error.message).slice(0, 160)}).`, 'save_error', { pages: pages.length > 1 ? entry.pages : [] }));
+    }
+    index++;
   }
   return results;
 }
 
 // Result for ONE document found in a PDF. Duplicates are checked per document (by licence / CR number, then by
 // name + responsible person), never per file.
-async function processExtractedDocument({ raw, index, total, attachment, baseName, usedNames, claimedIds = new Set(), senderName, senderAddress, getOneDriveUrl }) {
-  const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode });
+async function processExtractedDocument({ raw, index, total, attachment, baseName, usedNames, claimedIds = new Set(), senderName, senderAddress, getOneDriveUrl, pageNumbers = [], text = '' }) {
+  const fail = (reason, reasonCode) => ({ status: 'failed', fileName: attachment.name, reason, reasonCode, pages: pageNumbers });
 
   // The PDF's own printed date is not when we processed it (that is processed_at), so it is not kept.
   stripPrintedFields(raw);
@@ -814,6 +882,13 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     responsible_person: null,
   };
 
+  // The AI sometimes leaves the numbers out: read them from the document's own text.
+  if (!doc.cr_no && !doc.license_no && text) {
+    const found = findIdentifiersInText(text);
+    doc.license_no = found.licenseNos[0] || null;
+    doc.cr_no = found.crNos[0] || null;
+  }
+
   // A document is registered before it expires: when the AI returns the two dates the wrong way round, put them right.
   if (doc.registration_date && doc.expiry_date && doc.registration_date > doc.expiry_date) {
     [doc.registration_date, doc.expiry_date] = [doc.expiry_date, doc.registration_date];
@@ -845,12 +920,24 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   // differ between runs when documents are matched against each other.
   raw.document_name = doc.document_name;
 
+  // Without a CR No or License No the document cannot be told apart from others (duplicate check) or recorded.
+  if (!doc.cr_no && !doc.license_no) {
+    console.warn(`[FAIL] "${attachment.name}"${pageNumbers.length ? ` ${describePages(pageNumbers)}` : ''}: no CR No or License No found`);
+    return {
+      ...fail('No CR No or License No was found in this document. It shows neither number, so it cannot be recorded or checked for duplicates.', 'no_identifier'),
+      documentName: doc.document_name, company: doc.owner_name,
+    };
+  }
+
   if (!doc.expiry_date) {
     console.warn(`Cannot process document "${doc.document_name}" - no expiry date found ("${attachment.name}")`);
     return { ...fail('could not extract expiry date', 'no_expiry'), documentName: doc.document_name, company: doc.owner_name };
   }
 
-  const base = { fileName: attachment.name, documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date };
+  const base = {
+    fileName: attachment.name, documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date,
+    pages: pageNumbers, licenseNo: doc.license_no, crNo: doc.cr_no, issueDate: doc.registration_date,
+  };
 
   // Already expired (before today, Bahrain time): not saved. A missing expiry is handled above, never treated as expired.
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain' }).format(new Date());
@@ -876,6 +963,9 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
       status: 'duplicate',
       identifier: doc.license_no || doc.cr_no || doc.document_number || null,
       processedAt: existing.processedAt || null,
+      existingId: existing.id,
+      existingName: existing.name,
+      matchedBy: existing.matchedBy,
     };
   }
 
