@@ -20,6 +20,7 @@ const state = {
   aiPrompts: [], // texts sent to the fake AI
   aiMode: {}, // { omitIdentifiers, badJsonFor: RegExp, throwFor: RegExp }
   queued: [], // results the processor queued for the reply email: { subject, result }
+  plannerTasks: [], // Planner tasks the reminder job created
 };
 
 // ---- fake AI: reads the invented sample documents the way the real model would
@@ -86,6 +87,12 @@ async function graphRequest(method, url, body) {
   }
   if (method === 'GET' && url.includes('/drive/root:/temp:/children')) throw Object.assign(new Error('not found'), { status: 404 });
   if (url.endsWith('/createLink')) return { link: { webUrl: 'https://onedrive.test/share/link' } };
+  if (method === 'GET' && /\/planner\/plans\/[^/]+\/buckets$/.test(url)) return { value: [{ id: 'bucket-1' }] };
+  if (method === 'POST' && url === '/planner/tasks') {
+    state.plannerTasks.push(body);
+    return { id: `task-${state.plannerTasks.length}` };
+  }
+  if (method === 'POST' && /\/events$|\/calendar\/events/.test(url)) return { id: 'event-1' };
   return {};
 }
 
@@ -99,18 +106,19 @@ global.fetch = async (url, options = {}) => {
   return json({}, 404);
 };
 
-// Replace the real modules, only for the processor under test.
+// Replace the real modules: the Graph client for EVERY module (so no test can reach Microsoft) and the AI SDK.
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, ...rest) {
   if (request === 'groq-sdk') return FakeGroq;
-  if (request === '../graph/client' && /jobs[\\/](documentEmailProcessor|dailyCheck)\.js$|utils[\\/]documentPlanner\.js$/.test(parent?.filename || '')) {
-    return { graphRequest, getAppOnlyToken: async () => 'fake-token', sendMail: async () => {} };
+  if (request === '../graph/client' || request === './graph/client') {
+    return { graphRequest, getAppOnlyToken: async () => 'fake-token', getDelegatedToken: async () => 'fake-token', sendMail: async () => {}, updateEnvFile: () => {} };
   }
   return originalLoad.call(this, request, parent, ...rest);
 };
 
 const { pool } = require('../../db');
 const processor = require('../../jobs/documentEmailProcessor');
+const ready = require('../../db/documentColumns').ensureDocumentColumns(pool);
 
 // Record what the processor queues for its reply email, as structured data.
 const realQuery = pool.query.bind(pool);
@@ -136,12 +144,14 @@ function email({ subject = 'Documents', from = 'alice@bak.example.test', fromNam
 }
 
 async function reset() {
+  await ready; // schema columns for the Documents module exist
   state.messages = [];
   state.sent = [];
   state.uploads = [];
   state.aiPrompts = [];
   state.aiMode = {};
   state.queued = [];
+  state.plannerTasks = [];
   await realQuery(`DELETE FROM document_versions`);
   await realQuery(`DELETE FROM notification_log`);
   await realQuery(`DELETE FROM escalation_log`).catch(() => {});
@@ -163,18 +173,30 @@ const documents = async () =>
     `SELECT a.*, t.name AS type_name FROM assets a JOIN asset_types t ON t.id = a.type_id WHERE t.name = 'Document' ORDER BY a.id`
   )).rows;
 
-// A document already in the system (for duplicate scenarios).
-async function seedDocument({ name, licenseNo = null, crNo = null, company = 'Seeded Co', expiry = '2031-01-01', sentBy = 'someone@bak.example.test', expirySource = null }) {
+// A document already in the system (for duplicate and reminder scenarios).
+async function seedDocument({
+  name, licenseNo = null, crNo = null, company = 'Seeded Co', expiry = '2031-01-01', issue = null, sentBy = 'someone@bak.example.test',
+  responsible = null, expirySource = null, expiryNote = null,
+}) {
   const { rows } = await realQuery(
-    `INSERT INTO assets (equipment_name, company_name, expiry_date, next_due_date, license_no, cr_no, sent_by, site_location, maintenance_interval_days, estimated_duration_hours,
-                         type_id, extracted_data, processed_at)
-     VALUES ($1, $2, $3, $3, $4, $5, $6, 'Unassigned', 365, 0, (SELECT id FROM asset_types WHERE name = 'Document'), '{}'::jsonb, NOW()) RETURNING id`,
-    [name, company, expiry, licenseNo, crNo, sentBy]
+    `INSERT INTO assets (equipment_name, company_name, expiry_date, next_due_date, registration_date, license_no, cr_no, sent_by, responsible_person,
+                         site_location, maintenance_interval_days, estimated_duration_hours, type_id, extracted_data, processed_at, expiry_source, expiry_note)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, 'Unassigned', 365, 0, (SELECT id FROM asset_types WHERE name = 'Document'), '{}'::jsonb, NOW(), $9, $10)
+     RETURNING id`,
+    [name, company, expiry, issue, licenseNo, crNo, sentBy, responsible, expirySource, expiryNote]
   );
   return rows[0].id;
 }
 
+// Today + n days as YYYY-MM-DD (Bahrain calendar day, the one the app uses).
+const daysFromToday = (n) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain' }).format(new Date());
+  const date = new Date(`${today}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + n);
+  return date.toISOString().slice(0, 10);
+};
+
 // The email body as plain text (for readable assertions).
 const plain = (html) => String(html).replace(/<br\s*\/?>/gi, '\n').replace(/<\/(tr|p|div)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n');
 
-module.exports = { state, pool, query: realQuery, processor, email, reset, run, documents, seedDocument, plain, PDF_DIR };
+module.exports = { state, pool, query: realQuery, processor, email, reset, run, documents, seedDocument, daysFromToday, plain, PDF_DIR };

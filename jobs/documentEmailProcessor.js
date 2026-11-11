@@ -11,6 +11,7 @@ const { pool } = require('../db');
 const { graphRequest, getAppOnlyToken } = require('../graph/client');
 const { findCrNo, findLicenseNo, stripPrintedFields, findIdentifiersInText } = require('../utils/documentFields');
 const { segmentPages, describePages } = require('../utils/pdfSegmentation');
+const { resolveExpiry } = require('../utils/documentExpiry');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -29,7 +30,8 @@ const SYSTEM_PROMPT =
   'Include all fields you find such as document name, owner name, company name, document type, document number, issuing authority, registration number, ' +
   'address, contact details, validity period, conditions, fees, reference numbers, stamp details, signatures, categories, and any other field present in the document. ' +
   'Also always include these specific fields if found: document_name (string), registration_date (YYYY-MM-DD or null), expiry_date (YYYY-MM-DD or null). ' +
-  'registration_date is the date the document was issued or registered (usually the earlier date). expiry_date is the date the document expires or becomes invalid (usually the later date). expiry_date must always be after registration_date. ' +
+  'registration_date is the date the document was issued or registered (usually the earlier date). expiry_date is the date the document expires or becomes invalid (usually the later date). expiry_date must always be after registration_date. Use null for expiry_date when the document does not show an expiry date - never work one out yourself. ' +
+  'If the document states how long it is valid for (for example "valid for 4 years"), also return validity_period as the exact words of the document. ' +
   'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
   'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
   'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
@@ -418,9 +420,11 @@ async function updateExistingDocument(assetId, doc, oneDriveUrl) {
          updated_at = NOW(),
          onedrive_url = COALESCE($4, onedrive_url),
          cr_no = COALESCE($6, cr_no),
-         license_no = COALESCE($7, license_no)
+         license_no = COALESCE($7, license_no),
+         expiry_source = $8,
+         expiry_note = $9
        WHERE id = $5`,
-      [doc.expiry_date, doc.registration_date, JSON.stringify(doc.extracted_data), oneDriveUrl, assetId, doc.cr_no, doc.license_no]
+      [doc.expiry_date, doc.registration_date, JSON.stringify(doc.extracted_data), oneDriveUrl, assetId, doc.cr_no, doc.license_no, doc.expiry_source || null, doc.expiry_note || null]
     );
 
     if (oneDriveUrl) {
@@ -467,18 +471,18 @@ async function createNewDocument(doc, oneDriveUrl) {
        expiry_date, next_due_date, registration_date, last_received_at,
        reminder_days, maintenance_interval_days, frequency_days, onedrive_url,
        type_id, responsible_person, site_location, estimated_duration_hours, extracted_data,
-       cr_no, license_no, processed_at, sent_by
+       cr_no, license_no, processed_at, sent_by, expiry_source, expiry_note
      ) VALUES (
        $1, $2, $3, $4, $5,
        $6, $6, $7, NOW(),
        30, 365, NULL, $8,
        (SELECT id FROM asset_types WHERE name = 'Document' LIMIT 1), $9, 'Unassigned', 0, $10::jsonb,
-       $11, $12, NOW(), $13
+       $11, $12, NOW(), $13, $14, $15
      ) RETURNING id`,
     [
       doc.document_name, doc.owner_name, doc.document_type, doc.document_number, doc.issuing_authority,
       doc.expiry_date, doc.registration_date, oneDriveUrl, doc.responsible_person,
-      JSON.stringify(doc.extracted_data), doc.cr_no, doc.license_no, doc.sent_by,
+      JSON.stringify(doc.extracted_data), doc.cr_no, doc.license_no, doc.sent_by, doc.expiry_source || null, doc.expiry_note || null,
     ]
   );
 
@@ -929,21 +933,29 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     };
   }
 
-  if (!doc.expiry_date) {
-    console.warn(`Cannot process document "${doc.document_name}" - no expiry date found ("${attachment.name}")`);
-    return { ...fail('could not extract expiry date', 'no_expiry'), documentName: doc.document_name, company: doc.owner_name };
+  // Expiry date: as printed, or calculated from the issue date + the validity period the document states, or - when neither
+  // is possible - missing. A document without an expiry date is NOT failed: it is saved, flagged "Expiry date missing", and
+  // the sender is asked to add the date. The note keeps how a calculated date was worked out (or why it is missing).
+  const hints = ['validity_period', 'validity', 'valid_for', 'period_of_validity', 'validity_term'].map((key) => raw[key]).filter((value) => typeof value === 'string');
+  const resolved = resolveExpiry({ statedExpiry: doc.expiry_date, issueDate: doc.registration_date, text, hints });
+  doc.expiry_date = resolved.expiryDate;
+  doc.expiry_source = resolved.source;
+  doc.expiry_note = resolved.source === 'calculated' ? resolved.note : resolved.source === 'missing' ? resolved.reason : null;
+  if (resolved.source !== 'stated') {
+    console.log(`"${attachment.name}"${pageNumbers.length ? ` ${describePages(pageNumbers)}` : ''}: expiry ${resolved.source} - ${doc.expiry_note}`);
   }
 
   const base = {
     fileName: attachment.name, documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date,
     pages: pageNumbers, licenseNo: doc.license_no, crNo: doc.cr_no, issueDate: doc.registration_date,
+    expirySource: doc.expiry_source, expiryNote: doc.expiry_note,
   };
 
-  // Already expired (before today, Bahrain time): not saved. A missing expiry is handled above, never treated as expired.
+  // Already expired (before today, Bahrain time): not saved. A missing expiry is never treated as expired.
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bahrain' }).format(new Date());
-  if (doc.expiry_date < today) {
-    console.warn(`Failed - already expired: "${doc.document_name}" (expiry date: ${formatDMY(doc.expiry_date)}) - not saved`);
-    return { ...fail('already expired', 'expired'), documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date };
+  if (doc.expiry_date && doc.expiry_date < today) {
+    console.warn(`[FAIL] already expired: "${doc.document_name}" (expiry date: ${formatDMY(doc.expiry_date)}${doc.expiry_source === 'calculated' ? `, calculated: ${doc.expiry_note}` : ''}) - not saved`);
+    return { ...fail('already expired', 'expired'), ...base };
   }
 
   // Documents handled earlier in this same run are already in the database
@@ -954,7 +966,7 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
 
   // Already in the system: nothing is saved and the sender is told (renewals go through the administrator).
   // AUTO_RENEW_ON_NEWER_EXPIRY lets a re-sent document with a different expiry date update the stored record instead.
-  if (existing && !(AUTO_RENEW_ON_NEWER_EXPIRY && existing.expiryDate !== doc.expiry_date)) {
+  if (existing && !(AUTO_RENEW_ON_NEWER_EXPIRY && doc.expiry_date && existing.expiryDate !== doc.expiry_date)) {
     console.log(
       `Duplicate document detected: "${doc.document_name}" matches existing document #${existing.id} "${existing.name}" by ${existing.matchedBy} (${existing.matchedValue}) - not saved`
     );
@@ -979,7 +991,7 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
 
   const status = existing ? 'updated' : 'created';
   console.log(
-    `Processed document: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${status} — Expiry: ${doc.expiry_date} — OneDrive: ${oneDriveUrl || 'null'}`
+    `Processed document: ${doc.document_name} from ${doc.owner_name || 'Unknown owner'} — Action: ${status} — Expiry: ${doc.expiry_date || 'MISSING'} (${doc.expiry_source}) — OneDrive: ${oneDriveUrl || 'null'}`
   );
   return { ...base, status };
 }
@@ -996,7 +1008,7 @@ function failureReason(result) {
     case 'invalid_json':
       return 'Could not read document content. Please resend.';
     case 'expired':
-      return `Document '${result.documentName}' was not processed — it is already expired (expiry date: ${formatDMY(result.expiry)}). Please submit a valid, current document.`;
+      return `Document '${result.documentName}' was not processed — it is already expired (expiry date: ${formatDMY(result.expiry)}${result.expirySource === 'calculated' ? `, calculated: ${result.expiryNote}` : ''}). Please submit a valid, current document.`;
     case 'no_expiry':
       return 'No expiry date found in document. Please ensure the document contains a visible expiry date.';
     default:

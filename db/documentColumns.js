@@ -10,6 +10,11 @@ async function ensureDocumentColumns(pool) {
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS sent_by VARCHAR;
     ALTER TABLE assets ADD COLUMN IF NOT EXISTS planner_task_id VARCHAR;
+    -- Where a document's expiry date came from: 'stated' (printed), 'calculated' (issue date + stated validity period),
+    -- 'missing' (none could be found - the record is flagged "Needs expiry date") or 'manual' (entered by a person).
+    -- expiry_note: how a calculated date was worked out, or why a date is missing. NULL on records from before.
+    ALTER TABLE assets ADD COLUMN IF NOT EXISTS expiry_source VARCHAR(20);
+    ALTER TABLE assets ADD COLUMN IF NOT EXISTS expiry_note TEXT;
   `);
 
   // Documents whose renewal task was created before assets.planner_task_id existed: take the id from the open work order.
