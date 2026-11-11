@@ -8,7 +8,8 @@ const path = require('path');
 const Module = require('module');
 
 process.env.SERVICE_ACCOUNT_EMAIL = 'documents@bak.example.test';
-process.env.GROQ_API_KEY = 'test-key';
+// USE_REAL_AI=1 (manual smoke runs only): the real Groq model reads the invented sample PDFs; otherwise a fake answers.
+if (!process.env.USE_REAL_AI) process.env.GROQ_API_KEY = 'test-key';
 
 const PDF_DIR = path.join(__dirname, '..', 'fixtures', 'pdfs');
 
@@ -100,6 +101,8 @@ async function graphRequest(method, url, body) {
 
 const realFetch = global.fetch; // kept for talking to the local test server; everything else is faked below
 global.fetch = async (url, options = {}) => {
+  // manual smoke runs only (USE_REAL_AI=1): the call to the AI service goes out for real; nothing else does
+  if (process.env.USE_REAL_AI && /^https:\/\/api\.groq\.com\//.test(String(url))) return realFetch(url, options);
   const json = (value, status = 200) => ({ ok: status < 300, status, statusText: 'OK', json: async () => value, text: async () => '' });
   if (options.method === 'PUT' && /\/drive\/root:\//.test(url)) {
     const name = decodeURIComponent(/root:\/(?:[^/]+\/)?([^:?]+):/.exec(url)[1]);
@@ -112,7 +115,7 @@ global.fetch = async (url, options = {}) => {
 // Replace the real modules: the Graph client for EVERY module (so no test can reach Microsoft) and the AI SDK.
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, ...rest) {
-  if (request === 'groq-sdk') return FakeGroq;
+  if (request === 'groq-sdk' && !process.env.USE_REAL_AI) return FakeGroq;
   if (request === '../graph/client' || request === './graph/client') {
     return { graphRequest, getAppOnlyToken: async () => 'fake-token', getDelegatedToken: async () => 'fake-token', sendMail: async () => {}, updateEnvFile: () => {} };
   }
