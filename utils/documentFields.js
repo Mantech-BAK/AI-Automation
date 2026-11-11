@@ -57,6 +57,13 @@ const CR_TEXT = [
   new RegExp(String.raw`(?:رقم\s*السجل\s*التجاري|السجل\s*التجاري\s*رقم)\s*[:\-–]?\s*(\d[0-9\-\/]{2,20})`, 'gi'),
 ];
 
+// A document with no CR or licence number can still be identified by its reference number (policy, reference, certificate or document number).
+const REFERENCE_TEXT = [
+  new RegExp(String.raw`(?:policy|reference|ref|certificate|document|serial)\s*(?:no|number|num|nr)\b\.?\s*[:\-\u2013#]?\s*${VALUE}`, 'gi'),
+  new RegExp(String.raw`\b(?:ref|reference)\s*[:#]\s*${VALUE}`, 'gi'),
+  new RegExp(String.raw`(?:\u0631\u0642\u0645\s*(?:\u0627\u0644)?(?:\u0645\u0631\u062c\u0639|\u0648\u062b\u064a\u0642\u0629|\u0634\u0647\u0627\u062f\u0629|\u0628\u0648\u0644\u064a\u0635\u0629))\s*[:\-\u2013]?\s*${VALUE}`, 'gi'),
+];
+
 function matchesOf(patterns, text) {
   const found = [];
   const seen = new Set();
@@ -75,10 +82,10 @@ function matchesOf(patterns, text) {
   return found;
 }
 
-// { licenseNos: [...], crNos: [...] } found in a text, in order of appearance.
+// { licenseNos, crNos, referenceNos } found in a text, in order of appearance.
 function findIdentifiersInText(text) {
   const clean = normalizeDigits(text);
-  return { licenseNos: matchesOf(LICENSE_TEXT, clean), crNos: matchesOf(CR_TEXT, clean) };
+  return { licenseNos: matchesOf(LICENSE_TEXT, clean), crNos: matchesOf(CR_TEXT, clean), referenceNos: matchesOf(REFERENCE_TEXT, clean) };
 }
 
 module.exports = { findCrNo, findLicenseNo, isPrintedKey, stripPrintedFields, normalizeDigits, findIdentifiersInText };

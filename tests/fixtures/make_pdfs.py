@@ -21,7 +21,10 @@ def new_pdf():
 
 
 def write(name, buffer):
-    with open(os.path.join(OUT, name), 'wb') as handle:
+    path = os.path.join(OUT, name)
+    if os.path.exists(path):  # committed fixtures are never regenerated (the PDF library stamps the time into them)
+        return
+    with open(path, 'wb') as handle:
         handle.write(buffer.getvalue())
 
 
@@ -148,10 +151,32 @@ writer.write(protected)
 write('password_protected.pdf', protected)
 
 # 9. corrupted (valid header, broken body) and 10. not a PDF at all
-with open(os.path.join(OUT, 'corrupted.pdf'), 'wb') as handle:
+if not os.path.exists(os.path.join(OUT, 'corrupted.pdf')):
+  with open(os.path.join(OUT, 'corrupted.pdf'), 'wb') as handle:
     handle.write(b'%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n' + b'\x00\x13broken-bytes' * 40)
-with open(os.path.join(OUT, 'not_a_pdf.pdf'), 'wb') as handle:
+if not os.path.exists(os.path.join(OUT, 'not_a_pdf.pdf')):
+  with open(os.path.join(OUT, 'not_a_pdf.pdf'), 'wb') as handle:
     handle.write(b'This is just a text file renamed to .pdf, not a PDF document.\n')
+
+
+
+def policy_page(c, company, policy, issue, expiry):
+    lines(c, [company, '# Insurance Policy Certificate', f'Policy No: {policy}', f'Company Name: {company}',
+              'Cover: public liability for the premises and staff', f'Issue Date: {issue}', f'Expiry Date: {expiry}'])
+    c.showPage()
+
+
+# 11. a document with only a reference (policy) number - no CR No, no License No
+build('reference_only.pdf', lambda c: policy_page(c, 'Yardley Holdings W.L.L', 'POL-77001', '01/02/2026', '31/01/2030'))
+
+
+# 12. two such documents in one PDF, told apart by their reference numbers
+def two_policies(c):
+    policy_page(c, 'Zenith Shipping W.L.L', 'POL-88001', '01/03/2026', '28/02/2030')
+    policy_page(c, 'Zenith Shipping W.L.L', 'POL-88002', '01/03/2026', '28/02/2030')
+
+
+build('two_policies.pdf', two_policies)
 
 print('written to', OUT)
 for name in sorted(os.listdir(OUT)):

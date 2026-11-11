@@ -57,10 +57,10 @@ test('identifiers missing from the AI answer are read from the document text', a
   assert.equal(doc.cr_no, '73303-1');
 });
 
-test('failure: no CR No or License No', async () => {
+test('failure: no CR No, License No or reference number at all', async () => {
   const { results } = await h.run([h.email({ files: ['no_identifier.pdf'] })]);
   assert.deepEqual(byOutcome(results), ['failed:no_identifier']);
-  assert.match(results[0].reason, /No CR No or License No/);
+  assert.match(results[0].reason, /No CR No, License No or reference number/);
   assert.equal((await h.documents()).length, 0);
 });
 
@@ -97,4 +97,35 @@ test('the same PDF sent twice: the second time every document is a duplicate', a
   const { results } = await h.run([h.email({ files: ['two_docs.pdf'] })]);
   assert.deepEqual(byOutcome(results.slice(-2)), ['duplicate', 'duplicate']);
   assert.equal((await h.documents()).length, 2);
+});
+
+test('a document with only a reference number (policy) is accepted and saved', async () => {
+  const { results } = await h.run([h.email({ files: ['reference_only.pdf'] })]);
+  assert.deepEqual(byOutcome(results), ['created']);
+  assert.equal(results[0].referenceNo, 'POL-77001');
+  const [doc] = await h.documents();
+  assert.deepEqual([doc.document_number, doc.license_no, doc.cr_no], ['POL-77001', null, null]);
+  assert.equal(String(doc.expiry_date.toISOString?.() ?? doc.expiry_date).slice(0, 10), '2030-01-31');
+});
+
+test('a reference-only document read from the text when the AI leaves the number out', async () => {
+  h.state.aiMode.omitIdentifiers = true;
+  const { results } = await h.run([h.email({ files: ['reference_only.pdf'] })]);
+  assert.deepEqual(byOutcome(results), ['created']);
+  assert.equal((await h.documents())[0].document_number, 'POL-77001');
+});
+
+test('re-sending a reference-only document is a duplicate, matched by its reference number', async () => {
+  await h.run([h.email({ files: ['reference_only.pdf'] })]);
+  const { results } = await h.run([h.email({ files: ['reference_only.pdf'] })]);
+  const last = results[results.length - 1];
+  assert.equal(last.status, 'duplicate');
+  assert.equal(last.matchedBy, 'document_number');
+  assert.equal((await h.documents()).length, 1);
+});
+
+test('two reference-only documents in one PDF are told apart by their reference numbers', async () => {
+  const { results } = await h.run([h.email({ files: ['two_policies.pdf'] })]);
+  assert.deepEqual(byOutcome(results), ['created', 'created']);
+  assert.deepEqual((await h.documents()).map((d) => d.document_number), ['POL-88001', 'POL-88002']);
 });

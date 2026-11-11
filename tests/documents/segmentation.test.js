@@ -76,10 +76,23 @@ test('Arabic-Indic digits and Arabic labels are read', () => {
 
 test('labels followed by ordinary words are not identifiers', () => {
   const found = findIdentifiersInText('This licence issued by the authority. Permit holder: Acme.');
-  assert.deepEqual(found, { licenseNos: [], crNos: [] });
+  assert.deepEqual([found.licenseNos, found.crNos], [[], []]);
 });
 
 test('describePages', () => {
   assert.equal(describePages([3]), 'page 3');
   assert.equal(describePages([2, 3]), 'pages 2–3');
+});
+
+const policyPage = (policy) => `Zenith Shipping W.L.L\nInsurance Policy Certificate\nPolicy No: ${policy}\nIssue Date: 01/03/2026\nExpiry Date: 28/02/2030\nCover: public liability`;
+
+test('documents identified only by a reference number are split by it', () => {
+  assert.deepEqual(segmentPages([policyPage('POL-88001'), policyPage('POL-88002')]).map((g) => g.pages), [[1], [2]]);
+  assert.deepEqual(segmentPages([policyPage('POL-88001'), policyPage('POL-88001')]).map((g) => g.pages), [[1, 2]]);
+});
+
+test('reference numbers are read from the text', () => {
+  const found = findIdentifiersInText('Policy No: POL-77001\nCertificate Number: 5543/2026\nReference: ABC123');
+  assert.deepEqual(found.referenceNos, ['POL-77001', '5543/2026', 'ABC123']);
+  assert.deepEqual(findIdentifiersInText('Policy holder: Acme').referenceNos, []);
 });

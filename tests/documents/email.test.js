@@ -8,7 +8,7 @@ test.after(() => h.pool.end());
 const text = (mail) => h.plain(mail.content);
 const SERVICE = 'documents@bak.example.test';
 
-test('one reply per received email, each with a section per document', async () => {
+test('one summary per sender per run, covering every email that sender sent', async () => {
   await h.seedDocument({ name: 'Existing licence', licenseNo: 'LIC-500500', crNo: '75005-1' });
   const { sent } = await h.run([
     h.email({ subject: 'Licences for April', from: 'alice@bak.example.test', to: ['bob@bak.example.test', SERVICE], files: ['no_expiry.pdf', 'valid_4_years.pdf'] }),
@@ -16,18 +16,24 @@ test('one reply per received email, each with a section per document', async () 
     h.email({ subject: 'Xenon licence', from: 'dave@bak.example.test', to: [], files: ['password_protected.pdf'] }),
   ]);
 
-  assert.equal(sent.length, 3); // three emails received -> three replies (Alice's two emails are NOT merged)
-  assert.deepEqual(sent.map((m) => m.subject.match(/\(Re: (.+)\)$/)?.[1]), ['Licences for April', 'Unity documents', 'Xenon licence']);
+  assert.equal(sent.length, 2); // Alice's two emails -> ONE summary; Dave's one email -> one summary
+  const alice = sent.find((m) => m.to.includes('alice@bak.example.test'));
+  const body = text(alice);
+  assert.deepEqual(alice.to, ['alice@bak.example.test', 'bob@bak.example.test', 'carol@bak.example.test']); // merged recipients, no service account
+  for (const file of ['no_expiry.pdf', 'valid_4_years.pdf', 'three_docs.pdf']) assert.match(body, new RegExp(file.replace('.', '\.')));
+  assert.doesNotMatch(body, /password_protected/); // Dave's document is in Dave's summary only
+  assert.match(body, /Total: 5 documents processed/);
+  assert.doesNotMatch(alice.subject, /Re:/);
 });
 
-test('reply 1: expiry missing / expiry calculated, in the words the sender needs', async () => {
+test('summary 1: expiry missing / expiry calculated, in the words the sender needs', async () => {
   const { sent } = await h.run([h.email({ subject: 'Licences for April', to: ['bob@bak.example.test', SERVICE], files: ['no_expiry.pdf', 'valid_4_years.pdf'] })]);
   assert.equal(sent.length, 1);
   const body = text(sent[0]);
 
   // sender rules: To = sender + the people the email was addressed to, the service account never, nobody twice
   assert.deepEqual(sent[0].to, ['alice@bak.example.test', 'bob@bak.example.test']);
-  assert.match(sent[0].subject, /^Document Processing Complete — 2 saved, 1 needs an expiry date \(Re: Licences for April\)$/);
+  assert.match(sent[0].subject, /^Document Processing Complete — 2 saved, 1 needs an expiry date$/);
 
   // PDF 1: no expiry date -> SUCCESS + a clear request
   assert.match(body, /no_expiry\.pdf/);
@@ -45,7 +51,7 @@ test('reply 1: expiry missing / expiry calculated, in the words the sender needs
   assert.match(body, /Total: 2 documents processed — 2 new, 0 duplicates, 0 failed — 1 needs an expiry date/);
 });
 
-test('reply 2: three documents in one PDF - each reported on its own, in page order', async () => {
+test('summary 2: three documents in one PDF - each reported on its own, in page order', async () => {
   await h.seedDocument({ name: 'Existing licence', licenseNo: 'LIC-500500', crNo: '75005-1' });
   const { sent } = await h.run([h.email({ subject: 'Unity documents', files: ['three_docs.pdf'] })]);
   const body = text(sent[0]);
@@ -63,14 +69,14 @@ test('reply 2: three documents in one PDF - each reported on its own, in page or
   assert.match(body, /Total: 3 documents processed — 1 new, 1 duplicate, 1 failed/);
 });
 
-test('reply: every failure states its specific reason, never a generic one', async () => {
+test('summary: every failure states its specific reason, never a generic one', async () => {
   const files = ['password_protected.pdf', 'corrupted.pdf', 'not_a_pdf.pdf', 'no_identifier.pdf'];
-  const { sent } = await h.run(files.map((file) => h.email({ subject: file, files: [file] })));
+  const { sent } = await h.run(files.map((file, i) => h.email({ subject: file, from: `sender${i}@bak.example.test`, files: [file] })));
   const bodies = sent.map(text);
   assert.match(bodies[0], /Reason: The PDF is password-protected/);
   assert.match(bodies[1], /Reason: The PDF file is corrupted/);
   assert.match(bodies[2], /Reason: Unsupported file: it is named like a PDF but is not a valid PDF/);
-  assert.match(bodies[3], /Reason: No CR No or License No was found in this document/);
+  assert.match(bodies[3], /Reason: No CR No, License No or reference number was found in this document/);
   for (const body of bodies) {
     assert.doesNotMatch(body, /Unknown error|Failed to process|Reason: Failed\b/);
   }
@@ -82,7 +88,7 @@ test('nothing is replied to the processing mailbox itself', async () => {
   assert.equal((await h.documents()).length, 1); // still processed
 });
 
-test('a reply that could not be sent is kept and goes out on the next run', async () => {
+test('a summary that could not be sent is kept and goes out on the next run', async () => {
   h.state.failSend = true;
   await h.run([h.email({ subject: 'Stored for later', files: ['stated_expiry.pdf'] })]);
   assert.equal(h.state.sent.length, 0);
@@ -91,7 +97,7 @@ test('a reply that could not be sent is kept and goes out on the next run', asyn
   h.state.failSend = false;
   await h.run([]); // the next run: nothing new, the kept reply is sent first
   assert.equal(h.state.sent.length, 1);
-  assert.match(h.state.sent[0].subject, /\(Re: Stored for later\)$/);
+  assert.match(h.state.sent[0].subject, /^Document Processing Complete/);
   assert.equal((await h.query(`SELECT count(*)::int AS n FROM document_summary_queue`)).rows[0].n, 0);
 });
 

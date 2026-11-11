@@ -34,7 +34,7 @@ const SYSTEM_PROMPT =
   'If the document states how long it is valid for (for example "valid for 4 years"), also return validity_period as the exact words of the document. ' +
   'Use exactly these snake_case keys whenever the document has the value, so every run names them the same way: ' +
   'cr_no (the Commercial Registration / CR number only), license_no (the licence / permit number only - never put the CR number here), ' +
-  'reference_number, document_number, company_name. Do not include the date the document was printed. ' +
+  'reference_number (a policy, certificate, reference or serial number - such numbers are NEVER license_no or cr_no), document_number, company_name. Do not include the date the document was printed. ' +
   'This PDF may contain multiple separate documents, one per page or section (the text is split into "=== PAGE n of N ===" sections). You MUST return ALL documents found as separate items in the documents array. Do not combine multiple documents into one. If there are 2 documents, return 2 items. If there are 3, return 3. ' +
   'If the PDF contains more than one separate document (for example a CR certificate AND a licence on the same file, or one licence per page), return {"documents": [ {...}, {...} ]} ' +
   'with one object per document, each with its own document_name, cr_no, license_no, registration_date, expiry_date and the other fields; otherwise return a single object. ' +
@@ -602,6 +602,13 @@ async function findExistingDocument(extractedData, documentName, responsiblePers
   if (doc.license_no) {
     const { rows } = await pool.query(`${base} AND LOWER(TRIM(a.license_no)) = LOWER(TRIM($2)) ORDER BY a.id LIMIT 1`, [exclude, doc.license_no]);
     if (rows.length > 0) return found(rows[0], 'license_no', doc.license_no);
+  } else if (!doc.cr_no && doc.document_number) {
+    // No licence or CR number: the reference number, among records that have neither either.
+    const { rows } = await pool.query(
+      `${base} AND LOWER(TRIM(a.document_number)) = LOWER(TRIM($2)) AND a.license_no IS NULL AND a.cr_no IS NULL ORDER BY a.id LIMIT 1`,
+      [exclude, doc.document_number]
+    );
+    if (rows.length > 0) return found(rows[0], 'document_number', doc.document_number);
   } else if (doc.cr_no) {
     // A licence record also carries the CR number, so only CR-only records count as the same CR certificate.
     const { rows } = await pool.query(`${base} AND LOWER(TRIM(a.cr_no)) = LOWER(TRIM($2)) AND a.license_no IS NULL ORDER BY a.id LIMIT 1`, [exclude, doc.cr_no]);
@@ -880,7 +887,7 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     document_type: firstString('document_type') || 'general',
     cr_no: findCrNo(raw),
     license_no: findLicenseNo(raw),
-    document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number'),
+    document_number: firstString('document_number', 'registration_number', 'license_number', 'certificate_number', 'reference_number', 'reference_no', 'policy_number', 'policy_no'),
     issuing_authority: firstString('issuing_authority'),
     // Whoever emailed the document (read-only). The responsible person is left empty until someone is assigned.
     sent_by: senderAddress || null,
@@ -892,6 +899,8 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
     const found = findIdentifiersInText(text);
     doc.license_no = found.licenseNos[0] || null;
     doc.cr_no = found.crNos[0] || null;
+    // Neither number: a reference / policy / certificate / document number identifies it.
+    if (!doc.license_no && !doc.cr_no && !doc.document_number) doc.document_number = found.referenceNos[0] || null;
   }
 
   // A document is registered before it expires: when the AI returns the two dates the wrong way round, put them right.
@@ -925,11 +934,12 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   // differ between runs when documents are matched against each other.
   raw.document_name = doc.document_name;
 
-  // Without a CR No or License No the document cannot be told apart from others (duplicate check) or recorded.
-  if (!doc.cr_no && !doc.license_no) {
-    console.warn(`[FAIL] "${attachment.name}"${pageNumbers.length ? ` ${describePages(pageNumbers)}` : ''}: no CR No or License No found`);
+  // A CR No, a License No or - for documents that have neither (a policy, a certificate) - a reference number identifies the document.
+  // With none of them it cannot be told apart from others (duplicate check) or recorded.
+  if (!doc.cr_no && !doc.license_no && !doc.document_number) {
+    console.warn(`[FAIL] "${attachment.name}"${pageNumbers.length ? ` ${describePages(pageNumbers)}` : ''}: no CR No, License No or reference number found`);
     return {
-      ...fail('No CR No or License No was found in this document. It shows neither number, so it cannot be recorded or checked for duplicates.', 'no_identifier'),
+      ...fail('No CR No, License No or reference number was found in this document, so it cannot be recorded or checked for duplicates.', 'no_identifier'),
       documentName: doc.document_name, company: doc.owner_name,
     };
   }
@@ -949,6 +959,7 @@ async function processExtractedDocument({ raw, index, total, attachment, baseNam
   const base = {
     fileName: attachment.name, documentName: doc.document_name, company: doc.owner_name, expiry: doc.expiry_date,
     pages: pageNumbers, licenseNo: doc.license_no, crNo: doc.cr_no, issueDate: doc.registration_date,
+    referenceNo: !doc.license_no && !doc.cr_no ? doc.document_number : null,
     expirySource: doc.expiry_source, expiryNote: doc.expiry_note,
   };
 
@@ -1091,6 +1102,7 @@ function identifierText(result) {
   const parts = [];
   if (result.licenseNo) parts.push(`License No ${result.licenseNo}`);
   if (result.crNo) parts.push(`CR No ${result.crNo}`);
+  if (result.referenceNo) parts.push(`Reference No ${result.referenceNo}`);
   return parts.join(' · ') || result.identifier || null;
 }
 
@@ -1114,11 +1126,11 @@ function outcomeOf(result) {
 // Why a duplicate was refused, naming the record that already exists.
 function duplicateReason(result) {
   const existing = result.existingName ? `"${result.existingName}"${result.existingId ? ` (record #${result.existingId})` : ''}` : 'a record already in the system';
-  const matched = { license_no: 'the same License No', cr_no: 'the same CR No', 'name + sent by': 'the same document name from the same sender' }[result.matchedBy];
+  const matched = { license_no: 'the same License No', cr_no: 'the same CR No', document_number: 'the same Reference No', 'name + sent by': 'the same document name from the same sender' }[result.matchedBy];
   return `Duplicate: this document already exists in the system as ${existing}${matched ? `, matched by ${matched}` : ''}. If it is a renewal or update, please contact the administrator.`;
 }
 
-// The reply for ONE received email: for every PDF in it, a section per document found, in page order.
+// The summary for one sender: for every PDF they sent, a section per document found in it, in page order.
 // Table layout with inline styles only, so Outlook renders it.
 // results: [{ status, fileName, documentName, pages, company, licenseNo, crNo, issueDate, expiry, expirySource, expiryNote, reasonCode, reason, ... }]
 function buildSummaryEmail(results, { subject: originalSubject = null } = {}) {
@@ -1224,9 +1236,10 @@ function buildSummaryEmail(results, { subject: originalSubject = null } = {}) {
   };
 }
 
-// Sends ONE reply per received email, covering every document found in its PDFs. Never throws.
-// entries: [{ id, subject, result, to }] queued as PDFs were processed (result.messageKey says which email it came from).
-// Returns the ids of the entries that are done (reply sent, or deliberately not sent); an email whose send failed is left out
+// Sends ONE summary email per unique sender at the end of a run, covering all of that sender's documents across every email
+// they sent in that run (each PDF with a section per document found in it). Never throws.
+// entries: [{ id, subject, result, to }] queued as PDFs were processed.
+// Returns the ids of the entries that are done (summary sent, or deliberately not sent); a sender whose send failed is left out
 // so its entries stay queued and are retried on the next run.
 async function sendSummaryEmails(entriesBySender) {
   const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
@@ -1235,52 +1248,43 @@ async function sendSummaryEmails(entriesBySender) {
   for (const [senderAddress, entries] of entriesBySender) {
     // Avoid mailing ourselves (and a possible reply loop).
     if (senderAddress.toLowerCase() === ownAddress) {
-      console.log(`Reply not sent: the documents came from the processing mailbox itself (${senderAddress})`);
+      console.log(`Summary not sent: the documents came from the processing mailbox itself (${senderAddress})`);
       doneIds.push(...entries.map((entry) => entry.id));
       continue;
     }
 
-    // One group per received email.
-    const emails = new Map();
-    for (const entry of entries) {
-      const key = entry.result?.messageKey || `subject:${entry.subject || ''}`;
-      if (!emails.has(key)) emails.set(key, []);
-      emails.get(key).push(entry);
-    }
+    const results = entries.map((entry) => entry.result);
 
-    for (const group of emails.values()) {
-      const results = group.map((entry) => entry.result);
-      // To = the sender plus everyone their email was addressed to (unique, case-insensitive). The service account is never
-      // included, nor anyone twice. Nobody is CC'd.
-      const toAddresses = uniqueAddresses([senderAddress, ...group.flatMap((entry) => entry.to || [])]);
-      const { subject, content } = buildSummaryEmail(results, { subject: group[0].subject });
+    // To = the sender plus everyone their emails were addressed to (merged over all of this sender's emails, unique,
+    // case-insensitive). The service account is never included, nor anyone twice. Nobody is CC'd.
+    const toAddresses = uniqueAddresses([senderAddress, ...entries.flatMap((entry) => entry.to || [])]);
+    const { subject, content } = buildSummaryEmail(results);
 
-      try {
-        await graphRequest(
-          'POST',
-          `/users/${serviceAccount()}/sendMail`,
-          {
-            message: {
-              subject,
-              body: { contentType: 'HTML', content },
-              toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
-            },
-            saveToSentItems: 'true',
+    try {
+      await graphRequest(
+        'POST',
+        `/users/${serviceAccount()}/sendMail`,
+        {
+          message: {
+            subject,
+            body: { contentType: 'HTML', content },
+            toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
           },
-          'app'
-        );
-        console.log(`Reply sent to ${senderAddress} for "${group[0].subject}" (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To)`);
-        doneIds.push(...group.map((entry) => entry.id));
-      } catch (error) {
-        console.warn(`Could not send the reply to ${senderAddress} for "${group[0].subject}" (will retry on the next run): ${error.message}`);
-      }
+          saveToSentItems: 'true',
+        },
+        'app'
+      );
+      console.log(`Summary email sent to ${senderAddress} (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To)`);
+      doneIds.push(...entries.map((entry) => entry.id));
+    } catch (error) {
+      console.warn(`Could not send summary email to ${senderAddress} (will retry on the next run): ${error.message}`);
     }
   }
   return doneIds;
 }
 
-// Results waiting for their reply email. They are saved as each email is processed, so a restart or crash in the middle
-// of a long run (OCR can take minutes per PDF) no longer loses the reply: the next run sends what is left.
+// Results waiting for their summary email. They are saved as each email is processed, so a restart or crash in the middle
+// of a long run (OCR can take minutes per PDF) no longer loses the summary: the next run sends what is left.
 async function flushSummaryQueue() {
   await pool.query(`DELETE FROM document_summary_queue WHERE created_at < NOW() - INTERVAL '3 days'`);
   const { rows } = await pool.query(`SELECT id, sender, subject, recipients, result FROM document_summary_queue ORDER BY id`);
@@ -1420,7 +1424,7 @@ async function processDocumentEmails() {
           if (senderAddress) {
             await pool.query(
               `INSERT INTO document_summary_queue (sender, subject, recipients, result) VALUES ($1, $2, $3, $4)`,
-              [senderAddress, message.subject || null, JSON.stringify(addressesOf(message.toRecipients)), JSON.stringify({ ...result, messageKey })]
+              [senderAddress, message.subject || null, JSON.stringify(addressesOf(message.toRecipients)), JSON.stringify(result)]
             );
           } else {
             console.warn(`No sender address on "${message.subject}", it will not be included in a summary email`);

@@ -65,6 +65,7 @@ function analysePage(rawText) {
     hasDateLabels: DATE_LABELS.test(text),
     licenses: found.licenseNos,
     crs: found.crNos,
+    refs: found.referenceNos,
   };
 }
 
@@ -100,6 +101,15 @@ function startsNewDocument(info, current) {
     return { isNew: false, reason: 'same CR number' };
   }
 
+  // Only a reference number (policy, reference, certificate number). When the document so far is identified by a licence or CR
+  // number, a stray reference on a later page is just more of it - unless a different kind of heading starts.
+  if (info.refs.length > 0) {
+    const identifiedByLicenceOrCr = current.licenseKeys.size > 0 || current.crKeys.size > 0;
+    if (!identifiedByLicenceOrCr && current.refKeys.size > 0 && !overlaps(info.refs, current.refKeys)) return { isNew: true, reason: 'different reference number' };
+    if (info.hasTitleWord && titleDiffers) return { isNew: true, reason: 'different title' };
+    return { isNew: false, reason: 'same reference number' };
+  }
+
   // No identifier on this page. A heading naming another kind of document together with issue / expiry wording is a
   // document of its own (it will be reported as having no identifier); anything else is more of the current document.
   if (info.hasTitleWord && titleDiffers && info.hasDateLabels) return { isNew: true, reason: 'different title, no identifier' };
@@ -132,6 +142,7 @@ function segmentPages(pages) {
         titleKey: info.titleKey,
         licenseKeys: new Set(),
         crKeys: new Set(),
+        refKeys: new Set(),
         afterUnreadable: false,
       };
       groups.push(current);
@@ -147,6 +158,7 @@ function segmentPages(pages) {
       if (!current.crKeys.has(keyOf(value))) current.crs.push(value);
       current.crKeys.add(keyOf(value));
     }
+    for (const value of info.refs) current.refKeys.add(keyOf(value));
   });
 
   return groups.map(({ pages: groupPages, unreadable, licenses, crs, reason }) => ({ pages: groupPages, unreadable, licenses, crs, reason }));

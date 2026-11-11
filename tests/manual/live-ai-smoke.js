@@ -7,7 +7,7 @@ const h = require('../helpers/harness');
 (async () => {
   await h.reset();
   await h.seedDocument({ name: 'Existing licence', licenseNo: 'LIC-500500', crNo: '75005-1' });
-  const files = ['no_expiry.pdf', 'valid_4_years.pdf', 'issue_no_period.pdf', 'ambiguous_period.pdf', 'two_docs.pdf', 'spanning_two_pages.pdf', 'three_docs.pdf'];
+  const files = ['no_expiry.pdf', 'valid_4_years.pdf', 'issue_no_period.pdf', 'ambiguous_period.pdf', 'two_docs.pdf', 'spanning_two_pages.pdf', 'three_docs.pdf', 'reference_only.pdf', 'two_policies.pdf'];
   const { results } = await h.run(files.map((file) => h.email({ subject: file, files: [file] })));
   for (const r of results) {
     console.log('RESULT', JSON.stringify({

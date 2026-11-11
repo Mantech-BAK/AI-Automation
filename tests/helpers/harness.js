@@ -30,10 +30,11 @@ const isoDate = (value) => (value ? value.split('/').reverse().join('-') : null)
 function fakeAiAnswer(text) {
   const pick = (pattern) => (pattern.exec(text) || [])[1]?.trim() || null;
   const record = {
-    document_name: pick(/^(Commercial [A-Za-z ]+?)(?: \(continued\))?\s*$/m) || pick(/^(Certificate [A-Za-z ]+?)\s*$/m),
+    document_name: pick(/^(Commercial [A-Za-z ]+?)(?: \(continued\))?\s*$/m) || pick(/^(Certificate [A-Za-z ]+?)\s*$/m) || pick(/^(Insurance [A-Za-z ]+?)\s*$/m),
     company_name: pick(/Company Name:\s*(.+)/),
     cr_no: pick(/CR No:\s*(\S+)/),
     license_no: pick(/Licence No:\s*(\S+)/),
+    reference_number: pick(/Policy No:\s*(\S+)/),
     issuing_authority: pick(/Issuing Authority:\s*(.+)/),
     registration_date: isoDate(pick(/(?:Issue Date|Date of Issue):\s*(\d{2}\/\d{2}\/\d{4})/)),
     expiry_date: isoDate(pick(/Expiry Date:\s*(\d{2}\/\d{2}\/\d{4})/)),
@@ -41,6 +42,7 @@ function fakeAiAnswer(text) {
   if (state.aiMode.omitIdentifiers) {
     record.cr_no = null;
     record.license_no = null;
+    record.reference_number = null;
   }
   return record;
 }
