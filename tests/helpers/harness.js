@@ -21,6 +21,7 @@ const state = {
   aiMode: {}, // { omitIdentifiers, badJsonFor: RegExp, throwFor: RegExp }
   queued: [], // results the processor queued for the reply email: { subject, result }
   plannerTasks: [], // Planner tasks the reminder job created
+  failSend: false, // true: sending mail fails (to test that replies are kept and retried)
 };
 
 // ---- fake AI: reads the invented sample documents the way the real model would
@@ -62,6 +63,7 @@ class FakeGroq {
 // ---- fake Microsoft Graph
 async function graphRequest(method, url, body) {
   if (method === 'POST' && url.endsWith('/sendMail')) {
+    if (state.failSend) throw new Error('mail service unavailable');
     state.sent.push({
       to: body.message.toRecipients.map((r) => r.emailAddress.address),
       subject: body.message.subject,
@@ -152,6 +154,7 @@ async function reset() {
   state.aiMode = {};
   state.queued = [];
   state.plannerTasks = [];
+  state.failSend = false;
   await realQuery(`DELETE FROM document_versions`);
   await realQuery(`DELETE FROM notification_log`);
   await realQuery(`DELETE FROM escalation_log`).catch(() => {});

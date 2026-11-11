@@ -792,7 +792,8 @@ async function processPdf(messageId, attachment, senderName, senderAddress) {
         const number = group.pages[0];
         const why = 'It has no text layer and no text could be read from it (image-only page)';
         console.warn(`[FAIL] "${attachment.name}" ${describePages(group.pages)}: ${why}`);
-        entries.push({ failure: fail(`${describePages(group.pages)} could not be read. ${why}. Please send a clearer copy of that page.`, 'unreadable_page', { pages: [number] }) });
+        const label = describePages(group.pages);
+        entries.push({ failure: fail(`${label.charAt(0).toUpperCase()}${label.slice(1)} could not be read. ${why}. Please send a clearer copy of that page.`, 'unreadable_page', { pages: [number] }) });
         continue;
       }
       const groupText = group.pages.length > 1 ? textForAi(group.pages.map((n) => pages[n - 1])) : String(pages[group.pages[0] - 1]).trim();
@@ -1085,124 +1086,201 @@ async function sendDuplicateEmail(toAddress, info, override = null) {
   }
 }
 
-// The summary email for one sender: documents grouped by status - Successfully processed (green), Failed (red),
-// Duplicates (amber) - each section only when it has items, then a one-line total. Table layout with inline styles only, so Outlook renders it.
-// results: [{ status, fileName, documentName, company, expiry, reasonCode, reason }]
-function buildSummaryEmail(results) {
-  const sections = [
-    {
-      key: 'success', title: 'Successfully Processed', icon: '✅', solid: '#16a34a', tint: '#f0fdf4', line: '#bbf7d0',
-      items: results.filter((r) => r.status === 'created' || r.status === 'updated'),
-      detail: (r) => (r.status === 'updated' ? `Expiry updated to ${formatDMY(r.expiry)}` : `Expires ${formatDMY(r.expiry)}`),
-    },
-    {
-      key: 'failed', title: 'Failed', icon: '❌', solid: '#dc2626', tint: '#fef2f2', line: '#fecaca',
-      items: results.filter((r) => r.status === 'failed'),
-      detail: (r) => `Reason: ${failureReason(r)}`,
-    },
-    {
-      key: 'duplicate', title: 'Duplicates', icon: '⚠️', solid: '#d97706', tint: '#fffbeb', line: '#fde68a',
-      items: results.filter((r) => r.status === 'duplicate'),
-      detail: () => 'Already exists in system',
-      footer: 'If a duplicate is a renewal or update, please contact the administrator.',
-    },
-  ].filter((section) => section.items.length > 0);
+// "License No 123 · CR No 456" for a result (whatever the document carries).
+function identifierText(result) {
+  const parts = [];
+  if (result.licenseNo) parts.push(`License No ${result.licenseNo}`);
+  if (result.crNo) parts.push(`CR No ${result.crNo}`);
+  return parts.join(' · ') || result.identifier || null;
+}
 
-  const created = results.filter((r) => r.status === 'created' || r.status === 'updated').length;
+// How one document is reported: label, colours and an icon. Duplicates count as failures (with their own reason).
+const OUTCOMES = {
+  success: { label: 'Success', icon: '✅', solid: '#16a34a', tint: '#f0fdf4', line: '#bbf7d0' },
+  needs_expiry: { label: 'Success, please add expiry date', icon: '✅', solid: '#ca8a04', tint: '#fefce8', line: '#fde68a' },
+  calculated: { label: 'Success, expiry calculated', icon: '✅', solid: '#2563eb', tint: '#eff6ff', line: '#bfdbfe' },
+  duplicate: { label: 'Failed, duplicate', icon: '⚠️', solid: '#ea580c', tint: '#fff7ed', line: '#fed7aa' },
+  failed: { label: 'Failed', icon: '❌', solid: '#dc2626', tint: '#fef2f2', line: '#fecaca' },
+};
+
+function outcomeOf(result) {
+  if (result.status === 'failed') return 'failed';
+  if (result.status === 'duplicate') return 'duplicate';
+  if (result.expirySource === 'missing') return 'needs_expiry';
+  if (result.expirySource === 'calculated') return 'calculated';
+  return 'success';
+}
+
+// Why a duplicate was refused, naming the record that already exists.
+function duplicateReason(result) {
+  const existing = result.existingName ? `"${result.existingName}"${result.existingId ? ` (record #${result.existingId})` : ''}` : 'a record already in the system';
+  const matched = { license_no: 'the same License No', cr_no: 'the same CR No', 'name + sent by': 'the same document name from the same sender' }[result.matchedBy];
+  return `Duplicate: this document already exists in the system as ${existing}${matched ? `, matched by ${matched}` : ''}. If it is a renewal or update, please contact the administrator.`;
+}
+
+// The reply for ONE received email: for every PDF in it, a section per document found, in page order.
+// Table layout with inline styles only, so Outlook renders it.
+// results: [{ status, fileName, documentName, pages, company, licenseNo, crNo, issueDate, expiry, expirySource, expiryNote, reasonCode, reason, ... }]
+function buildSummaryEmail(results, { subject: originalSubject = null } = {}) {
+  const count = (outcome) => results.filter((r) => outcomeOf(r) === outcome).length;
+  const failed = count('failed');
+  const duplicates = count('duplicate');
+  const needsExpiry = count('needs_expiry');
   const added = results.filter((r) => r.status === 'created').length;
   const renewed = results.filter((r) => r.status === 'updated').length;
-  const duplicates = results.filter((r) => r.status === 'duplicate').length;
-  const failed = results.filter((r) => r.status === 'failed').length;
+  const saved = added + renewed;
+
   const totalLine =
-    `Total: ${results.length} document${results.length === 1 ? '' : 's'} processed \u2014 ${added} new, ` +
+    `Total: ${results.length} document${results.length === 1 ? '' : 's'} processed — ${added} new, ` +
     (renewed ? `${renewed} updated, ` : '') +
-    `${duplicates} duplicate${duplicates === 1 ? '' : 's'}, ${failed} failed`;
+    `${duplicates} duplicate${duplicates === 1 ? '' : 's'}, ${failed} failed` +
+    (needsExpiry ? ` — ${needsExpiry} need${needsExpiry === 1 ? 's' : ''} an expiry date` : '');
 
   const font = "font-family:'Segoe UI',Arial,Helvetica,sans-serif;";
-  const renderSection = (section) => {
-    const rows = section.items
-      .map((r) => {
-        const name = r.fileName || r.documentName || 'Unknown document';
-        const label = r.company ? `${escapeHtml(name)} — ${escapeHtml(r.company)}` : escapeHtml(name);
-        return (
-          `<tr><td bgcolor="${section.tint}" style="background-color:${section.tint};padding:10px 14px;border-bottom:1px solid ${section.line};${font}font-size:14px;color:#1f2937;">` +
-          `<b>${label}</b><br><span style="font-size:13px;color:#4b5563;">${escapeHtml(section.detail(r))}</span></td></tr>`
-        );
-      })
-      .join('');
-    const footer = section.footer
-      ? `<tr><td bgcolor="${section.tint}" style="background-color:${section.tint};padding:8px 14px;${font}font-size:12px;color:#6b7280;">${escapeHtml(section.footer)}</td></tr>`
-      : '';
+  const row = (label, value, color = '#1f2937') =>
+    `<tr><td valign="top" style="padding:2px 12px 2px 0;${font}font-size:13px;color:#6b7280;white-space:nowrap;">${escapeHtml(label)}</td>` +
+    `<td valign="top" style="padding:2px 0;${font}font-size:13px;color:${color};">${value}</td></tr>`;
+
+  const renderDocument = (r) => {
+    const outcome = OUTCOMES[outcomeOf(r)];
+    const name = r.documentName || r.fileName || 'Unknown document';
+    const identifier = identifierText(r);
+    const pages = r.pages && r.pages.length ? describePages(r.pages) : null;
+
+    const issue = r.issueDate ? escapeHtml(formatDMY(r.issueDate)) : '<span style="color:#9ca3af;">Not found</span>';
+    let expiry;
+    if (r.expiry) {
+      expiry = escapeHtml(formatDMY(r.expiry));
+      if (r.expirySource === 'calculated') expiry += ` <span style="color:#2563eb;">(calculated: ${escapeHtml(r.expiryNote || '')})</span>`;
+    } else if (r.status === 'failed' && !r.expirySource) {
+      expiry = '';
+    } else {
+      expiry = '<span style="color:#b45309;font-weight:bold;">Not found</span>';
+    }
+
+    const rows = [
+      row('Document', escapeHtml(name) + (pages ? ` <span style="color:#6b7280;">(${escapeHtml(pages)})</span>` : '')),
+      r.company ? row('Company', escapeHtml(r.company)) : '',
+      identifier ? row('Identifier', escapeHtml(identifier)) : '',
+      r.status === 'failed' && !r.issueDate && !expiry ? '' : row('Issue date', issue),
+      expiry === '' ? '' : row('Expiry date', expiry),
+    ].join('');
+
+    let note = '';
+    if (outcomeOf(r) === 'needs_expiry') {
+      note =
+        `<tr><td style="padding:8px 14px 2px 14px;${font}font-size:13px;font-weight:bold;color:#92400e;">` +
+        `Please add the expiry date for this document: ${escapeHtml(name)}${identifier ? ` (${escapeHtml(identifier)})` : ''}.</td></tr>` +
+        (r.expiryNote ? `<tr><td style="padding:0 14px 2px 14px;${font}font-size:12px;color:#6b7280;">Why: ${escapeHtml(r.expiryNote)}</td></tr>` : '');
+    } else if (outcomeOf(r) === 'duplicate') {
+      note = `<tr><td style="padding:8px 14px 2px 14px;${font}font-size:13px;color:#9a3412;">${escapeHtml(duplicateReason(r))}</td></tr>`;
+    } else if (outcomeOf(r) === 'failed') {
+      note = `<tr><td style="padding:8px 14px 2px 14px;${font}font-size:13px;color:#991b1b;"><b>Reason:</b> ${escapeHtml(failureReason(r))}</td></tr>`;
+    }
+
     return (
-      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border-collapse:collapse;">` +
-      `<tr><td bgcolor="${section.solid}" style="background-color:${section.solid};color:#ffffff;padding:11px 14px;${font}font-size:15px;font-weight:bold;">` +
-      `${section.icon} ${section.title} (${section.items.length})</td></tr>${rows}${footer}</table>`
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 10px 0;border-collapse:collapse;">` +
+      `<tr><td bgcolor="${outcome.solid}" style="background-color:${outcome.solid};color:#ffffff;padding:8px 14px;${font}font-size:14px;font-weight:bold;">${outcome.icon} ${escapeHtml(outcome.label)}</td></tr>` +
+      `<tr><td bgcolor="${outcome.tint}" style="background-color:${outcome.tint};padding:8px 14px;border:1px solid ${outcome.line};border-top:0;">` +
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0">${rows}</table></td></tr>${note ? `<tr><td bgcolor="${outcome.tint}" style="background-color:${outcome.tint};border:1px solid ${outcome.line};border-top:0;padding-bottom:8px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0">${note}</table></td></tr>` : ''}</table>`
     );
   };
 
+  // PDFs in the order they came; each PDF's documents in page order.
+  const files = [];
+  for (const r of results) {
+    const key = r.fileName || r.documentName || 'Unknown file';
+    let file = files.find((entry) => entry.key === key);
+    if (!file) files.push((file = { key, items: [] }));
+    file.items.push(r);
+  }
+  const sections = files
+    .map(
+      (file) =>
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 6px 0;"><tr><td style="padding:6px 0;${font}font-size:14px;font-weight:bold;color:#1f2937;border-bottom:2px solid #e5e7eb;">` +
+        `📎 ${escapeHtml(file.key)}${file.items.length > 1 ? ` <span style="font-weight:normal;color:#6b7280;">— ${file.items.length} documents found</span>` : ''}</td></tr></table>` +
+        file.items.map(renderDocument).join('')
+    )
+    .join('');
+
+  const intro = originalSubject
+    ? `Result of processing the ${results.length} document${results.length === 1 ? '' : 's'} in your email &ldquo;${escapeHtml(originalSubject)}&rdquo;:`
+    : `Result of processing the ${results.length} document${results.length === 1 ? '' : 's'} received from you:`;
   const content =
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td align="center" style="padding:16px;">` +
-    `<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:640px;max-width:100%;"><tr><td style="${font}font-size:14px;color:#1f2937;padding-bottom:14px;">` +
-    `Summary of the ${results.length} document${results.length === 1 ? '' : 's'} received from you:</td></tr>` +
-    `<tr><td>${sections.map(renderSection).join('')}</td></tr>` +
+    `<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:640px;max-width:100%;"><tr><td style="${font}font-size:14px;color:#1f2937;padding-bottom:14px;">${intro}</td></tr>` +
+    `<tr><td>${sections}</td></tr>` +
     `<tr><td style="${font}font-size:14px;font-weight:bold;color:#1f2937;padding:6px 0 0 0;">${escapeHtml(totalLine)}</td></tr></table></td></tr></table>`;
+
   const parts = [
-    created ? `${created} created` : null,
+    saved ? `${saved} saved` : null,
+    needsExpiry ? `${needsExpiry} need${needsExpiry === 1 ? 's' : ''} an expiry date` : null,
     duplicates ? `${duplicates} duplicate${duplicates === 1 ? '' : 's'}` : null,
     failed ? `${failed} failed` : null,
   ].filter(Boolean);
-  return { subject: `Document Processing Complete — ${parts.join(', ') || 'nothing to process'}`, content };
+  return {
+    subject: `Document Processing Complete — ${parts.join(', ') || 'nothing to process'}${originalSubject ? ` (Re: ${originalSubject})` : ''}`,
+    content,
+  };
 }
 
-// Sends ONE summary email per unique sender at the end of a run, covering all of that sender's documents across
-// every email they sent. Never throws.
-// entries: [{ subject, result, to }] collected as PDFs are processed.
-// Returns the sender addresses that are done (summary sent, or deliberately not sent); a sender whose send failed is left out
+// Sends ONE reply per received email, covering every document found in its PDFs. Never throws.
+// entries: [{ id, subject, result, to }] queued as PDFs were processed (result.messageKey says which email it came from).
+// Returns the ids of the entries that are done (reply sent, or deliberately not sent); an email whose send failed is left out
 // so its entries stay queued and are retried on the next run.
 async function sendSummaryEmails(entriesBySender) {
   const ownAddress = String(process.env.SERVICE_ACCOUNT_EMAIL || '').toLowerCase();
-  const handled = [];
+  const doneIds = [];
 
   for (const [senderAddress, entries] of entriesBySender) {
     // Avoid mailing ourselves (and a possible reply loop).
     if (senderAddress.toLowerCase() === ownAddress) {
-      console.log(`Summary not sent: the documents came from the processing mailbox itself (${senderAddress})`);
-      handled.push(senderAddress);
+      console.log(`Reply not sent: the documents came from the processing mailbox itself (${senderAddress})`);
+      doneIds.push(...entries.map((entry) => entry.id));
       continue;
     }
 
-    const results = entries.map((entry) => entry.result);
+    // One group per received email.
+    const emails = new Map();
+    for (const entry of entries) {
+      const key = entry.result?.messageKey || `subject:${entry.subject || ''}`;
+      if (!emails.has(key)) emails.set(key, []);
+      emails.get(key).push(entry);
+    }
 
-    // To = the sender plus everyone their emails were addressed to (merged over all of this sender's emails, unique,
-    // case-insensitive). The service account is never included, nor anyone twice. Nobody is CC'd.
-    const toAddresses = uniqueAddresses([senderAddress, ...entries.flatMap((entry) => entry.to || [])]);
-    const { subject, content } = buildSummaryEmail(results);
+    for (const group of emails.values()) {
+      const results = group.map((entry) => entry.result);
+      // To = the sender plus everyone their email was addressed to (unique, case-insensitive). The service account is never
+      // included, nor anyone twice. Nobody is CC'd.
+      const toAddresses = uniqueAddresses([senderAddress, ...group.flatMap((entry) => entry.to || [])]);
+      const { subject, content } = buildSummaryEmail(results, { subject: group[0].subject });
 
-    try {
-      await graphRequest(
-        'POST',
-        `/users/${serviceAccount()}/sendMail`,
-        {
-          message: {
-            subject,
-            body: { contentType: 'HTML', content },
-            toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
+      try {
+        await graphRequest(
+          'POST',
+          `/users/${serviceAccount()}/sendMail`,
+          {
+            message: {
+              subject,
+              body: { contentType: 'HTML', content },
+              toRecipients: toAddresses.map((address) => ({ emailAddress: { address } })),
+            },
+            saveToSentItems: 'true',
           },
-          saveToSentItems: 'true',
-        },
-        'app'
-      );
-      console.log(`Summary email sent to ${senderAddress} (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To)`);
-      handled.push(senderAddress);
-    } catch (error) {
-      console.warn(`Could not send summary email to ${senderAddress} (will retry on the next run): ${error.message}`);
+          'app'
+        );
+        console.log(`Reply sent to ${senderAddress} for "${group[0].subject}" (${results.length} document${results.length === 1 ? '' : 's'}, ${toAddresses.length} To)`);
+        doneIds.push(...group.map((entry) => entry.id));
+      } catch (error) {
+        console.warn(`Could not send the reply to ${senderAddress} for "${group[0].subject}" (will retry on the next run): ${error.message}`);
+      }
     }
   }
-  return handled;
+  return doneIds;
 }
 
-// Results waiting for their summary email. They are saved as each email is processed, so a restart or crash in the middle
-// of a long run (OCR can take minutes per PDF) no longer loses the summary: the next run sends what is left.
+// Results waiting for their reply email. They are saved as each email is processed, so a restart or crash in the middle
+// of a long run (OCR can take minutes per PDF) no longer loses the reply: the next run sends what is left.
 async function flushSummaryQueue() {
   await pool.query(`DELETE FROM document_summary_queue WHERE created_at < NOW() - INTERVAL '3 days'`);
   const { rows } = await pool.query(`SELECT id, sender, subject, recipients, result FROM document_summary_queue ORDER BY id`);
@@ -1211,11 +1289,11 @@ async function flushSummaryQueue() {
   const entriesBySender = new Map();
   for (const row of rows) {
     if (!entriesBySender.has(row.sender)) entriesBySender.set(row.sender, []);
-    entriesBySender.get(row.sender).push({ subject: row.subject, result: row.result, to: row.recipients || [] });
+    entriesBySender.get(row.sender).push({ id: row.id, subject: row.subject, result: row.result, to: row.recipients || [] });
   }
-  const handled = await sendSummaryEmails(entriesBySender);
-  if (handled.length > 0) {
-    await pool.query(`DELETE FROM document_summary_queue WHERE sender = ANY($1::text[]) AND id <= $2`, [handled, rows[rows.length - 1].id]);
+  const doneIds = await sendSummaryEmails(entriesBySender);
+  if (doneIds.length > 0) {
+    await pool.query(`DELETE FROM document_summary_queue WHERE id = ANY($1::int[])`, [doneIds]);
   }
 }
 
@@ -1251,7 +1329,7 @@ async function markEmailProcessed(messageId, subject, sender) {
 }
 
 async function processDocumentEmails() {
-  const summary = { emailsChecked: 0, pdfsFound: 0, documentsUpdated: 0, documentsCreated: 0, duplicates: 0, failed: 0 };
+  const summary = { emailsChecked: 0, pdfsFound: 0, documentsUpdated: 0, documentsCreated: 0, needExpiryDate: 0, duplicates: 0, failed: 0 };
 
   if (isProcessing) {
     console.log('Already processing — skipping this run');
@@ -1342,13 +1420,16 @@ async function processDocumentEmails() {
           if (senderAddress) {
             await pool.query(
               `INSERT INTO document_summary_queue (sender, subject, recipients, result) VALUES ($1, $2, $3, $4)`,
-              [senderAddress, message.subject || null, JSON.stringify(addressesOf(message.toRecipients)), JSON.stringify(result)]
+              [senderAddress, message.subject || null, JSON.stringify(addressesOf(message.toRecipients)), JSON.stringify({ ...result, messageKey })]
             );
           } else {
             console.warn(`No sender address on "${message.subject}", it will not be included in a summary email`);
           }
           if (result.status === 'updated') summary.documentsUpdated++;
-          else if (result.status === 'created') summary.documentsCreated++;
+          else if (result.status === 'created') {
+            summary.documentsCreated++;
+            if (result.expirySource === 'missing') summary.needExpiryDate++;
+          }
           else if (result.status === 'duplicate') summary.duplicates++;
           else summary.failed++;
           }
@@ -1371,7 +1452,7 @@ async function processDocumentEmails() {
   console.log(`  Total emails checked: ${summary.emailsChecked}`);
   console.log(`  Total PDFs found: ${summary.pdfsFound}`);
   console.log(`  Total documents updated: ${summary.documentsUpdated}`);
-  console.log(`  Total documents created: ${summary.documentsCreated}`);
+  console.log(`  Total documents created: ${summary.documentsCreated} (${summary.needExpiryDate} without an expiry date)`);
   console.log(`  Total duplicates skipped: ${summary.duplicates}`);
   console.log(`  Total failed: ${summary.failed}`);
 
