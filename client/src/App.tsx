@@ -36,7 +36,7 @@ interface SessionUser {
   permissions?: Permissions | null;
 }
 
-export type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
+export type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon' | 'needsExpiry';
 
 // Used by MaintenanceTasksPage.tsx's Equipment tab (its work orders' due
 // dates).

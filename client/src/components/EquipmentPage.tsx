@@ -56,6 +56,9 @@ interface Equipment {
   cr_no?: string | null;
   license_no?: string | null;
   processed_at?: string | null;
+  // Where the expiry date came from: 'stated' | 'calculated' | 'missing' | 'manual' (empty on older records), and how / why.
+  expiry_source?: string | null;
+  expiry_note?: string | null;
   versions?: DocumentVersion[];
   extracted_data?: Record<string, unknown> | null;
 }
@@ -80,7 +83,7 @@ interface LookupOption {
 
 type PageTab = 'equipment' | 'documents' | 'vehicles';
 
-type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon';
+type DocExpiryTile = 'all' | 'expired' | 'expiring0' | 'expiring7' | 'expiring30' | 'expiring90' | 'notSoon' | 'needsExpiry';
 
 const DOC_EXPIRY_TILES: { id: DocExpiryTile; label: string; activeClass: string; inactiveClass: string }[] = [
   { id: 'all', label: 'All Documents', activeClass: 'bg-slate-200 border-slate-600 text-slate-800', inactiveClass: 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100' },
@@ -90,6 +93,7 @@ const DOC_EXPIRY_TILES: { id: DocExpiryTile; label: string; activeClass: string;
   { id: 'expiring30', label: 'Expiring Within 30 Days', activeClass: 'bg-amber-100 border-amber-500 text-amber-800', inactiveClass: 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' },
   { id: 'expiring90', label: 'Expiring Within 90 Days', activeClass: 'bg-yellow-100 border-yellow-500 text-yellow-800', inactiveClass: 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100' },
   { id: 'notSoon', label: 'Not Expiring Soon', activeClass: 'bg-emerald-100 border-emerald-600 text-emerald-800', inactiveClass: 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' },
+  { id: 'needsExpiry', label: 'Needs Expiry Date', activeClass: 'bg-amber-100 border-amber-600 text-amber-900', inactiveClass: 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100' },
 ];
 
 function daysUntil(dateStr?: string | null): number | null {
@@ -135,7 +139,7 @@ function truncateText(value: string, max = 20): string {
 // Status badge from the expiry date: Expired, Expiring (within 30 days) or Valid.
 function getDocumentStatus(dateStr?: string | null): { label: string; className: string } {
   const days = daysUntil(dateStr);
-  if (days === null) return { label: 'No expiry', className: 'bg-slate-100 text-slate-500' };
+  if (days === null) return { label: 'Needs expiry date', className: 'bg-amber-100 text-amber-800' };
   if (days < 0) return { label: 'Expired', className: 'bg-red-100 text-red-700' };
   if (days <= 30) return { label: 'Expiring', className: 'bg-orange-100 text-orange-700' };
   return { label: 'Valid', className: 'bg-emerald-100 text-emerald-700' };
@@ -213,6 +217,11 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
 
   const [editingAsset, setEditingAsset] = useState<EditableAsset | null>(null);
   const [detailsDoc, setDetailsDoc] = useState<Equipment | null>(null);
+  // "Add expiry date" for a document saved without one (or to review a calculated date).
+  const [expiryDoc, setExpiryDoc] = useState<Equipment | null>(null);
+  const [expiryValue, setExpiryValue] = useState('');
+  const [expiryError, setExpiryError] = useState<string | null>(null);
+  const [expirySaving, setExpirySaving] = useState(false);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -298,6 +307,36 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
       alert('Could not assign the responsible person. Please try again.');
     } finally {
       setAssigning(false);
+    }
+  }
+
+  function openExpiryModal(doc: Equipment) {
+    setExpiryDoc(doc);
+    setExpiryValue(doc.expiry_date ? doc.expiry_date.slice(0, 10) : '');
+    setExpiryError(null);
+  }
+
+  // Saves the expiry date; the server marks it as entered manually, clears the "needs expiry date" flag and starts the reminders.
+  async function saveExpiryDate() {
+    if (!expiryDoc || !expiryValue) return;
+    setExpirySaving(true);
+    setExpiryError(null);
+    try {
+      const response = await apiFetch(`/api/dashboard/documents/${expiryDoc.id}/expiry`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiry_date: expiryValue }),
+      });
+      const saved = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(saved.error || 'Could not save the expiry date. Please try again.');
+      const patch = { expiry_date: saved.expiry_date, next_due_date: saved.expiry_date, expiry_source: saved.expiry_source, expiry_note: saved.expiry_note };
+      setDocuments((current) => current.map((doc) => (String(doc.id) === String(expiryDoc.id) ? { ...doc, ...patch } : doc)));
+      setDetailsDoc((current) => (current && String(current.id) === String(expiryDoc.id) ? { ...current, ...patch } : current));
+      setExpiryDoc(null);
+    } catch (saveError) {
+      setExpiryError(saveError instanceof Error ? saveError.message : 'Could not save the expiry date. Please try again.');
+    } finally {
+      setExpirySaving(false);
     }
   }
 
@@ -517,7 +556,8 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
       case 'expiring7': return days !== null && days >= 0 && days <= 7;
       case 'expiring30': return days !== null && days >= 0 && days <= 30;
       case 'expiring90': return days !== null && days >= 0 && days <= 90;
-      case 'notSoon': return days === null || days > 90;
+      case 'notSoon': return days !== null && days > 90;
+      case 'needsExpiry': return days === null;
       default: return true;
     }
   };
@@ -534,6 +574,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
     expiring30: documentsInDept.filter((item) => matchesDocExpiryTile('expiring30', item.expiry_date)).length,
     expiring90: documentsInDept.filter((item) => matchesDocExpiryTile('expiring90', item.expiry_date)).length,
     notSoon: documentsInDept.filter((item) => matchesDocExpiryTile('notSoon', item.expiry_date)).length,
+    needsExpiry: documentsInDept.filter((item) => matchesDocExpiryTile('needsExpiry', item.expiry_date)).length,
   };
 
   const filteredDocuments = documentsInDept.filter((item) => matchesDocExpiryTile(docExpiryTile, item.expiry_date));
@@ -723,7 +764,7 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
         ) : (
           <div className="space-y-4">
             {/* Expiry filter tiles */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
               {DOC_EXPIRY_TILES.map((tile) => (
                 <button
                   key={tile.id}
@@ -817,11 +858,36 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
                             </td>
                             <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{formatDateDMY(item.registration_date)}</td>
                             <td className={`px-2 py-1.5 text-xs whitespace-nowrap ${getDocumentExpiryColorClass(item.expiry_date)}`}>
-                              {formatDateDMY(item.expiry_date)}
+                              {item.expiry_date ? (
+                                <>
+                                  {formatDateDMY(item.expiry_date)}
+                                  {item.expiry_source === 'calculated' && (
+                                    <span
+                                      title={item.expiry_note || 'Calculated from the issue date and the validity period stated in the document'}
+                                      className="ml-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium align-middle cursor-help"
+                                    >
+                                      Calculated
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => openExpiryModal(item)}
+                                  title={item.expiry_note || 'No expiry date is recorded for this document'}
+                                  className="px-2 py-1 text-[11px] font-medium bg-amber-100 text-amber-800 rounded hover:bg-amber-200 transition-colors"
+                                >
+                                  Add expiry date
+                                </button>
+                              )}
                             </td>
                             <td className="px-2 py-1.5 text-xs text-slate-600 whitespace-nowrap">{formatDateTimeDMY(item.processed_at)}</td>
                             <td className="px-2 py-1.5 text-xs whitespace-nowrap">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${status.className}`}>{status.label}</span>
+                              <span
+                                title={!item.expiry_date ? item.expiry_note || 'No expiry date is recorded for this document' : undefined}
+                                className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${status.className}`}
+                              >
+                                {status.label}
+                              </span>
                             </td>
                             <td className="px-2 py-1.5 text-xs whitespace-nowrap">
                               <div className="flex items-center gap-1">
@@ -1182,6 +1248,31 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{detailsDoc.license_no || '-'}</dd>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
+              <dt className="text-sm font-medium text-slate-500">Expiry date:</dt>
+              <dd className="sm:col-span-2 text-sm text-slate-800 break-words">
+                <div className="flex flex-wrap items-center gap-2">
+                  {detailsDoc.expiry_date ? (
+                    <span>{formatDateDMY(detailsDoc.expiry_date)}</span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800">Needs expiry date</span>
+                  )}
+                  {(!detailsDoc.expiry_date || detailsDoc.expiry_source === 'calculated') && (
+                    <button
+                      onClick={() => openExpiryModal(detailsDoc)}
+                      className="px-2 py-1 text-[11px] font-medium bg-amber-50 text-amber-700 rounded hover:bg-amber-100 transition-colors"
+                    >
+                      {detailsDoc.expiry_date ? 'Review / change' : 'Add expiry date'}
+                    </button>
+                  )}
+                </div>
+                {detailsDoc.expiry_date && detailsDoc.expiry_source === 'calculated' && (
+                  <p className="text-xs text-blue-600 mt-1">Calculated: {detailsDoc.expiry_note || 'issue date + the validity period stated in the document'}</p>
+                )}
+                {!detailsDoc.expiry_date && detailsDoc.expiry_note && <p className="text-xs text-slate-500 mt-1">{detailsDoc.expiry_note}</p>}
+                {detailsDoc.expiry_source === 'manual' && <p className="text-xs text-slate-500 mt-1">Entered manually</p>}
+              </dd>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4 py-2.5">
               <dt className="text-sm font-medium text-slate-500">Processed Date:</dt>
               <dd className="sm:col-span-2 text-sm text-slate-800 break-words">{formatDateTimeDMY(detailsDoc.processed_at)}</dd>
             </div>
@@ -1192,6 +1283,56 @@ export default function EquipmentPage({ lockedTab, initialTab, initialDocExpiryT
               </div>
             ))}
           </dl>
+        ) : null}
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(expiryDoc)}
+        onClose={() => setExpiryDoc(null)}
+        title={expiryDoc?.expiry_date ? 'Review expiry date' : 'Add expiry date'}
+        size="md"
+      >
+        {expiryDoc ? (
+          <div className="space-y-4">
+            <div className="text-sm text-slate-600">
+              <p className="font-medium text-slate-800 break-words">{expiryDoc.document_name || expiryDoc.equipment_name}</p>
+              <p className="mt-0.5">
+                {[expiryDoc.license_no && `License No ${expiryDoc.license_no}`, expiryDoc.cr_no && `CR No ${expiryDoc.cr_no}`].filter(Boolean).join(' · ') || '-'}
+              </p>
+              {expiryDoc.registration_date && <p className="mt-0.5">Issue date: {formatDateDMY(expiryDoc.registration_date)}</p>}
+              {expiryDoc.expiry_note && (
+                <p className="mt-2 text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">{expiryDoc.expiry_note}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Expiry date *</label>
+              <input
+                type="date"
+                value={expiryValue}
+                min={expiryDoc.registration_date ? expiryDoc.registration_date.slice(0, 10) : undefined}
+                onChange={(e) => setExpiryValue(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              />
+              <p className="text-xs text-slate-500 mt-1">Saving the date clears "Needs expiry date" and starts the renewal reminders for this document.</p>
+            </div>
+            {expiryError && <p className="text-sm text-red-600">{expiryError}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setExpiryDoc(null)}
+                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveExpiryDate}
+                disabled={!expiryValue || expirySaving}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
+              >
+                {expirySaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                Save
+              </button>
+            </div>
+          </div>
         ) : null}
       </Modal>
 

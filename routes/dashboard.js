@@ -560,6 +560,51 @@ router.patch('/documents/:id/responsible-person', async (req, res) => {
   }
 });
 
+// Adds (or corrects) the expiry date of a document: for records saved without one ("Needs expiry date") and to review a
+// calculated date. The record is then marked as entered manually. This starts the reminders: the expiry check picks the date
+// up at its next run, and a Planner task is created right away when the document is already inside its reminder window and
+// has a responsible person.
+router.patch('/documents/:id/expiry', async (req, res) => {
+  try {
+    if (!(await assetInScope(pool, req, req.params.id))) return res.status(403).json({ error: "You can only change your own documents" });
+    const id = Number(req.params.id);
+    const expiry = String(req.body?.expiry_date ?? '').trim();
+    const parsed = new Date(`${expiry}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== expiry) {
+      return res.status(400).json({ error: 'Enter a valid expiry date.' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE assets SET expiry_date = $1, next_due_date = $1, expiry_source = 'manual', expiry_note = NULL, updated_at = NOW()
+       WHERE id = $2 AND type_id = (SELECT id FROM asset_types WHERE name = 'Document')
+         AND $1::date >= COALESCE(registration_date, $1::date)
+       RETURNING id, expiry_date, expiry_source, expiry_note, registration_date, responsible_person`,
+      [expiry, id]
+    );
+    if (rows.length === 0) {
+      const existing = await pool.query(
+        `SELECT a.registration_date FROM assets a JOIN asset_types t ON t.id = a.type_id WHERE a.id = $1 AND t.name = 'Document'`,
+        [id]
+      );
+      if (existing.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+      return res.status(400).json({ error: 'The expiry date cannot be before the issue date.' });
+    }
+
+    // The newest stored file carries the date too (the version list shows it).
+    await pool.query(
+      `UPDATE document_versions SET expiry_date = $1
+       WHERE id = (SELECT id FROM document_versions WHERE asset_id = $2 ORDER BY uploaded_at DESC, id DESC LIMIT 1) AND expiry_date IS NULL`,
+      [expiry, id]
+    );
+
+    const planner = rows[0].responsible_person ? await syncDocumentPlannerTask(id) : { status: 'skipped', reason: 'no responsible person' };
+    return res.json({ id, expiry_date: rows[0].expiry_date, expiry_source: rows[0].expiry_source, expiry_note: rows[0].expiry_note, planner_sync: planner });
+  } catch (error) {
+    console.error('Set document expiry failed:', error);
+    return res.status(500).json({ error: 'Failed to save the expiry date' });
+  }
+});
+
 router.get('/documents/responsible-persons', async (req, res) => {
   try {
     const params = [];
@@ -1160,6 +1205,8 @@ router.put('/assets/:id', async (req, res) => {
          type_id = $8,
          department_id = $9,
          registration_date = $10,
+         expiry_source = CASE WHEN $11::date IS NOT NULL AND $11::date IS DISTINCT FROM expiry_date THEN 'manual' ELSE expiry_source END,
+         expiry_note = CASE WHEN $11::date IS NOT NULL AND $11::date IS DISTINCT FROM expiry_date THEN NULL ELSE expiry_note END,
          expiry_date = $11,
          reminder_days = $12,
          frequency_days = CASE WHEN $19::boolean THEN $13 ELSE frequency_days END,

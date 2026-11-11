@@ -98,6 +98,7 @@ async function graphRequest(method, url, body) {
   return {};
 }
 
+const realFetch = global.fetch; // kept for talking to the local test server; everything else is faked below
 global.fetch = async (url, options = {}) => {
   const json = (value, status = 200) => ({ ok: status < 300, status, statusText: 'OK', json: async () => value, text: async () => '' });
   if (options.method === 'PUT' && /\/drive\/root:\//.test(url)) {
@@ -202,4 +203,4 @@ const daysFromToday = (n) => {
 // The email body as plain text (for readable assertions).
 const plain = (html) => String(html).replace(/<br\s*\/?>/gi, '\n').replace(/<\/(tr|p|div)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n');
 
-module.exports = { state, pool, query: realQuery, processor, email, reset, run, documents, seedDocument, daysFromToday, plain, PDF_DIR };
+module.exports = { state, pool, query: realQuery, processor, email, reset, run, documents, seedDocument, daysFromToday, plain, realFetch, PDF_DIR };
